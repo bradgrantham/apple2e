@@ -180,11 +180,11 @@ struct MAINboard : board_base
     {
         if(addr >= text1_base && addr < text1_base + text1_size) {
             printf("TEXT1 WRITE!\n");
-            textport_change(ram_bytes);
+            if(!PAGE2) textport_change(ram_bytes);
         }
         if(addr >= text2_base && addr < text2_base + text2_size) {
             printf("TEXT2 WRITE!\n");
-            exit(0);
+            if(PAGE2) textport_change(ram_bytes);
         }
         if(addr >= io_base && addr < io_base + io_size) {
             for(auto it = switches.begin(); it != switches.end(); it++) {
@@ -364,22 +364,6 @@ struct CPU6502
         unsigned char inst = read_pc_inc(bus);
 
         switch(inst) {
-            case 0xCA: {
-                if(debug & DEBUG_DECODE) printf("DEC X\n");
-                x = x - 1;
-                flag_change(Z, x == 0x00);
-                flag_change(N, x & 0x80);
-                break;
-            }
-
-            case 0xC8: {
-                if(debug & DEBUG_DECODE) printf("INC Y\n");
-                y = y + 1;
-                flag_change(Z, y == 0x00);
-                flag_change(N, y & 0x80);
-                break;
-            }
-
             case 0xEA: {
                 if(debug & DEBUG_DECODE) printf("NOP\n");
                 break;
@@ -398,6 +382,14 @@ struct CPU6502
                 x = a;
                 flag_change(Z, x == 0x00);
                 flag_change(N, x & 0x80);
+                break;
+            }
+
+            case 0x9A: {
+                if(debug & DEBUG_DECODE) printf("TXS\n");
+                s = x;
+                flag_change(Z, s == 0x00);
+                flag_change(N, s & 0x80);
                 break;
             }
 
@@ -449,7 +441,7 @@ struct CPU6502
 
             case 0xC6: {
                 int zpg = read_pc_inc(bus);
-                if(debug & DEBUG_DECODE) printf("DEC %04X\n", zpg);
+                if(debug & DEBUG_DECODE) printf("DEC %02X\n", zpg);
                 unsigned char m = bus.read(zpg) - 1;
                 flag_change(Z, m == 0);
                 flag_change(N, m & 0x80);
@@ -464,6 +456,32 @@ struct CPU6502
                 flag_change(Z, m == 0);
                 flag_change(N, m & 0x80);
                 bus.write(addr, m);
+                break;
+            }
+
+            case 0xCA: {
+                if(debug & DEBUG_DECODE) printf("DEC X\n");
+                x = x - 1;
+                flag_change(Z, x == 0x00);
+                flag_change(N, x & 0x80);
+                break;
+            }
+
+            case 0xE6: {
+                int zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("INC %02X\n", zpg);
+                unsigned char m = bus.read(zpg) + 1;
+                flag_change(Z, m == 0);
+                flag_change(N, m & 0x80);
+                bus.write(zpg, m);
+                break;
+            }
+
+            case 0xC8: {
+                if(debug & DEBUG_DECODE) printf("INC Y\n");
+                y = y + 1;
+                flag_change(Z, y == 0x00);
+                flag_change(N, y & 0x80);
                 break;
             }
 
@@ -499,6 +517,17 @@ struct CPU6502
                 a = bus.read(zpg);
                 flag_change(Z, a == 0x00);
                 flag_change(N, a & 0x80);
+                break;
+            }
+
+            case 0xDD: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("CMP %04X, X\n", addr);
+                unsigned char m = bus.read(addr + x);
+                flag_change(C, m <= a);
+                m = a - m;
+                flag_change(N, m & 0x80);
+                flag_change(Z, m == 0);
                 break;
             }
 
@@ -619,9 +648,18 @@ struct CPU6502
                 break;
             }
 
+            case 0x25: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("AND %02X\n", zpg);
+                a = a & bus.read(zpg);
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
             case 0x29: {
                 unsigned char imm = read_pc_inc(bus);
-                if(debug & DEBUG_DECODE) printf("AND %02X\n", imm);
+                if(debug & DEBUG_DECODE) printf("AND #%02X\n", imm);
                 a = a & imm;
                 flag_change(Z, a == 0x00);
                 flag_change(N, a & 0x80);
@@ -658,10 +696,10 @@ struct CPU6502
 
             case 0x6C: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("JMP (%04X)\n", addr);
                 unsigned char addrl = bus.read(addr);
                 unsigned char addrh = bus.read(addr + 1);
                 addr = addrl + addrh * 256;
-                if(debug & DEBUG_DECODE) printf("JMP %04X\n", addr);
                 pc = addr;
                 break;
             }
@@ -790,9 +828,32 @@ struct CPU6502
                 break;
             }
 
+            case 0x51: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("EOR (%02x), Y\n", zpg);
+                int addr = bus.read(zpg) + bus.read(zpg + 1) * 256 + y;
+                unsigned char m = bus.read(addr);
+                a = a ^ m;
+                flag_change(N, a & 0x80);
+                flag_change(Z, a == 0);
+                break;
+            }
+
+            case 0xD1: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("CMP (%02x), Y\n", zpg);
+                int addr = bus.read(zpg) + bus.read(zpg + 1) * 256 + y;
+                unsigned char m = bus.read(addr);
+                flag_change(C, m <= a);
+                m = a - m;
+                flag_change(N, m & 0x80);
+                flag_change(Z, m == 0);
+                break;
+            }
+
             case 0xC5: {
                 unsigned char zpg = read_pc_inc(bus);
-                if(debug & DEBUG_DECODE) printf("CMP %04X\n", zpg);
+                if(debug & DEBUG_DECODE) printf("CMP %02X\n", zpg);
                 unsigned char m = bus.read(zpg);
                 flag_change(C, m <= a);
                 m = a - m;
@@ -888,6 +949,7 @@ struct CPU6502
                 unsigned char pcl = stack_pull(bus);
                 unsigned char pch = stack_pull(bus);
                 pc = pcl + pch * 256 + 1;
+                printf("%02X %02X, %04X\n", pcl, pch, pc);
                 break;
             }
 
@@ -940,6 +1002,9 @@ struct CPU6502
                 exit(1);
         }
         if(debug & DEBUG_STATE) {
+            unsigned char s0 = bus.read(0x100 + s + 0);
+            unsigned char s1 = bus.read(0x100 + s + 1);
+            unsigned char s2 = bus.read(0x100 + s + 2);
             unsigned char pc0 = bus.read(pc + 0);
             unsigned char pc1 = bus.read(pc + 1);
             unsigned char pc2 = bus.read(pc + 2);
@@ -952,7 +1017,7 @@ struct CPU6502
             printf("%s", (p & I) ? "I" : "i");
             printf("%s", (p & Z) ? "Z" : "z");
             printf("%s ", (p & C) ? "C" : "c");
-            printf("S:%02X PC:%04X (%02X %02X %02X)\n", s, pc, pc0, pc1, pc2);
+            printf("S:%02X (%02X %02X %02X ...) PC:%04X (%02X %02X %02X ...)\n", s, s0, s1, s2, pc, pc0, pc1, pc2);
         }
     }
 };
