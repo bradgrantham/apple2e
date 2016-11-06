@@ -1,4 +1,8 @@
 #include <cstdlib>
+#include <string>
+#include <set>
+
+using namespace std;
 
 #include "emulator.h"
 
@@ -8,6 +12,70 @@ const unsigned int DEBUG_STATE = 0x04;
 const unsigned int DEBUG_ERROR = 0x08;
 unsigned int debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE;
 
+struct SoftSwitch
+{
+    string name;
+    int clear_address;
+    int set_address;
+    int read_address;
+    bool read_also_changes;
+    bool sw = false;
+    SoftSwitch(const char* name_, int clear, int on, int read, bool read_changes, vector<SoftSwitch*>& s) :
+        name(name_),
+        clear_address(clear),
+        set_address(on),
+        read_address(read),
+        read_also_changes(read_changes)
+    {
+        s.push_back(this);
+    }
+    operator bool() const
+    {
+        return sw;
+    }
+};
+
+const int textport_row_base_addresses[] = 
+{
+    0x400,
+    0x480,
+    0x500,
+    0x580,
+    0x600,
+    0x680,
+    0x700,
+    0x780,
+    0x428,
+    0x4A8,
+    0x528,
+    0x5A8,
+    0x628,
+    0x6A8,
+    0x728,
+    0x7A8,
+    0x450,
+    0x4D0,
+    0x550,
+    0x5D0,
+    0x650,
+    0x6D0,
+    0x750,
+    0x7D0,
+};
+void textport_change(unsigned char *port)
+{
+    printf("TEXTPORT:\n");
+    printf("------------------------------------------\n");
+    for(int row = 0; row < 24; row++) {
+        printf("|");
+        for(int col = 0; col < 40; col++) {
+            int addr = textport_row_base_addresses[row] + col;
+            printf("%c", isprint(port[addr]) ? port[addr] : ' ');
+        }
+        printf("|\n");
+    }
+    printf("------------------------------------------\n");
+}
 struct MAINboard : board_base
 {
     static const int text1_base = 0x400;
@@ -23,52 +91,73 @@ struct MAINboard : board_base
     unsigned char rom_bytes[rom_size];
     unsigned char irom_bytes[irom_size];
     unsigned char ram_bytes[65536];
-    bool ROM_is_active;
-    bool CXROM_is_active;
-    MAINboard(unsigned char rom[32768]) :
-        ROM_is_active(true),
-        CXROM_is_active(true)
+    vector<SoftSwitch*> switches;
+    SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches};
+    SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches};
+    SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches};
+    SoftSwitch RAMWRT {"RAMWRT", 0xC004, 0xC005, 0xC014, false, switches};
+    SoftSwitch ALTZP {"ALTZP", 0xC008, 0xC009, 0xC016, false, switches};
+    SoftSwitch C3ROM {"C3ROM", 0xC00A, 0xC00B, 0xC017, false, switches};
+    SoftSwitch ALTCHAR {"ALTCHAR", 0xC00E, 0xC00F, 0xC01E, false, switches};
+    SoftSwitch VID80 {"VID80", 0xC00C, 0xC00D, 0xC01F, false, switches};
+    SoftSwitch TEXT {"TEXT", 0xC050, 0xC051, 0xC01A, true, switches};
+    SoftSwitch MIXED {"MIXED", 0xC052, 0xC053, 0xC01B, true, switches};
+    SoftSwitch PAGE2 {"PAGE2", 0xC054, 0xC055, 0xC01C, true, switches};
+    SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches};
+    set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
+    MAINboard(unsigned char rom[32768])
     {
         memcpy(rom_bytes, rom + rom_base - 0x8000 , sizeof(rom_bytes));
         memcpy(irom_bytes, rom + irom_base - 0x8000 , sizeof(irom_bytes));
-        memset(ram_bytes, 0x76, sizeof(ram_bytes));
+        memset(ram_bytes, 0x00, sizeof(ram_bytes));
     }
-    static const int RDCXROM = 0xC015;
-    static const int SETINTCXROM = 0xC007;
-    static const int TXTSET = 0xC051;
-    static const int TXTPAGE1 = 0xC054;
-    static const int LORES = 0xC056;
     virtual bool read(int addr, unsigned char &data)
     {
         if(debug & DEBUG_RW) printf("MAIN board read\n");
         if(addr >= io_base && addr < io_base + io_size) {
-            switch(addr) {
-                case RDCXROM:
-                    printf("RD CXROM\n");
-                    data = CXROM_is_active ? 0x80 : 0x00;
+            for(auto it = switches.begin(); it != switches.end(); it++) {
+                SoftSwitch* sw = *it;
+                if(addr == sw->read_address) {
+                    data = sw->sw ? 0x80 : 0x00;
+                    printf("Read status of %s = %02X\n", sw->name.c_str(), data);
                     return true;
-                    break;
-                case TXTSET:
-                    printf("RD TXTSET\n");
-                    break;
-                case TXTPAGE1:
-                    printf("RD TXTPAGE1\n");
-                    break;
-                case LORES:
-                    printf("RD LORES\n");
-                    break;
-                default:
-                    printf("unhandled MMIO RD %04X\n", addr);
-                    exit(0);
-                    break;
+                } else if(sw->read_also_changes && addr == sw->set_address) {
+                    data = 0xff;
+                    sw->sw = true;
+                    printf("Set %s\n", sw->name.c_str());
+                    return true;
+                } else if(sw->read_also_changes && addr == sw->clear_address) {
+                    data = 0xff;
+                    sw->sw = false;
+                    printf("Clear %s\n", sw->name.c_str());
+                    return true;
+                }
             }
+            if(ignore_mmio.find(addr) != ignore_mmio.end()) {
+                printf("read %04X, ignored, return 0x00\n", addr);
+                data = 0x00;
+                return true;
+            }
+            if(addr == 0xC000) {
+                printf("read KBD, force 0x00\n");
+                data = 0x00;
+                return true;
+            }
+            if(addr == 0xC010) {
+                printf("read KBDSTRB, force 0x00\n");
+                // reset keyboard latch
+                data = 0x00;
+                return true;
+            }
+            printf("unhandled MMIO Read at %04X\n", addr);
+            exit(0);
         }
-        if(ROM_is_active && addr >= irom_base && addr < irom_base + sizeof(irom_bytes)) {
+        if(CXROM && addr >= irom_base && addr < irom_base + sizeof(irom_bytes)) {
             data = irom_bytes[addr - irom_base];
             if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from internal ROM\n", addr, data);
             return true;
         }
-        if(ROM_is_active && addr >= rom_base && addr < rom_base + sizeof(rom_bytes)) {
+        if(addr >= rom_base && addr < rom_base + sizeof(rom_bytes)) {
             data = rom_bytes[addr - rom_base];
             if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
             return true;
@@ -84,35 +173,39 @@ struct MAINboard : board_base
     {
         if(addr >= text1_base && addr < text1_base + text1_size) {
             printf("TEXT1 WRITE!\n");
-            exit(0);
+            textport_change(ram_bytes);
         }
         if(addr >= text2_base && addr < text2_base + text2_size) {
             printf("TEXT2 WRITE!\n");
             exit(0);
         }
         if(addr >= io_base && addr < io_base + io_size) {
-            switch(addr) {
-                case SETINTCXROM:
-                    printf("WR SETINTCXROM\n");
-                    CXROM_is_active = true;
-                case TXTSET:
-                    printf("WR TXTSET\n");
-                    break;
-                case TXTPAGE1:
-                    printf("WR TXTPAGE1\n");
-                    break;
-                case LORES:
-                    printf("WR LORES\n");
-                    break;
-                default:
-                    printf("unhandled MMIO %04X write\n", addr);
-                    exit(0);
+            for(auto it = switches.begin(); it != switches.end(); it++) {
+                SoftSwitch* sw = *it;
+                if(addr == sw->set_address) {
+                    data = 0xff;
+                    sw->sw = true;
+                    printf("Set %s\n", sw->name.c_str());
+                    return true;
+                } else if(addr == sw->clear_address) {
+                    data = 0xff;
+                    sw->sw = false;
+                    printf("Clear %s\n", sw->name.c_str());
+                    return true;
+                }
             }
+            if(addr == 0xC010) {
+                printf("write KBDSTRB\n");
+                // reset keyboard latch
+                return true;
+            }
+            printf("unhandled MMIO Write at %04X\n", addr);
+            exit(0);
         }
-        if(ROM_is_active && addr >= rom_base && addr < rom_base + sizeof(rom_bytes)) {
+        if(addr >= rom_base && addr < rom_base + sizeof(rom_bytes)) {
             return false;
         }
-        if(ROM_is_active && addr >= irom_base && addr < irom_base + sizeof(irom_bytes)) {
+        if(CXROM && addr >= irom_base && addr < irom_base + sizeof(irom_bytes)) {
             return false;
         }
         if(addr >= 0 && addr < sizeof(ram_bytes)) {
@@ -259,19 +352,88 @@ struct CPU6502
         unsigned char inst = read_pc_inc(bus);
 
         switch(inst) {
+            case 0xEA: {
+                if(debug & DEBUG_DECODE) printf("NOP\n");
+                break;
+            }
+
+            case 0x8A: {
+                if(debug & DEBUG_DECODE) printf("TXA\n");
+                a = x;
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
+            case 0xAA: {
+                if(debug & DEBUG_DECODE) printf("TAX\n");
+                x = a;
+                flag_change(Z, x == 0x00);
+                flag_change(N, x & 0x80);
+                break;
+            }
+
+            case 0xA8: {
+                if(debug & DEBUG_DECODE) printf("TAY\n");
+                y = a;
+                flag_change(Z, y == 0x00);
+                flag_change(N, y & 0x80);
+                break;
+            }
+
+            case 0x98: {
+                if(debug & DEBUG_DECODE) printf("TYA\n");
+                a = y;
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
+            case 0x18: {
+                if(debug & DEBUG_DECODE) printf("CLC\n");
+                flag_clear(C);
+                break;
+            }
+
+            case 0x38: {
+                if(debug & DEBUG_DECODE) printf("SEC\n");
+                flag_set(C);
+                break;
+            }
+
             case 0xD8: {
                 if(debug & DEBUG_DECODE) printf("CLD\n");
                 flag_clear(D);
                 break;
             }
 
+            case 0x58: {
+                if(debug & DEBUG_DECODE) printf("CLI\n");
+                flag_clear(I);
+                break;
+            }
+
+            case 0x78: {
+                if(debug & DEBUG_DECODE) printf("SEI\n");
+                flag_set(I);
+                break;
+            }
+
             case 0xCE: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
-                if(debug & DEBUG_DECODE) printf("DEC %02X, Y\n", addr);
+                if(debug & DEBUG_DECODE) printf("DEC %02X\n", addr);
                 unsigned char m = bus.read(addr) - 1;
                 flag_change(Z, m == 0);
                 flag_change(N, m & 0x80);
                 bus.write(addr, m);
+                break;
+            }
+
+            case 0x10: {
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                if(debug & DEBUG_DECODE) printf("BPL %02X\n", rel);
+                if(!isset(N))
+                    pc += rel;
                 break;
             }
 
@@ -283,12 +445,46 @@ struct CPU6502
                 break;
             }
 
+            case 0xA5: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("LDA %02X\n", zpg);
+                a = bus.read(zpg);
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
             case 0xB9: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
-                if(debug & DEBUG_DECODE) printf("LDA %02X, Y\n", addr);
+                if(debug & DEBUG_DECODE) printf("LDA %04X, Y\n", addr);
                 a = bus.read(addr + y);
                 flag_change(Z, a == 0x00);
                 flag_change(N, a & 0x80);
+                break;
+            }
+
+            case 0x65: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("ADC %02X\n", zpg);
+                unsigned char m = bus.read(zpg);
+                int carry = isset(C) ? 1 : 0;
+                flag_change(C, (int)(a + m + carry) > 0xFF);
+                a = a + m + carry;
+                flag_change(N, a & 0x80);
+                flag_change(V, isset(C) != isset(N));
+                flag_change(Z, a == 0);
+                break;
+            }
+
+            case 0xE9: {
+                unsigned char imm = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("SBC %02X\n", imm);
+                int borrow = isset(C) ? 0 : 1;
+                flag_change(C, !(a < imm - borrow));
+                a = a - imm - borrow;
+                flag_change(N, a & 0x80);
+                flag_change(V, isset(C) != isset(N));
+                flag_change(Z, a == 0);
                 break;
             }
 
@@ -304,8 +500,17 @@ struct CPU6502
                 break;
             }
 
+            case 0x0A: {
+                if(debug & DEBUG_DECODE) printf("ASL A\n");
+                flag_change(C, a & 0x80);
+                a = a << 1;
+                flag_change(N, a & 0x80);
+                flag_change(Z, a == 0);
+                break;
+            }
+
             case 0x4A: {
-                if(debug & DEBUG_DECODE) printf("LSR\n");
+                if(debug & DEBUG_DECODE) printf("LSR A\n");
                 flag_change(C, a & 0x01);
                 a = a >> 1;
                 flag_change(N, a & 0x80);
@@ -327,9 +532,19 @@ struct CPU6502
                 break;
             }
 
+            case 0x05: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("ORA %02X\n", zpg);
+                unsigned char m = bus.read(zpg);
+                a = a | m;
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
             case 0x09: {
                 unsigned char imm = read_pc_inc(bus);
-                if(debug & DEBUG_DECODE) printf("OR %02X\n", imm);
+                if(debug & DEBUG_DECODE) printf("ORA %02X\n", imm);
                 a = a | imm;
                 flag_change(Z, a == 0x00);
                 flag_change(N, a & 0x80);
@@ -373,6 +588,16 @@ struct CPU6502
                 break;
             }
 
+            case 0x6C: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                unsigned char addrl = bus.read(addr);
+                unsigned char addrh = bus.read(addr + 1);
+                addr = addrl + addrh * 256;
+                if(debug & DEBUG_DECODE) printf("JMP %04X\n", addr);
+                pc = addr;
+                break;
+            }
+
             case 0x8D: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 if(debug & DEBUG_DECODE) printf("STA %04X\n", addr);
@@ -386,6 +611,12 @@ struct CPU6502
                 break;
             }
 
+            case 0x28: {
+                if(debug & DEBUG_DECODE) printf("PLP\n");
+                p = stack_pull(bus);
+                break;
+            }
+
             case 0x2C: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 if(debug & DEBUG_DECODE) printf("BIT #%04X\n", addr);
@@ -393,6 +624,24 @@ struct CPU6502
                 flag_change(Z, a & m);
                 flag_change(N, m & 0x80);
                 flag_change(V, m & 0x70);
+                break;
+            }
+
+            case 0xAC: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("LDY %04X\n", addr);
+                y = bus.read(addr);
+                flag_change(N, y & 0x80);
+                flag_change(Z, y == 0);
+                break;
+            }
+
+            case 0xA2: {
+                unsigned char imm = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("LDX #%02X\n", imm);
+                x = imm;
+                flag_change(N, x & 0x80);
+                flag_change(Z, x == 0);
                 break;
             }
 
@@ -423,11 +672,31 @@ struct CPU6502
                 break;
             }
 
+            case 0xC0: {
+                unsigned char imm = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("CPY %02X\n", imm);
+                flag_change(C, imm <= a);
+                imm = a - imm;
+                flag_change(N, imm & 0x80);
+                flag_change(Z, imm == 0);
+                break;
+            }
+
+            case 0xC9: {
+                unsigned char imm = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("CMP #%02X\n", imm);
+                flag_change(C, imm <= a);
+                imm = a - imm;
+                flag_change(N, imm & 0x80);
+                flag_change(Z, imm == 0);
+                break;
+            }
+
             case 0xD5: {
                 unsigned char zpg = read_pc_inc(bus) + x;
                 if(debug & DEBUG_DECODE) printf("CMP %02X\n", zpg);
                 unsigned char m = bus.read(zpg);
-                flag_change(N, m < a);
+                flag_change(C, m <= a);
                 m = a - m;
                 flag_change(N, m & 0x80);
                 flag_change(Z, m == 0);
@@ -477,7 +746,21 @@ struct CPU6502
                 if(debug & DEBUG_DECODE) printf("RTS\n");
                 unsigned char pcl = stack_pull(bus);
                 unsigned char pch = stack_pull(bus);
-                pc = pcl + pch * 256;
+                pc = pcl + pch * 256 + 1;
+                break;
+            }
+
+            case 0x95: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("STA %02X,X\n", zpg);
+                bus.write((zpg + x) % 0x100, a);
+                break;
+            }
+
+            case 0x94: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("STY %02X,X\n", zpg);
+                bus.write((zpg + x) % 0x100, y);
                 break;
             }
 
@@ -488,9 +771,16 @@ struct CPU6502
                 break;
             }
 
+            case 0x8C: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("STY %04X\n", addr);
+                bus.write(addr, y);
+                break;
+            }
+
             case 0x20: {
-                stack_push(bus, (pc + 2) >> 8);
-                stack_push(bus, (pc + 2) & 0xFF);
+                stack_push(bus, (pc + 1) >> 8);
+                stack_push(bus, (pc + 1) & 0xFF);
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 if(debug & DEBUG_DECODE) printf("JSR %04X\n", addr);
                 pc = addr;
