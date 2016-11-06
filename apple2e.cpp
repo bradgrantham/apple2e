@@ -62,7 +62,7 @@ const int textport_row_base_addresses[] =
     0x750,
     0x7D0,
 };
-void textport_change(unsigned char *port)
+void textport_change(unsigned char *textport)
 {
     printf("TEXTPORT:\n");
     printf("------------------------------------------\n");
@@ -70,7 +70,8 @@ void textport_change(unsigned char *port)
         printf("|");
         for(int col = 0; col < 40; col++) {
             int addr = textport_row_base_addresses[row] + col;
-            printf("%c", isprint(port[addr]) ? port[addr] : ' ');
+            int ch = textport[addr] & 0x7F;
+            printf("%c", isprint(ch) ? ch : '?');
         }
         printf("|\n");
     }
@@ -119,38 +120,38 @@ struct MAINboard : board_base
                 SoftSwitch* sw = *it;
                 if(addr == sw->read_address) {
                     data = sw->sw ? 0x80 : 0x00;
-                    printf("Read status of %s = %02X\n", sw->name.c_str(), data);
+                    if(debug & DEBUG_RW) printf("Read status of %s = %02X\n", sw->name.c_str(), data);
                     return true;
                 } else if(sw->read_also_changes && addr == sw->set_address) {
                     data = 0xff;
                     sw->sw = true;
-                    printf("Set %s\n", sw->name.c_str());
+                    if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(sw->read_also_changes && addr == sw->clear_address) {
                     data = 0xff;
                     sw->sw = false;
-                    printf("Clear %s\n", sw->name.c_str());
+                    if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
                     return true;
                 }
             }
             if(ignore_mmio.find(addr) != ignore_mmio.end()) {
-                printf("read %04X, ignored, return 0x00\n", addr);
+                if(debug & DEBUG_RW) printf("read %04X, ignored, return 0x00\n", addr);
                 data = 0x00;
                 return true;
             }
             if(addr == 0xC000) {
-                printf("read KBD, force 0x00\n");
+                if(debug & DEBUG_RW) printf("read KBD, force 0x00\n");
                 data = 0x00;
                 return true;
             }
             if(addr == 0xC030) {
-                printf("read SPKR, force 0x00\n");
+                if(debug & DEBUG_RW) printf("read SPKR, force 0x00\n");
                 // click
                 data = 0x00;
                 return true;
             }
             if(addr == 0xC010) {
-                printf("read KBDSTRB, force 0x00\n");
+                if(debug & DEBUG_RW) printf("read KBDSTRB, force 0x00\n");
                 // reset keyboard latch
                 data = 0x00;
                 return true;
@@ -191,22 +192,22 @@ struct MAINboard : board_base
                 if(addr == sw->set_address) {
                     data = 0xff;
                     sw->sw = true;
-                    printf("Set %s\n", sw->name.c_str());
+                    if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(addr == sw->clear_address) {
                     data = 0xff;
                     sw->sw = false;
-                    printf("Clear %s\n", sw->name.c_str());
+                    if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
                     return true;
                 }
             }
             if(addr == 0xC010) {
-                printf("write KBDSTRB\n");
+                if(debug & DEBUG_RW) printf("write KBDSTRB\n");
                 // reset keyboard latch
                 return true;
             }
             if(addr == 0xC030) {
-                printf("write SPKR\n");
+                if(debug & DEBUG_RW) printf("write SPKR\n");
                 // click
                 return true;
             }
@@ -363,6 +364,22 @@ struct CPU6502
         unsigned char inst = read_pc_inc(bus);
 
         switch(inst) {
+            case 0xCA: {
+                if(debug & DEBUG_DECODE) printf("DEC X\n");
+                x = x - 1;
+                flag_change(Z, x == 0x00);
+                flag_change(N, x & 0x80);
+                break;
+            }
+
+            case 0xC8: {
+                if(debug & DEBUG_DECODE) printf("INC Y\n");
+                y = y + 1;
+                flag_change(Z, y == 0x00);
+                flag_change(N, y & 0x80);
+                break;
+            }
+
             case 0xEA: {
                 if(debug & DEBUG_DECODE) printf("NOP\n");
                 break;
@@ -430,9 +447,19 @@ struct CPU6502
                 break;
             }
 
+            case 0xC6: {
+                int zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("DEC %04X\n", zpg);
+                unsigned char m = bus.read(zpg) - 1;
+                flag_change(Z, m == 0);
+                flag_change(N, m & 0x80);
+                bus.write(zpg, m);
+                break;
+            }
+
             case 0xCE: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
-                if(debug & DEBUG_DECODE) printf("DEC %02X\n", addr);
+                if(debug & DEBUG_DECODE) printf("DEC %04X\n", addr);
                 unsigned char m = bus.read(addr) - 1;
                 flag_change(Z, m == 0);
                 flag_change(N, m & 0x80);
@@ -456,6 +483,16 @@ struct CPU6502
                 break;
             }
 
+            case 0xB1: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("LDA (%02x), Y\n", zpg);
+                int addr = bus.read(zpg) + bus.read(zpg + 1) * 256 + y;
+                a = bus.read(addr);
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
             case 0xA5: {
                 unsigned char zpg = read_pc_inc(bus);
                 if(debug & DEBUG_DECODE) printf("LDA %02X\n", zpg);
@@ -469,6 +506,15 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 if(debug & DEBUG_DECODE) printf("LDA %04X, Y\n", addr);
                 a = bus.read(addr + y);
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
+            case 0xBD: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("LDA %04X, X\n", addr);
+                a = bus.read(addr + x);
                 flag_change(Z, a == 0x00);
                 flag_change(N, a & 0x80);
                 break;
@@ -609,6 +655,28 @@ struct CPU6502
                 break;
             }
 
+            case 0x9D: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("STA %04x, X\n", addr);
+                bus.write(addr + x, a);
+                break;
+            }
+
+            case 0x99: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("STA %04x, Y\n", addr);
+                bus.write(addr + y, a);
+                break;
+            }
+
+            case 0x91: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("STA (%02x), Y\n", zpg);
+                int addr = bus.read(zpg) + bus.read(zpg + 1) * 256 + y;
+                bus.write(addr, a);
+                break;
+            }
+
             case 0x8D: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 if(debug & DEBUG_DECODE) printf("STA %04X\n", addr);
@@ -711,6 +779,28 @@ struct CPU6502
                 break;
             }
 
+            case 0xC5: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("CMP %04X\n", zpg);
+                unsigned char m = bus.read(zpg);
+                flag_change(C, m <= a);
+                m = a - m;
+                flag_change(N, m & 0x80);
+                flag_change(Z, m == 0);
+                break;
+            }
+
+            case 0xCD: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("CMP %04X\n", addr);
+                unsigned char m = bus.read(addr);
+                flag_change(C, m <= a);
+                m = a - m;
+                flag_change(N, m & 0x80);
+                flag_change(Z, m == 0);
+                break;
+            }
+
             case 0xC9: {
                 unsigned char imm = read_pc_inc(bus);
                 if(debug & DEBUG_DECODE) printf("CMP #%02X\n", imm);
@@ -727,6 +817,17 @@ struct CPU6502
                 unsigned char m = bus.read(zpg);
                 flag_change(C, m <= a);
                 m = a - m;
+                flag_change(N, m & 0x80);
+                flag_change(Z, m == 0);
+                break;
+            }
+            
+            case 0xC4: {
+                unsigned char zpg = read_pc_inc(bus) + x;
+                if(debug & DEBUG_DECODE) printf("CPY %02X\n", zpg);
+                unsigned char m = bus.read(zpg);
+                flag_change(C, m <= y);
+                m = y - m;
                 flag_change(N, m & 0x80);
                 flag_change(Z, m == 0);
                 break;
@@ -790,6 +891,13 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 if(debug & DEBUG_DECODE) printf("STY %02X,X\n", zpg);
                 bus.write((zpg + x) % 0x100, y);
+                break;
+            }
+
+            case 0x86: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("STX %02X\n", zpg);
+                bus.write(zpg, x);
                 break;
             }
 
@@ -899,8 +1007,8 @@ int main(int argc, char **argv)
 
     while(1) {
         cpu.cycle(bus);
-        printf("> ");
-        char line[512];
-        fgets(line, sizeof(line) - 1, stdin);
+        // printf("> ");
+        // char line[512];
+        // fgets(line, sizeof(line) - 1, stdin);
     }
 }
