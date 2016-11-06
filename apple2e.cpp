@@ -629,6 +629,18 @@ struct CPU6502
                 break;
             }
 
+            case 0x4E: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("LSR %04X\n", addr);
+                unsigned char m = bus.read(addr);
+                flag_change(C, m & 0x01);
+                m = m >> 1;
+                flag_change(N, m & 0x80);
+                flag_change(Z, m == 0);
+                bus.write(addr, m);
+                break;
+            }
+
             case 0x4A: {
                 if(debug & DEBUG_DECODE) printf("LSR A\n");
                 flag_change(C, a & 0x01);
@@ -859,6 +871,15 @@ struct CPU6502
                 imm = a - imm;
                 flag_change(N, imm & 0x80);
                 flag_change(Z, imm == 0);
+                break;
+            }
+
+            case 0x45: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("EOR %02X\n", zpg);
+                a = a ^ bus.read(zpg);
+                flag_change(N, a & 0x80);
+                flag_change(Z, a == 0);
                 break;
             }
 
