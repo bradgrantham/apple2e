@@ -68,7 +68,7 @@ static int ttyraw(int fd)
     newtermios.c_cflag |= CS8;
     /* Set 8 bits per character. */
 
-    newtermios.c_oflag &= ~(OPOST);
+    // newtermios.c_oflag &= ~(OPOST);
     /* This includes things like expanding tabs to spaces. */
 
     newtermios.c_cc[VMIN] = 1;

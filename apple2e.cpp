@@ -5,12 +5,13 @@
 using namespace std;
 
 #include "emulator.h"
+#include "keyboard.h"
 
 const unsigned int DEBUG_RW = 0x01;
 const unsigned int DEBUG_DECODE = 0x02;
 const unsigned int DEBUG_STATE = 0x04;
 const unsigned int DEBUG_ERROR = 0x08;
-unsigned int debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE;
+unsigned int debug = DEBUG_ERROR ; // | DEBUG_DECODE | DEBUG_STATE;
 
 struct SoftSwitch
 {
@@ -111,6 +112,11 @@ struct MAINboard : board_base
         memcpy(rom_bytes, rom + rom_base - 0x8000 , sizeof(rom_bytes));
         memcpy(irom_bytes, rom + irom_base - 0x8000 , sizeof(irom_bytes));
         memset(ram_bytes, 0x00, sizeof(ram_bytes));
+        start_keyboard();
+    }
+    virtual ~MAINboard()
+    {
+        stop_keyboard();
     }
     virtual bool read(int addr, unsigned char &data)
     {
@@ -140,8 +146,8 @@ struct MAINboard : board_base
                 return true;
             }
             if(addr == 0xC000) {
-                if(debug & DEBUG_RW) printf("read KBD, force 0x00\n");
-                data = 0x00;
+                data = get_keyboard_data_and_strobe();
+                if(debug & DEBUG_RW) printf("read KBD, return 0x%02X\n", data);
                 return true;
             }
             if(addr == 0xC030) {
@@ -151,9 +157,9 @@ struct MAINboard : board_base
                 return true;
             }
             if(addr == 0xC010) {
-                if(debug & DEBUG_RW) printf("read KBDSTRB, force 0x00\n");
                 // reset keyboard latch
-                data = 0x00;
+                data = get_any_key_down_and_clear_strobe();
+                if(debug & DEBUG_RW) printf("read KBDSTRB, return 0x%02X\n", data);
                 return true;
             }
             printf("unhandled MMIO Read at %04X\n", addr);
@@ -204,6 +210,7 @@ struct MAINboard : board_base
             if(addr == 0xC010) {
                 if(debug & DEBUG_RW) printf("write KBDSTRB\n");
                 // reset keyboard latch
+                get_any_key_down_and_clear_strobe();
                 return true;
             }
             if(addr == 0xC030) {
@@ -1146,6 +1153,7 @@ int main(int argc, char **argv)
     CPU6502 cpu;
 
     while(1) {
+        poll_keyboard();
         cpu.cycle(bus);
         // printf("> ");
         // char line[512];
