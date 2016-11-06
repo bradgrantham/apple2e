@@ -1,0 +1,1 @@
+all: apple2e
