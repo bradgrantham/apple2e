@@ -1,0 +1,95 @@
+soft switch with W 2 addresses, read high bit
+    C002 49154 RDMAINRAM     ECG W    If 80STORE Off: Read Main Mem $0200-$BFFF
+    C003 49155 RDCARDRAM     ECG W    If 80STORE Off: Read Aux Mem $0200-$BFFF
+    C013 49171 RDRAMRD       ECG  R7  Status of Main/Aux RAM Reading
+    C004 49156 WRMAINRAM     ECG W    If 80STORE Off: Write Main Mem $0200-$BFFF
+    C005 49157 WRCARDRAM     ECG W    If 80STORE Off: Write Aux Mem $0200-$BFFF
+    C014 49172 RDRAMWRT      ECG  R7  Status of Main/Aux RAM Writing
+    C006 49158 SETSLOTCXROM  E G W    Peripheral ROM ($C100-$CFFF)
+    C007 49159 SETINTCXROM   E G W    Internal ROM ($C100-$CFFF)
+    C015 49173 RDCXROM       E G  R7  Status of Periph/ROM Access
+    C008 49160 SETSTDZP      ECG W    Main Stack and Zero Page
+    C009 49161 SETALTZP      ECG W    Aux Stack and Zero Page
+    C016 49174 RDALTZP       ECG  R7  Status of Main/Aux Stack and Zero Page
+    C00A 49162 SETINTC3ROM   E G W    ROM in Slot 3
+    C00B 49163 SETSLOTC3ROM  E G W    ROM in Aux Slot
+    C017 49175 RDC3ROM       E G  R7  Status of Slot 3/Aux Slot ROM
+    C000       80STOREOFF    ECG W    Use $C002-$C005 for Aux Memory
+    C001 49153 80STOREON     ECG W    Use PAGE2 for Aux Memory
+    C018 49176 RD80STORE     ECG  R7  Status of $C002-$C005/PAGE2 for Aux Mem
+    C00E 49166 CLRALTCHAR    ECG W    Primary Character Set
+    C00F 49167 SETALTCHAR    ECG W    Alternate Character Set
+    C01E 49182 RDALTCHAR     ECG  R7  Status of Primary/Alternate Character Set
+    C00C 49164 CLR80VID      ECG W    40 Columns
+    C00D 49165 SET80VID      ECG W    80 Columns
+    C01F 49183 RD80VID       ECG  R7  Status of 40/80 Columns
+???
+    C011 49169 RDLCBNK2      ECG  R7  Status of Selected $Dx Bank
+    C012 49170 RDLCRAM       ECG  R7  Status of $Dx ROM / $Dx RAM
+soft switch with R/W 2 addresses, read high bit
+    C050 49232 TXTCLR       OECG WR   Display Graphics
+    C051 49233 TXTSET       OECG WR   Display Text
+    C01A 49178 RDTEXT        ECG  R7  Status of Text/Graphics
+    C052 49234 MIXCLR       OECG WR   Display Full Screen
+    C053 49235 MIXSET       OECG WR   Display Split Screen
+    C01B 49179 RDMIXED       ECG  R7  Status of Full Screen/Mixed Graphics
+    C054 49236 TXTPAGE1     OECG WR   Display Page 1
+    C055 49237 TXTPAGE2     OECG WR   If 80STORE Off: Display Page 2
+                             ECG WR   If 80STORE On: Read/Write Aux Display Mem
+    C01C 49180 RDPAGE2       ECG  R7  Status of Page 1/Page 2
+    C056 49238 LORES        OECG WR   Display LoRes Graphics
+    C057 49239 HIRES        OECG WR   Display HiRes Graphics
+    C01D 49181 RDHIRES       ECG  R7  Status of LoRes/HiRes
+
+
+    C000 49152 KBD          OECG  R   Last Key Pressed + 128
+    C010 49168 KBDSTRB      OECG WR   Keyboard Strobe
+    C019 49177 RDVBL         E G  R7  Vertical Blanking (E:1=drawing G:0=drawing)
+    C020 49184 TAPEOUT      OE    R   Toggle Cassette Tape Output
+    C028 49192 ROMBANK      ????      ROM bank select toggle
+    C02C 49196 CHARROM      ????      Addr for test mode read of character ROM
+    C02E 49198 VERTCNT      ????      Addr for read of video cntr bits V5-VB
+    C02F 49199 HORIZCNT     ????      Addr for read of video cntr bits VA-H0
+    C030 48200 SPKR         OECG  R   Toggle Speaker
+    C040 49216 STROBE       OE    R   Game I/O Strobe Output
+    C058 49240 CLRAN0       OE G WR   If IOUDIS off: Annunciator 0 Off
+    C059 49241 SETAN0       OE G WR   If IOUDIS off: Annunciator 0 On
+    C05A 49242 CLRAN1       OE G WR   If IOUDIS off: Annunciator 1 Off
+    C05B 49243 SETAN1       OE G WR   If IOUDIS off: Annunciator 1 On
+    C05C 49244 CLRAN2       OE G WR   If IOUDIS off: Annunciator 2 Off
+    C05D 49245 SETAN2       OE G WR   If IOUDIS off: Annunciator 2 On
+    C05E 49246 CLRAN3       OE G WR   If IOUDIS off: Annunciator 3 Off
+               DHIRESON      ECG WR   In 80-Column Mode: Double Width Graphics
+    C05F 49247 SETAN3       OE G WR   If IOUDIS off: Annunciator 3 On
+               DHIRESOFF     ECG WR   In 80-Column Mode: Single Width Graphics
+    C060 49248 TAPEIN       OE    R7  Read Cassette Input
+    C061 49249 RDBTN0        ECG  R7  Switch Input 0 / Open Apple
+    C062 49250 BUTN1         E G  R7  Switch Input 1 / Solid Apple
+    C063 49251 RD63          E G  R7  Switch Input 2 / Shift Key
+    C064 49252 PADDL0       OECG  R7  Analog Input 0
+    C065 49253 PADDL1       OECG  R7  Analog Input 1
+    C066 49254 PADDL2       OE G  R7  Analog Input 2
+    C067 49255 PADDL3       OE G  R7  Analog Input 3
+    C070 49264 PTRIG         E    R   Analog Input Reset
+    C073 49267 BANKSEL       ECG W    Memory Bank Select for > 128K
+    C07E 49278 IOUDISON      EC  W    Disable IOU
+               RDIOUDIS      EC   R7  Status of IOU Disabling
+    C07F 49279 IOUDISOFF     EC  W    Enable IOU
+               RDDHIRES      EC   R7  Status of Double HiRes
+    C080 49280              OECG  R   Read RAM bank 2; no write
+    C081 49281 ROMIN        OECG  RR  Read ROM; write RAM bank 2
+    C082 49282              OECG  R   Read ROM; no write
+    C083 49283 LCBANK2      OECG  RR  Read/write RAM bank 2
+    C084 49284              OECG  R   Read RAM bank 2; no write
+    C085 49285 ROMIN        OECG  RR  Read ROM; write RAM bank 2
+    C086 49286              OECG  R   Read ROM; no write
+    C087 49287 LCBANK2      OECG  RR  Read/write RAM bank 2
+    C088 49288              OECG  R   Read RAM bank 1; no write
+    C089 49289              OECG  RR  Read ROM; write RAM bank 1
+    C08A 49290              OECG  R   Read ROM; no write
+    C08B 49291              OECG  RR  Read/write RAM bank 1
+    C08C 49292              OECG  R   Read RAM bank 1; no write
+    C08D 49293              OECG  RR  Read ROM; write RAM bank 1
+    C08E 49294              OECG  R   Read ROM; no write
+    C08F 49295              OECG  RR  Read/write RAM bank 1
+
