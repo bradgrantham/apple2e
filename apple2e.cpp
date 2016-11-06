@@ -573,6 +573,19 @@ struct CPU6502
                 break;
             }
 
+            case 0xED: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("SBC %04X\n", addr);
+                unsigned char imm = bus.read(addr);
+                int borrow = isset(C) ? 0 : 1;
+                flag_change(C, !(a < imm - borrow));
+                a = a - imm - borrow;
+                flag_change(N, a & 0x80);
+                flag_change(V, isset(C) != isset(N));
+                flag_change(Z, a == 0);
+                break;
+            }
+
             case 0xE9: {
                 unsigned char imm = read_pc_inc(bus);
                 if(debug & DEBUG_DECODE) printf("SBC %02X\n", imm);
@@ -806,6 +819,17 @@ struct CPU6502
                 a = bus.read(addr);
                 flag_change(N, a & 0x80);
                 flag_change(Z, a == 0);
+                break;
+            }
+
+            case 0xCC: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("CPY %04X\n", addr);
+                unsigned char imm = bus.read(addr);
+                flag_change(C, imm <= a);
+                imm = a - imm;
+                flag_change(N, imm & 0x80);
+                flag_change(Z, imm == 0);
                 break;
             }
 
