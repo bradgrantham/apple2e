@@ -502,6 +502,17 @@ struct CPU6502
                 break;
             }
 
+            case 0xD9: {
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                if(debug & DEBUG_DECODE) printf("CMP %04X, Y\n", addr);
+                unsigned char m = bus.read(addr + y);
+                flag_change(C, m <= a);
+                m = a - m;
+                flag_change(N, m & 0x80);
+                flag_change(Z, m == 0);
+                break;
+            }
+
             case 0xB9: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 if(debug & DEBUG_DECODE) printf("LDA %04X, Y\n", addr);
