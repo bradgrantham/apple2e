@@ -501,6 +501,16 @@ struct CPU6502
                 break;
             }
 
+            case 0xB5: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("LDA %02x, X\n", zpg);
+                int addr = zpg + y;
+                a = bus.read(addr & 0xFF);
+                flag_change(Z, a == 0x00);
+                flag_change(N, a & 0x80);
+                break;
+            }
+
             case 0xB1: {
                 unsigned char zpg = read_pc_inc(bus);
                 if(debug & DEBUG_DECODE) printf("LDA (%02x), Y\n", zpg);
@@ -765,6 +775,15 @@ struct CPU6502
                 flag_change(Z, a & m);
                 flag_change(N, m & 0x80);
                 flag_change(V, m & 0x70);
+                break;
+            }
+
+            case 0xB4: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("LDY %02X,X\n", zpg);
+                y = bus.read(zpg + x);
+                flag_change(N, y & 0x80);
+                flag_change(Z, y == 0);
                 break;
             }
 
