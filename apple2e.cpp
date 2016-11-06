@@ -143,6 +143,12 @@ struct MAINboard : board_base
                 data = 0x00;
                 return true;
             }
+            if(addr == 0xC030) {
+                printf("read SPKR, force 0x00\n");
+                // click
+                data = 0x00;
+                return true;
+            }
             if(addr == 0xC010) {
                 printf("read KBDSTRB, force 0x00\n");
                 // reset keyboard latch
@@ -197,6 +203,11 @@ struct MAINboard : board_base
             if(addr == 0xC010) {
                 printf("write KBDSTRB\n");
                 // reset keyboard latch
+                return true;
+            }
+            if(addr == 0xC030) {
+                printf("write SPKR\n");
+                // click
                 return true;
             }
             printf("unhandled MMIO Write at %04X\n", addr);
@@ -627,6 +638,15 @@ struct CPU6502
                 break;
             }
 
+            case 0xA4: {
+                unsigned char zpg = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("LDY %02X\n", zpg);
+                y = bus.read(zpg);
+                flag_change(N, y & 0x80);
+                flag_change(Z, y == 0);
+                break;
+            }
+
             case 0xAC: {
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 if(debug & DEBUG_DECODE) printf("LDY %04X\n", addr);
@@ -679,6 +699,15 @@ struct CPU6502
                 imm = a - imm;
                 flag_change(N, imm & 0x80);
                 flag_change(Z, imm == 0);
+                break;
+            }
+
+            case 0x49: {
+                unsigned char imm = read_pc_inc(bus);
+                if(debug & DEBUG_DECODE) printf("EOR #%02X\n", imm);
+                a = a ^ imm;
+                flag_change(N, a & 0x80);
+                flag_change(Z, a == 0);
                 break;
             }
 
