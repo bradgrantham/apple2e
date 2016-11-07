@@ -1,6 +1,9 @@
 #include <cstdlib>
 #include <string>
 #include <set>
+#include <chrono>
+#include <thread>
+#include <ratio>
 
 using namespace std;
 
@@ -1277,7 +1280,15 @@ int main(int argc, char **argv)
 
     while(1) {
         poll_keyboard();
-        cpu.cycle(bus);
+
+        chrono::time_point<chrono::system_clock> then;
+        for(int i = 0; i < 25575; i++) // ~ 1/10th second
+            cpu.cycle(bus);
+        chrono::time_point<chrono::system_clock> now;
+
+        auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
+        this_thread::sleep_for(chrono::milliseconds(100) - elapsed_millis);
+
         // printf("> ");
         // char line[512];
         // fgets(line, sizeof(line) - 1, stdin);
