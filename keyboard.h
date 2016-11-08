@@ -16,4 +16,10 @@ unsigned char get_keyboard_data_and_strobe();
 // Clears the strobe and pretends that no keys are down.
 unsigned char get_any_key_down_and_clear_strobe();
 
+// Peek at the current key
+bool peek_key(char *k);
+
+// Peek at the current key
+void clear_strobe();
+
 #endif /* _KEYBOARD_H_ */

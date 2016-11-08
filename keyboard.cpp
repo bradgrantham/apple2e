@@ -128,6 +128,18 @@ void stop_keyboard()
     }
 }
 
+bool peek_key(char *k)
+{
+    if(strobe)
+        *k = last_key;
+    return strobe;
+}
+
+void clear_strobe()
+{
+    strobe = false;
+}
+
 void poll_keyboard()
 {
     int i;
