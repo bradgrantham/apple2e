@@ -7,6 +7,8 @@
 #include <iostream>
 #include <signal.h>
 
+const int rom_image_size = 0x3000;
+
 using namespace std;
 
 #include "emulator.h"
@@ -89,12 +91,49 @@ void textport_change(int page, unsigned char *textport)
     printf("------------------------------------------\n");
 }
 
-struct region {
-    const int base;
-    const int size;
+struct region
+{
+    int base;
+    int size;
+    // region(int b, int s)
     bool contains(int addr) const
     {
         return addr >= base && addr < base + size;
+    }
+};
+
+template <int BASE, int SIZE>
+struct backed_region : region
+{
+    unsigned char memory[SIZE];
+    bool readonly;
+
+    backed_region(bool readonly_) :
+        region{BASE, SIZE},
+        readonly(readonly_)
+    {}
+
+    bool contains(int addr) const
+    {
+        return addr >= base && addr < base + size;
+    }
+
+    bool read(int addr, unsigned char& data)
+    {
+        if(contains(addr)) {
+            data = memory[addr - base];
+            return true;
+        }
+        return false;
+    }
+
+    bool write(int addr, unsigned char data)
+    {
+        if(contains(addr) && !readonly) {
+            memory[addr - base] = data;
+            return true;
+        }
+        return false;
     }
 };
 
@@ -104,11 +143,10 @@ const region text1_region = {0x400, 0x400};
 const region text2_region = {0x800, 0x400};
 const region io_region = {0xC000, 0x100};
 const region irom_region = {0xC100, 0x0F00};
-const region rom_region = {0xD000, 0x3000};
 
 struct MAINboard : board_base
 {
-    unsigned char rom_bytes[0x3000/*rom_region.size*/];
+    backed_region<0xD000, 0x3000> rom_region = {true};
     unsigned char irom_bytes[0x0F00/*irom_region.size*/];
     unsigned char ram_bytes[65536];
 
@@ -128,10 +166,10 @@ struct MAINboard : board_base
 
     set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
 
-    MAINboard(unsigned char rom[32768])
+    MAINboard(unsigned char rom_image[32768])
     {
-        memcpy(rom_bytes, rom + rom_region.base - 0x8000 , sizeof(rom_bytes));
-        memcpy(irom_bytes, rom + irom_region.base - 0x8000 , sizeof(irom_bytes));
+        memcpy(rom_region.memory, rom_image + rom_region.base - 0x8000 , rom_region.size);
+        memcpy(irom_bytes, rom_image + irom_region.base - 0x8000 , sizeof(irom_bytes));
         memset(ram_bytes, 0x00, sizeof(ram_bytes));
         start_keyboard();
     }
@@ -194,8 +232,7 @@ struct MAINboard : board_base
             if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from internal ROM\n", addr, data);
             return true;
         }
-        if(rom_region.contains(addr)) {
-            data = rom_bytes[addr - rom_region.base];
+        if(rom_region.read(addr, data)) {
             if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
             return true;
         }
@@ -1165,7 +1202,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
     size_t length = fread(b, 1, sizeof(b), fp);
-    if(length < rom_region.size) {
+    if(length < rom_image_size) {
         fprintf(stderr, "ROM read from %s was unexpectedly short (%zd bytes)\n", romname, length);
         exit(EXIT_FAILURE);
     }
