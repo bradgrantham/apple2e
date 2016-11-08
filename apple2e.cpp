@@ -4,17 +4,21 @@
 #include <chrono>
 #include <thread>
 #include <ratio>
+#include <iostream>
+#include <signal.h>
 
 using namespace std;
 
 #include "emulator.h"
 #include "keyboard.h"
+#include "dis6502.h"
 
 const unsigned int DEBUG_RW = 0x01;
 const unsigned int DEBUG_DECODE = 0x02;
 const unsigned int DEBUG_STATE = 0x04;
 const unsigned int DEBUG_ERROR = 0x08;
-unsigned int debug = DEBUG_ERROR ; // | DEBUG_DECODE | DEBUG_STATE;
+const unsigned int DEBUG_BUS = 0x10;
+volatile unsigned int debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE; // | DEBUG_RW;
 
 struct SoftSwitch
 {
@@ -246,8 +250,10 @@ struct bus_controller
     {
         for(auto b = boards.begin(); b != boards.end(); b++) {
             unsigned char data = 0xaa;
-            if((*b)->read(addr, data))
+            if((*b)->read(addr, data)) {
+                if(debug & DEBUG_BUS) printf("read %04X returned %02X\n", addr, data);
                 return data;
+            }
         }
         if(debug & DEBUG_ERROR)
             fprintf(stderr, "no ownership of read at %04X\n", addr);
@@ -256,8 +262,10 @@ struct bus_controller
     void write(int addr, unsigned char data)
     {
         for(auto b = boards.begin(); b != boards.end(); b++) {
-            if((*b)->write(addr, data))
+            if((*b)->write(addr, data)) {
+                if(debug & DEBUG_BUS) printf("write %04X %02X\n", addr, data);
                 return;
+            }
         }
         if(debug & DEBUG_ERROR)
             fprintf(stderr, "no ownership of write %02X at %04X\n", data, addr);
@@ -373,6 +381,17 @@ struct CPU6502
 
         unsigned char inst = read_pc_inc(bus);
 
+        int m;
+
+        int bytes;
+        string dis;
+        unsigned char buf[4];
+        buf[0] = inst;
+        buf[1] = bus.read(pc + 0);
+        buf[2] = bus.read(pc + 1);
+        buf[3] = bus.read(pc + 2);
+        tie(bytes, dis) = disassemble_6502(pc - 1, buf);
+        if(debug & DEBUG_DECODE) printf("%s\n", dis.c_str());
         switch(inst) {
             case 0xEA: {
                 if(debug & DEBUG_DECODE) printf("NOP\n");
@@ -457,6 +476,12 @@ struct CPU6502
                 break;
             }
 
+            case 0xB8: {
+                if(debug & DEBUG_DECODE) printf("CLV\n");
+                flag_clear(V);
+                break;
+            }
+
             case 0xC6: {
                 int zpg = read_pc_inc(bus);
                 if(debug & DEBUG_DECODE) printf("DEC %02X\n", zpg);
@@ -515,6 +540,14 @@ struct CPU6502
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(debug & DEBUG_DECODE) printf("BPL %02X\n", rel);
                 if(!isset(N))
+                    pc += rel;
+                break;
+            }
+
+            case 0x50: {
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                if(debug & DEBUG_DECODE) printf("BVC %02X\n", rel);
+                if(!isset(V))
                     pc += rel;
                 break;
             }
@@ -672,9 +705,11 @@ struct CPU6502
                 if(debug & DEBUG_DECODE) printf("ASL %02X\n", zpg);
                 unsigned char m = bus.read(zpg);
                 flag_change(C, m & 0x80);
+                if(debug & DEBUG_DECODE) printf("  %02X -> C = %d\n", m, isset(C));
                 m = m << 1;
                 flag_change(N, m & 0x80);
                 flag_change(Z, m == 0);
+                if(debug & DEBUG_DECODE) printf("  -> %02X -> N = %d, Z = %d\n", m, isset(N), isset(Z));
                 bus.write(zpg, m);
                 break;
             }
@@ -790,6 +825,16 @@ struct CPU6502
                 break;
             }
 
+            case 0x6A: {
+                if(debug & DEBUG_DECODE) printf("ROR A\n");
+                bool c = isset(C);
+                flag_change(C, a & 0x01);
+                a = (c ? 0x80 : 0x00) | (a >> 1);
+                flag_change(N, a & 0x80);
+                flag_change(Z, a == 0);
+                break;
+            }
+
             case 0x76: {
                 unsigned char zpg = read_pc_inc(bus) + x;
                 if(debug & DEBUG_DECODE) printf("ROR %02X\n", zpg);
@@ -809,9 +854,11 @@ struct CPU6502
                 bool c = isset(C);
                 unsigned char m = bus.read(zpg);
                 flag_change(C, m & 0x80);
+                if(debug & DEBUG_DECODE) printf("  %02X -> C = %d\n", m, isset(C));
                 m = (c ? 0x01 : 0x00) | (m << 1);
                 flag_change(N, m & 0x80);
                 flag_change(Z, m == 0);
+                if(debug & DEBUG_DECODE) printf("  -> %02X -> N = %d, Z = %d\n", m, isset(N), isset(Z));
                 bus.write(zpg, m);
                 break;
             }
@@ -1228,6 +1275,11 @@ void usage(char *progname)
     printf("\n");
 }
 
+void go_verbose(int)
+{
+    debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
+
+}
 
 int main(int argc, char **argv)
 {
@@ -1276,21 +1328,52 @@ int main(int argc, char **argv)
         (*b)->reset();
     }
 
+    signal(SIGUSR1, go_verbose);
+
     CPU6502 cpu;
 
+    bool debugging = false;
+
     while(1) {
-        poll_keyboard();
+        if(!debugging) {
+            poll_keyboard();
 
-        chrono::time_point<chrono::system_clock> then;
-        for(int i = 0; i < 25575; i++) // ~ 1/10th second
+            char key;
+            bool have_key = peek_key(&key);
+
+            if(have_key && (key == '')) {
+                debugging = true;
+                clear_strobe();
+                stop_keyboard();
+                get_any_key_down_and_clear_strobe();
+                continue;
+            }
+
+            chrono::time_point<chrono::system_clock> then;
+            for(int i = 0; i < 25575; i++) // ~ 1/10th second
+                cpu.cycle(bus);
+            chrono::time_point<chrono::system_clock> now;
+
+            auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
+            this_thread::sleep_for(chrono::milliseconds(100) - elapsed_millis);
+
+        } else {
+
+            printf("> ");
+            char line[512];
+            fgets(line, sizeof(line) - 1, stdin);
+            line[strlen(line) - 1] = '\0';
+            if(strcmp(line, "go") == 0) {
+                printf("continuing\n");
+                debugging = false;
+                start_keyboard();
+                continue;
+            } else if(strncmp(line, "debug", 5) == 0) {
+                sscanf(line + 6, "%d", &debug);
+                printf("debug set to %02X\n", debug);
+            }
+
             cpu.cycle(bus);
-        chrono::time_point<chrono::system_clock> now;
-
-        auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
-        this_thread::sleep_for(chrono::milliseconds(100) - elapsed_millis);
-
-        // printf("> ");
-        // char line[512];
-        // fgets(line, sizeof(line) - 1, stdin);
+        }
     }
 }
