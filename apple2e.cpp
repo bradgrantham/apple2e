@@ -104,16 +104,18 @@ struct region
 
 typedef std::function<bool()> enabled_func;
 
+enum MemoryType {RAM, ROM};
+
 struct backed_region : region
 {
     vector<unsigned char> memory;
-    bool readonly;
+    MemoryType type;
     enabled_func enabled;
 
-    backed_region(const char* name, int base, int size, bool readonly_, vector<backed_region*>& regions, enabled_func enabled_) :
+    backed_region(const char* name, int base, int size, MemoryType type_, vector<backed_region*>& regions, enabled_func enabled_) :
         region{name, base, size},
         memory(size),
-        readonly(readonly_),
+        type(type_),
         enabled(enabled_)
     {
         regions.push_back(this);
@@ -135,7 +137,7 @@ struct backed_region : region
 
     bool write(int addr, unsigned char data)
     {
-        if(contains(addr) && !readonly && enabled()) {
+        if((type == RAM) && contains(addr) && enabled()) {
             memory[addr - base] = data;
             return true;
         }
@@ -157,7 +159,7 @@ struct MAINboard : board_base
     SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches};
     SoftSwitch RAMWRT {"RAMWRT", 0xC004, 0xC005, 0xC014, false, switches};
     SoftSwitch ALTZP {"ALTZP", 0xC008, 0xC009, 0xC016, false, switches};
-    SoftSwitch C3ROM {"C3ROM", 0xC00A, 0xC00B, 0xC017, false, switches};
+    SoftSwitch C3ROM {"C3ROM", 0xC00A, 0xC00B, 0xC017, false, switches, true};
     SoftSwitch ALTCHAR {"ALTCHAR", 0xC00E, 0xC00F, 0xC01E, false, switches};
     SoftSwitch VID80 {"VID80", 0xC00C, 0xC00D, 0xC01F, false, switches};
     SoftSwitch TEXT {"TEXT", 0xC050, 0xC051, 0xC01A, true, switches, true};
@@ -166,19 +168,21 @@ struct MAINboard : board_base
     SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches};
 
     vector<backed_region*> regions;
-    backed_region szp = {"szp", 0x0000, 0x0200, true, regions, [&](){return !ALTZP;}}; // stack and zero page
-    backed_region aszp = {"aszp", 0x0000, 0x0200, true, regions, [&](){return ALTZP;}}; // alternate stack and zero page
-    backed_region rom_region = {"rom", 0xD000, 0x3000, true, regions, []{return true;}};
-    backed_region irom_region = {"irom", 0xC100, 0x0F00, true, regions, [&]{return CXROM;}};
-    backed_region ram_region = {"ram", 0x0200, 0xFE00, false, regions, []{return true;}};
+    backed_region szp = {"szp", 0x0000, 0x0200, RAM, regions, [&](){return !ALTZP;}}; // stack and zero page
+    backed_region aszp = {"aszp", 0x0000, 0x0200, RAM, regions, [&](){return ALTZP;}}; // alternate stack and zero page
+    backed_region rom = {"rom", 0xD000, 0x3000, ROM, regions, []{return true;}};
+    backed_region i1rom = {"i1rom", 0xC100, 0x0F00, ROM, regions, [&]{return CXROM;}};
+    backed_region i3rom = {"i3rom", 0xC300, 0x0F00, ROM, regions, [&]{return !CXROM && !C3ROM;}};
+    backed_region ram = {"ram", 0x0200, 0xFE00, RAM, regions, []{return true;}};
 
     set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
 
     MAINboard(unsigned char rom_image[32768])
     {
-        std::copy(rom_image + rom_region.base - 0x8000, rom_image + rom_region.base - 0x8000 + rom_region.size, rom_region.memory.begin());
-        std::copy(rom_image + irom_region.base - 0x8000, rom_image + irom_region.base - 0x8000 + irom_region.size, irom_region.memory.begin());
-        std::fill(ram_region.memory.begin(), ram_region.memory.end(), 0x00);
+        std::copy(rom_image + rom.base - 0x8000, rom_image + rom.base - 0x8000 + rom.size, rom.memory.begin());
+        std::copy(rom_image + i1rom.base - 0x8000, rom_image + i1rom.base - 0x8000 + i1rom.size, i1rom.memory.begin());
+        std::copy(rom_image + i3rom.base - 0x8000, rom_image + i3rom.base - 0x8000 + i3rom.size, i3rom.memory.begin());
+        std::fill(ram.memory.begin(), ram.memory.end(), 0x00);
         start_keyboard();
     }
 
@@ -250,11 +254,11 @@ struct MAINboard : board_base
             // TEXT takes precedence over all other modes
             if(text1_region.contains(addr)) {
                 printf("TEXT1 WRITE!\n");
-                if(!PAGE2) textport_change(1, &ram_region.memory[0]);
+                if(!PAGE2) textport_change(1, &ram.memory[0]);
             }
             if(text2_region.contains(addr)) {
                 printf("TEXT2 WRITE!\n");
-                if(PAGE2) textport_change(2, &ram_region.memory[0]);
+                if(PAGE2) textport_change(2, &ram.memory[0]);
             }
         } else {
             // MIXED shows text in last 4 columns in both HIRES or LORES
@@ -1149,19 +1153,12 @@ struct CPU6502
     }
 };
 
-
 void usage(char *progname)
 {
     printf("\n");
-    printf("usage: %s ROM.bin\n", progname);
+    printf("usage: %s [-debugger] ROM.bin\n", progname);
     printf("\n");
     printf("\n");
-}
-
-void go_verbose(int)
-{
-    debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
-
 }
 
 int main(int argc, char **argv)
@@ -1170,8 +1167,14 @@ int main(int argc, char **argv)
     argc -= 1;
     argv += 1;
 
+    bool debugging = false;
+
     while((argc > 0) && (argv[0][0] == '-')) {
-	if(
+	if(strcmp(argv[0], "-debugger") == 0) {
+            debugging = true;
+            argv++;
+            argc--;
+        } else if(
             (strcmp(argv[0], "-help") == 0) ||
             (strcmp(argv[0], "-h") == 0) ||
             (strcmp(argv[0], "-?") == 0))
@@ -1211,11 +1214,12 @@ int main(int argc, char **argv)
         (*b)->reset();
     }
 
-    signal(SIGUSR1, go_verbose);
-
     CPU6502 cpu;
 
-    bool debugging = false;
+    if(debugging) {
+        clear_strobe();
+        stop_keyboard();
+    }
 
     while(1) {
         if(!debugging) {
@@ -1228,7 +1232,6 @@ int main(int argc, char **argv)
                 debugging = true;
                 clear_strobe();
                 stop_keyboard();
-                get_any_key_down_and_clear_strobe();
                 continue;
             }
 
@@ -1254,6 +1257,7 @@ int main(int argc, char **argv)
             } else if(strncmp(line, "debug", 5) == 0) {
                 sscanf(line + 6, "%d", &debug);
                 printf("debug set to %02X\n", debug);
+                continue;
             }
 
             cpu.cycle(bus);
