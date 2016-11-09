@@ -76,14 +76,14 @@ const int textport_row_base_addresses[] =
     0x7D0,
 };
 
-void textport_change(int page, unsigned char *textport)
+void textport_change(unsigned char *textport)
 {
     printf("TEXTPORT:\n");
     printf("------------------------------------------\n");
     for(int row = 0; row < 24; row++) {
         printf("|");
         for(int col = 0; col < 40; col++) {
-            int addr = textport_row_base_addresses[row] + col + ((page == 1) ? 0x0 : 0x400);
+            int addr = textport_row_base_addresses[row] - 0x400 + col;
             int ch = textport[addr] & 0x7F;
             printf("%c", isprint(ch) ? ch : '?');
         }
@@ -156,7 +156,7 @@ struct MAINboard : board_base
 {
     vector<SoftSwitch*> switches;
     SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches, true};
-    SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches};
+    SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches, true};
     SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches};
     SoftSwitch RAMWRT {"RAMWRT", 0xC004, 0xC005, 0xC014, false, switches};
     SoftSwitch ALTZP {"ALTZP", 0xC008, 0xC009, 0xC016, false, switches};
@@ -165,7 +165,7 @@ struct MAINboard : board_base
     SoftSwitch VID80 {"VID80", 0xC00C, 0xC00D, 0xC01F, false, switches};
     SoftSwitch TEXT {"TEXT", 0xC050, 0xC051, 0xC01A, true, switches, true};
     SoftSwitch MIXED {"MIXED", 0xC052, 0xC053, 0xC01B, true, switches};
-    SoftSwitch PAGE2 {"PAGE2", 0xC054, 0xC055, 0xC01C, true, switches};
+    SoftSwitch PAGE2 {"PAGE2", 0xC054, 0xC055, 0xC01C, true, switches, true};
     SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches};
 
     vector<backed_region*> regions;
@@ -255,11 +255,11 @@ struct MAINboard : board_base
             // TEXT takes precedence over all other modes
             if(text1_region.contains(addr)) {
                 printf("TEXT1 WRITE!\n");
-                if(!PAGE2) textport_change(1, &ram.memory[0]);
+                if(!PAGE2) textport_change(&ram.memory[0x200]);
             }
             if(text2_region.contains(addr)) {
                 printf("TEXT2 WRITE!\n");
-                if(PAGE2) textport_change(2, &ram.memory[0]);
+                if(PAGE2) textport_change(&ram.memory[0x600]);
             }
         } else {
             // MIXED shows text in last 4 columns in both HIRES or LORES
