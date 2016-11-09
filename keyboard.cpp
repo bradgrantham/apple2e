@@ -153,9 +153,6 @@ void poll_keyboard()
             printf("Got error reading from keyboard: %d\n\r", errno);
             exit(1);
         }
-    } else if (c == 27) {
-        printf("\n\nESC pressed -- exiting.\n\n");
-        exit(1);
     } else {
         last_key = c;
         strobe = true;
