@@ -20,7 +20,7 @@ const unsigned int DEBUG_DECODE = 0x02;
 const unsigned int DEBUG_STATE = 0x04;
 const unsigned int DEBUG_RW = 0x08;
 const unsigned int DEBUG_BUS = 0x10;
-volatile unsigned int debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE; // | DEBUG_RW;
+volatile unsigned int debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
 
 struct SoftSwitch
 {
@@ -93,25 +93,31 @@ void textport_change(int page, unsigned char *textport)
 
 struct region
 {
+    string name;
     int base;
     int size;
-    // region(int b, int s)
     bool contains(int addr) const
     {
         return addr >= base && addr < base + size;
     }
 };
 
-template <int BASE, int SIZE>
+typedef std::function<bool()> enabled_func;
+
 struct backed_region : region
 {
-    unsigned char memory[SIZE];
+    vector<unsigned char> memory;
     bool readonly;
+    enabled_func enabled;
 
-    backed_region(bool readonly_) :
-        region{BASE, SIZE},
-        readonly(readonly_)
-    {}
+    backed_region(const char* name, int base, int size, bool readonly_, vector<backed_region*>& regions, enabled_func enabled_) :
+        region{name, base, size},
+        memory(size),
+        readonly(readonly_),
+        enabled(enabled_)
+    {
+        regions.push_back(this);
+    }
 
     bool contains(int addr) const
     {
@@ -120,7 +126,7 @@ struct backed_region : region
 
     bool read(int addr, unsigned char& data)
     {
-        if(contains(addr)) {
+        if(contains(addr) && enabled()) {
             data = memory[addr - base];
             return true;
         }
@@ -129,7 +135,7 @@ struct backed_region : region
 
     bool write(int addr, unsigned char data)
     {
-        if(contains(addr) && !readonly) {
+        if(contains(addr) && !readonly && enabled()) {
             memory[addr - base] = data;
             return true;
         }
@@ -137,19 +143,14 @@ struct backed_region : region
     }
 };
 
-const region hires1_region = {0x2000, 0x2000};
-const region hires2_region = {0x4000, 0x2000};
-const region text1_region = {0x400, 0x400};
-const region text2_region = {0x800, 0x400};
-const region io_region = {0xC000, 0x100};
-const region irom_region = {0xC100, 0x0F00};
+const region hires1_region = {"hires1", 0x2000, 0x2000};
+const region hires2_region = {"hires2", 0x4000, 0x2000};
+const region text1_region = {"text1", 0x400, 0x400};
+const region text2_region = {"text2", 0x800, 0x400};
+const region io_region = {"io", 0xC000, 0x100};
 
 struct MAINboard : board_base
 {
-    backed_region<0xD000, 0x3000> rom_region = {true};
-    unsigned char irom_bytes[0x0F00/*irom_region.size*/];
-    unsigned char ram_bytes[65536];
-
     vector<SoftSwitch*> switches;
     SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches, true};
     SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches};
@@ -164,13 +165,20 @@ struct MAINboard : board_base
     SoftSwitch PAGE2 {"PAGE2", 0xC054, 0xC055, 0xC01C, true, switches};
     SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches};
 
+    vector<backed_region*> regions;
+    backed_region szp = {"szp", 0x0000, 0x0200, true, regions, [&](){return !ALTZP;}}; // stack and zero page
+    backed_region aszp = {"aszp", 0x0000, 0x0200, true, regions, [&](){return ALTZP;}}; // alternate stack and zero page
+    backed_region rom_region = {"rom", 0xD000, 0x3000, true, regions, []{return true;}};
+    backed_region irom_region = {"irom", 0xC100, 0x0F00, true, regions, [&]{return CXROM;}};
+    backed_region ram_region = {"ram", 0x0200, 0xFE00, false, regions, []{return true;}};
+
     set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
 
     MAINboard(unsigned char rom_image[32768])
     {
-        memcpy(rom_region.memory, rom_image + rom_region.base - 0x8000 , rom_region.size);
-        memcpy(irom_bytes, rom_image + irom_region.base - 0x8000 , sizeof(irom_bytes));
-        memset(ram_bytes, 0x00, sizeof(ram_bytes));
+        std::copy(rom_image + rom_region.base - 0x8000, rom_image + rom_region.base - 0x8000 + rom_region.size, rom_region.memory.begin());
+        std::copy(rom_image + irom_region.base - 0x8000, rom_image + irom_region.base - 0x8000 + irom_region.size, irom_region.memory.begin());
+        std::fill(ram_region.memory.begin(), ram_region.memory.end(), 0x00);
         start_keyboard();
     }
 
@@ -189,13 +197,13 @@ struct MAINboard : board_base
                     if(debug & DEBUG_RW) printf("Read status of %s = %02X\n", sw->name.c_str(), data);
                     return true;
                 } else if(sw->read_also_changes && addr == sw->set_address) {
-                    if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); exit(0); }
+                    if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->sw = true;
                     if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(sw->read_also_changes && addr == sw->clear_address) {
-                    // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); exit(0); }
+                    // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->sw = false;
                     if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
@@ -225,21 +233,14 @@ struct MAINboard : board_base
                 return true;
             }
             printf("unhandled MMIO Read at %04X\n", addr);
-            exit(0);
+            fflush(stdout); exit(0);
         }
-        if(CXROM && irom_region.contains(addr)) {
-            data = irom_bytes[addr - irom_region.base];
-            if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from internal ROM\n", addr, data);
-            return true;
-        }
-        if(rom_region.read(addr, data)) {
-            if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from ROM\n", addr, data);
-            return true;
-        }
-        if(addr >= 0 && addr < sizeof(ram_bytes)) {
-            data = ram_bytes[addr];
-            if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from RAM\n", addr, data);
-            return true;
+        for(auto it = regions.begin(); it != regions.end(); it++) {
+            backed_region* r = *it;
+            if(r->read(addr, data)) {
+                if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from %s\n", addr, data, r->name.c_str());
+                return true;
+            }
         }
         return false;
     }
@@ -249,35 +250,35 @@ struct MAINboard : board_base
             // TEXT takes precedence over all other modes
             if(text1_region.contains(addr)) {
                 printf("TEXT1 WRITE!\n");
-                if(!PAGE2) textport_change(1, ram_bytes);
+                if(!PAGE2) textport_change(1, &ram_region.memory[0]);
             }
             if(text2_region.contains(addr)) {
                 printf("TEXT2 WRITE!\n");
-                if(PAGE2) textport_change(2, ram_bytes);
+                if(PAGE2) textport_change(2, &ram_region.memory[0]);
             }
         } else {
             // MIXED shows text in last 4 columns in both HIRES or LORES
             if(MIXED) {
                 printf("MIXED WRITE, abort!\n");
-                exit(0);
+                fflush(stdout); exit(0);
             } else {
                 if(HIRES) {
                     if(hires1_region.contains(addr)) {
                         printf("HIRES1 WRITE, abort!\n");
-                        exit(0);
+                        fflush(stdout); exit(0);
                     }
                     if(hires2_region.contains(addr)) {
                         printf("HIRES2 WRITE, abort!\n");
-                        exit(0);
+                        fflush(stdout); exit(0);
                     }
                 } else {
                     if(text1_region.contains(addr)) {
                         printf("LORES1 WRITE, abort!\n");
-                        exit(0);
+                        fflush(stdout); exit(0);
                     }
                     if(text2_region.contains(addr)) {
                         printf("LORES2 WRITE, abort!\n");
-                        exit(0);
+                        fflush(stdout); exit(0);
                     }
                 }
             }
@@ -286,13 +287,13 @@ struct MAINboard : board_base
             for(auto it = switches.begin(); it != switches.end(); it++) {
                 SoftSwitch* sw = *it;
                 if(addr == sw->set_address) {
-                    if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); exit(0); }
+                    if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->sw = true;
                     if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(addr == sw->clear_address) {
-                    // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); exit(0); }
+                    // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->sw = false;
                     if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
@@ -311,18 +312,14 @@ struct MAINboard : board_base
                 return true;
             }
             printf("unhandled MMIO Write at %04X\n", addr);
-            exit(0);
+            fflush(stdout); exit(0);
         }
-        if(rom_region.contains(addr)) {
-            return false;
-        }
-        if(CXROM && irom_region.contains(addr)) {
-            return false;
-        }
-        if(addr >= 0 && addr < sizeof(ram_bytes)) {
-            ram_bytes[addr] = data;
-            if(debug & DEBUG_RW) printf("wrote 0x%02X to RAM 0x%04X\n", data, addr);
-            return true;
+        for(auto it = regions.begin(); it != regions.end(); it++) {
+            backed_region* r = *it;
+            if(r->write(addr, data)) {
+                if(debug & DEBUG_RW) printf("wrote %02X to 0x%04X in %s\n", addr, data, r->name.c_str());
+                return true;
+            }
         }
         return false;
     }
@@ -1129,7 +1126,7 @@ struct CPU6502
 
             default:
                 printf("unhandled instruction %02X\n", inst);
-                exit(1);
+                fflush(stdout); exit(1);
         }
         if(debug & DEBUG_STATE) {
             unsigned char s0 = bus.read(0x100 + s + 0);
