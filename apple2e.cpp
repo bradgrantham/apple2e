@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <set>
 #include <chrono>
@@ -1161,19 +1162,32 @@ void usage(char *progname)
     printf("\n");
 }
 
+bool debugging = false;
+
+void cleanup(void)
+{
+    if(!debugging) {
+        stop_keyboard();
+    }
+}
+
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
     argc -= 1;
     argv += 1;
 
-    bool debugging = false;
+    atexit(cleanup);
 
     while((argc > 0) && (argv[0][0] == '-')) {
 	if(strcmp(argv[0], "-debugger") == 0) {
             debugging = true;
             argv++;
             argc--;
+	} else if(strcmp(argv[0], "-d") == 0) {
+            debug = atoi(argv[1]);
+            argv += 2;
+            argc -= 2;
         } else if(
             (strcmp(argv[0], "-help") == 0) ||
             (strcmp(argv[0], "-h") == 0) ||
@@ -1247,7 +1261,9 @@ int main(int argc, char **argv)
 
             printf("> ");
             char line[512];
-            fgets(line, sizeof(line) - 1, stdin);
+            if(fgets(line, sizeof(line) - 1, stdin) == NULL) {
+		exit(0);
+	    }
             line[strlen(line) - 1] = '\0';
             if(strcmp(line, "go") == 0) {
                 printf("continuing\n");
