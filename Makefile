@@ -1,6 +1,6 @@
 CXXFLAGS        = -g -O -Wall --std=c++11
 
-OBJECTS         = apple2e.o keyboard.o dis6502.o
+OBJECTS         = apple2e.o keyboard.o dis6502.o fake6502.o
 
 all: apple2e
 

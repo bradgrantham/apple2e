@@ -8,6 +8,8 @@
 #include <iostream>
 #include <signal.h>
 
+#include "fake6502.h"
+
 const int rom_image_size = 0x3000;
 
 using namespace std;
@@ -24,8 +26,8 @@ const unsigned int DEBUG_RW = 0x10;
 const unsigned int DEBUG_BUS = 0x20;
 volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN ; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
 
-volatile bool abort_on_banking = false;
-volatile bool abort_on_memory_fallthrough = true;
+volatile bool exit_on_banking = false;
+volatile bool exit_on_memory_fallthrough = true;
 
 struct SoftSwitch
 {
@@ -189,8 +191,12 @@ struct MAINboard : board_base
     backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, regions, [&]{return true;}};
     backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, regions, [&]{return true;}};
 
-    backed_region rom_C100 = {"rom_C100", 0xC100, 0x0F00, ROM, regions, [&]{return CXROM;}};
-    backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, regions, [&]{return !CXROM && !C3ROM;}};
+    bool internal_C800_ROM_selected;
+    backed_region rom_C100 = {"rom_C100", 0xC100, 0x0200, ROM, regions, [&]{return CXROM;}};
+    backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, regions, [&]{return CXROM || (!CXROM && !C3ROM);}};
+    backed_region rom_C400 = {"rom_C400", 0xC300, 0x0400, ROM, regions, [&]{return CXROM;}};
+    backed_region rom_C800 = {"rom_C800", 0xC800, 0x0800, ROM, regions, [&]{return CXROM || (!CXROM && !C3ROM && internal_C800_ROM_selected);}};
+    backed_region rom_CXXX_default = {"rom_CXXX_default", 0xC100, 0x0F00, ROM, regions, [&]{return true;}};
 
     enabled_func read_from_aux_ram = [&]{return RAMRD;};
     enabled_func write_to_aux_ram = [&]{return RAMWRT;};
@@ -249,12 +255,15 @@ struct MAINboard : board_base
         0xC00A, 0xC00B,
     };
 
-    MAINboard(unsigned char rom_image[32768])
+    MAINboard(unsigned char rom_image[32768]) :
+        internal_C800_ROM_selected(true)
     {
         std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
         std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
         std::copy(rom_image + rom_C100.base - 0x8000, rom_image + rom_C100.base - 0x8000 + rom_C100.size, rom_C100.memory.begin());
         std::copy(rom_image + rom_C300.base - 0x8000, rom_image + rom_C300.base - 0x8000 + rom_C300.size, rom_C300.memory.begin());
+        std::copy(rom_image + rom_C400.base - 0x8000, rom_image + rom_C400.base - 0x8000 + rom_C400.size, rom_C400.memory.begin());
+        std::copy(rom_image + rom_C800.base - 0x8000, rom_image + rom_C800.base - 0x8000 + rom_C800.size, rom_C800.memory.begin());
         start_keyboard();
     }
 
@@ -266,7 +275,7 @@ struct MAINboard : board_base
     {
         if(debug & DEBUG_RW) printf("MAIN board read\n");
         if(io_region.contains(addr)) {
-            if(abort_on_banking && (banking_read_switches.find(addr) != banking_read_switches.end())) {
+            if(exit_on_banking && (banking_read_switches.find(addr) != banking_read_switches.end())) {
                 printf("bank switch control %04X, aborting\n", addr);
                 exit(1);
             }
@@ -339,8 +348,16 @@ struct MAINboard : board_base
                 return true;
             }
         }
+        if((addr & 0xFF00) == 0xC300) {
+            if(debug & DEBUG_RW) printf("read 0x%04X, enabling internal C800 ROM\n", addr);
+            internal_C800_ROM_selected = true;
+        }
+        if(addr == 0xCFFF) {
+            if(debug & DEBUG_RW) printf("read 0xCFFF, disabling internal C800 ROM\n");
+            internal_C800_ROM_selected = false;
+        }
         if(debug & DEBUG_WARN) printf("unhandled memory read at %04X\n", addr);
-        if(abort_on_memory_fallthrough) {
+        if(exit_on_memory_fallthrough) {
             printf("unhandled memory read at %04X, aborting\n", addr);
             printf("Switches:\n");
             for(auto it = switches.begin(); it != switches.end(); it++) {
@@ -391,7 +408,7 @@ struct MAINboard : board_base
             }
         }
         if(io_region.contains(addr)) {
-            if(abort_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
+            if(exit_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
                 printf("bank switch control %04X, aborting\n", addr);
                 exit(1);
             }
@@ -433,7 +450,7 @@ struct MAINboard : board_base
             }
         }
         if(debug & DEBUG_WARN) printf("unhandled memory write to %04X\n", addr);
-        if(abort_on_memory_fallthrough) {
+        if(exit_on_memory_fallthrough) {
             printf("unhandled memory write to %04X, aborting\n", addr);
             exit(1);
         }
@@ -471,6 +488,20 @@ struct bus_controller
 };
 
 bus_controller bus;
+
+extern "C" {
+
+uint8_t read6502(uint16_t address) 
+{
+    return bus.read(address);
+}
+
+void write6502(uint16_t address, uint8_t value)
+{
+    bus.write(address, value);
+}
+
+};
 
 struct CPU6502
 {
@@ -590,15 +621,6 @@ struct CPU6502
 
         unsigned char m;
 
-        int bytes;
-        string dis;
-        unsigned char buf[4];
-        buf[0] = inst;
-        buf[1] = bus.read(pc + 0);
-        buf[2] = bus.read(pc + 1);
-        buf[3] = bus.read(pc + 2);
-        tie(bytes, dis) = disassemble_6502(pc - 1, buf);
-        if(debug & DEBUG_DECODE) printf("%s\n", dis.c_str());
         switch(inst) {
             case 0xEA: { // NOP
                 break;
@@ -664,26 +686,26 @@ struct CPU6502
                 break;
             }
 
-            case 0xC6: { // DEC
+            case 0xC6: { // DEC zpg
                 int zpg = read_pc_inc(bus);
                 set_flags(N | Z, m = bus.read(zpg) - 1);
                 bus.write(zpg, m);
                 break;
             }
 
-            case 0xCE: { // DEC
+            case 0xCE: { // DEC abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, m = bus.read(addr) - 1);
                 bus.write(addr, m);
                 break;
             }
 
-            case 0xCA: { // DEC
+            case 0xCA: { // DEX
                 set_flags(N | Z, x = x - 1);
                 break;
             }
 
-            case 0xE6: { // INC
+            case 0xE6: { // INC zpg
                 int zpg = read_pc_inc(bus);
                 set_flags(N | Z, m = bus.read(zpg) + 1);
                 bus.write(zpg, m);
@@ -728,27 +750,27 @@ struct CPU6502
                 break;
             }
 
-            case 0xB5: { // LDA
+            case 0xB5: { // LDA zpg, X
                 unsigned char zpg = read_pc_inc(bus);
-                int addr = zpg + y;
+                int addr = zpg + x;
                 set_flags(N | Z, a = bus.read(addr & 0xFF));
                 break;
             }
 
-            case 0xB1: { // LDA
+            case 0xB1: { // LDA ind, Y
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read(zpg + 1) * 256 + y;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
-            case 0xA5: { // LDA
+            case 0xA5: { // LDA zpg
                 unsigned char zpg = read_pc_inc(bus);
                 set_flags(N | Z, a = bus.read(zpg));
                 break;
             }
 
-            case 0xDD: { // CMP
+            case 0xDD: { // CMP abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + x);
                 flag_change(C, m <= a);
@@ -756,7 +778,7 @@ struct CPU6502
                 break;
             }
 
-            case 0xD9: { // CMP
+            case 0xD9: { // CMP abs, Y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + y);
                 flag_change(C, m <= a);
@@ -764,19 +786,19 @@ struct CPU6502
                 break;
             }
 
-            case 0xB9: { // LDA
+            case 0xB9: { // LDA abs, Y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = bus.read(addr + y));
                 break;
             }
 
-            case 0xBD: { // LDA
+            case 0xBD: { // LDA abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = bus.read(addr + x));
                 break;
             }
 
-            case 0xE5: { // SBC
+            case 0xE5: { // SBC zpg
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
@@ -785,7 +807,7 @@ struct CPU6502
                 break;
             }
 
-            case 0xF1: { // SBC
+            case 0xF1: { // SBC ind, Y
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read(zpg + 1) * 256 + y;
                 m = bus.read(addr);
@@ -795,7 +817,7 @@ struct CPU6502
                 break;
             }
 
-            case 0xED: { // SBC
+            case 0xED: { // SBC abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
@@ -804,7 +826,7 @@ struct CPU6502
                 break;
             }
 
-            case 0xE9: { // SBC
+            case 0xE9: { // SBC imm
                 unsigned char m = read_pc_inc(bus);
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < m - borrow));
@@ -1279,6 +1301,21 @@ void cleanup(void)
     }
 }
 
+bool use_fake6502 = false;
+
+void disassemble_and_print_1(bus_controller &bus, int pc)
+{
+    int bytes;
+    string dis;
+    unsigned char buf[4];
+    buf[0] = bus.read(pc + 0);
+    buf[1] = bus.read(pc + 1);
+    buf[2] = bus.read(pc + 2);
+    buf[3] = bus.read(pc + 3);
+    tie(bytes, dis) = disassemble_6502(pc - 1, buf);
+    printf("%s\n", dis.c_str());
+}
+
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
@@ -1343,6 +1380,9 @@ int main(int argc, char **argv)
         stop_keyboard();
     }
 
+    if(use_fake6502)
+        reset6502();
+
     while(1) {
         if(!debugging) {
             poll_keyboard();
@@ -1358,8 +1398,13 @@ int main(int argc, char **argv)
             }
 
             chrono::time_point<chrono::system_clock> then;
-            for(int i = 0; i < 25575; i++) // ~ 1/10th second
-                cpu.cycle(bus);
+            for(int i = 0; i < 25575; i++) { // ~ 1/10th second
+                if(debug & DEBUG_DECODE) disassemble_and_print_1(bus, cpu.pc);
+                if(use_fake6502)
+                    step6502();
+                else
+                    cpu.cycle(bus);
+            }
             chrono::time_point<chrono::system_clock> now;
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
@@ -1380,15 +1425,19 @@ int main(int argc, char **argv)
                 continue;
             } else if(strcmp(line, "banking") == 0) {
                 printf("abort on any banking\n");
-                abort_on_banking = true;
+                exit_on_banking = true;
                 continue;
             } else if(strncmp(line, "debug", 5) == 0) {
                 sscanf(line + 6, "%d", &debug);
                 printf("debug set to %02X\n", debug);
                 continue;
             }
-
-            cpu.cycle(bus);
+            if(debug & DEBUG_DECODE) disassemble_and_print_1(bus, cpu.pc);
+            
+            if(use_fake6502)
+                step6502();
+            else
+                cpu.cycle(bus);
         }
     }
 }
