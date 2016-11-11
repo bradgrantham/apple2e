@@ -21,7 +21,7 @@ const unsigned int DEBUG_DECODE = 0x02;
 const unsigned int DEBUG_STATE = 0x04;
 const unsigned int DEBUG_RW = 0x08;
 const unsigned int DEBUG_BUS = 0x10;
-volatile unsigned int debug = DEBUG_ERROR | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
+volatile unsigned int debug = DEBUG_ERROR ; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
 
 struct SoftSwitch
 {
@@ -111,14 +111,28 @@ struct backed_region : region
 {
     vector<unsigned char> memory;
     MemoryType type;
-    enabled_func enabled;
+    enabled_func read_enabled;
+    enabled_func write_enabled;
 
     backed_region(const char* name, int base, int size, MemoryType type_, vector<backed_region*>& regions, enabled_func enabled_) :
         region{name, base, size},
         memory(size),
         type(type_),
-        enabled(enabled_)
+        read_enabled(enabled_),
+        write_enabled(enabled_)
     {
+        std::fill(memory.begin(), memory.end(), 0x00);
+        regions.push_back(this);
+    }
+
+    backed_region(const char* name, int base, int size, MemoryType type_, vector<backed_region*>& regions, enabled_func read_enabled_, enabled_func write_enabled_) :
+        region{name, base, size},
+        memory(size),
+        type(type_),
+        read_enabled(read_enabled_),
+        write_enabled(write_enabled_)
+    {
+        std::fill(memory.begin(), memory.end(), 0x00);
         regions.push_back(this);
     }
 
@@ -129,7 +143,7 @@ struct backed_region : region
 
     bool read(int addr, unsigned char& data)
     {
-        if(contains(addr) && enabled()) {
+        if(contains(addr) && read_enabled()) {
             data = memory[addr - base];
             return true;
         }
@@ -138,7 +152,7 @@ struct backed_region : region
 
     bool write(int addr, unsigned char data)
     {
-        if((type == RAM) && contains(addr) && enabled()) {
+        if((type == RAM) && contains(addr) && write_enabled()) {
             memory[addr - base] = data;
             return true;
         }
@@ -146,10 +160,6 @@ struct backed_region : region
     }
 };
 
-const region hires1_region = {"hires1", 0x2000, 0x2000};
-const region hires2_region = {"hires2", 0x4000, 0x2000};
-const region text1_region = {"text1", 0x400, 0x400};
-const region text2_region = {"text2", 0x800, 0x400};
 const region io_region = {"io", 0xC000, 0x100};
 
 struct MAINboard : board_base
@@ -171,19 +181,64 @@ struct MAINboard : board_base
     vector<backed_region*> regions;
     backed_region szp = {"szp", 0x0000, 0x0200, RAM, regions, [&](){return !ALTZP;}}; // stack and zero page
     backed_region aszp = {"aszp", 0x0000, 0x0200, RAM, regions, [&](){return ALTZP;}}; // alternate stack and zero page
-    backed_region rom = {"rom", 0xD000, 0x3000, ROM, regions, []{return true;}};
+
+    backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, regions, [&]{return true;}};
+    backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, regions, [&]{return true;}};
+
     backed_region i1rom = {"i1rom", 0xC100, 0x0F00, ROM, regions, [&]{return CXROM;}};
     backed_region i3rom = {"i3rom", 0xC300, 0x0F00, ROM, regions, [&]{return !CXROM && !C3ROM;}};
-    backed_region ram = {"ram", 0x0200, 0xFE00, RAM, regions, []{return true;}};
+
+    enabled_func read_from_aux_ram = [&]{return RAMRD;};
+    enabled_func write_to_aux_ram = [&]{return RAMWRT;};
+    enabled_func read_from_main_ram = [&]{return !read_from_aux_ram();};
+    enabled_func write_to_main_ram = [&]{return !write_to_aux_ram();};
+
+    backed_region ram_0200 = {"ram_0200", 0x0200, 0x0200, RAM, regions, read_from_main_ram, write_to_main_ram};
+    backed_region ram_0200_x = {"ram_0200_x", 0x0200, 0x0200, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+    backed_region ram_0C00 = {"ram_0C00", 0x0C00, 0x1400, RAM, regions, read_from_main_ram, write_to_main_ram};
+    backed_region ram_0C00_x = {"ram_0C00_x", 0x0C00, 0x1400, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+    backed_region ram_6000 = {"ram_6000", 0x6000, 0x6000, RAM, regions, read_from_main_ram, write_to_main_ram};
+    backed_region ram_6000_x = {"ram_6000_x", 0x6000, 0x6000, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+
+    enabled_func read_from_aux_text1 = [&]{return RAMRD && ((!STORE80) || (STORE80 && PAGE2));};
+    enabled_func write_to_aux_text1 = [&]{return RAMWRT && ((!STORE80) || (STORE80 && PAGE2));};
+    enabled_func read_from_main_text1 = [&]{return !read_from_aux_text1();};
+    enabled_func write_to_main_text1 = [&]{return !write_to_aux_text1();};
+
+    backed_region text_page1 = {"text_page1", 0x0400, 0x0400, RAM, regions, read_from_main_text1, write_to_main_text1};
+    backed_region text_page1x = {"text_page1x", 0x0400, 0x0400, RAM, regions, read_from_aux_text1, write_to_aux_text1};
+    backed_region text_page2 = {"text_page2", 0x0800, 0x0400, RAM, regions, read_from_main_ram, write_to_main_ram};
+    backed_region text_page2x = {"text_page2x", 0x0800, 0x0400, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+
+    enabled_func read_from_aux_hires1 = [&]{return HIRES && RAMRD && ((!STORE80) || (STORE80 && PAGE2));};
+    enabled_func write_to_aux_hires1 = [&]{return HIRES && RAMWRT && ((!STORE80) || (STORE80 && PAGE2));};
+    enabled_func read_from_main_hires1 = [&]{return !read_from_aux_hires1();};
+    enabled_func write_to_main_hires1 = [&]{return !write_to_aux_hires1();};
+
+    backed_region hires_page1 = {"hires_page1", 0x2000, 0x2000, RAM, regions, read_from_main_hires1, write_to_main_hires1};
+    backed_region hires_page1x = {"hires_page1x", 0x2000, 0x2000, RAM, regions, read_from_aux_hires1, write_to_aux_hires1};
+    backed_region hires_page2 = {"hires_page2", 0x4000, 0x2000, RAM, regions, read_from_main_ram, write_to_main_ram};
+    backed_region hires_page2x = {"hires_page2x", 0x4000, 0x2000, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+
+    enum {BANK1, BANK2} C08X_bank;
+    bool C08X_read_RAM;
+    bool C08X_write_RAM;
+
+    backed_region ram1_main_D000 = {"ram1_main_D000", 0xD000, 0x1000, RAM, regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
+    backed_region ram2_main_D000 = {"ram2_main_D000", 0xD000, 0x1000, RAM, regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
+    backed_region ram_main_E000 = {"ram1_main_E000", 0xE000, 0x2000, RAM, regions, [&]{return C08X_read_RAM;}, [&]{return !ALTZP && C08X_write_RAM;}};
+    backed_region ram1_main_D000_x = {"ram1_main_D000_x", 0xD000, 0x1000, RAM, regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
+    backed_region ram2_main_D000_x = {"ram2_main_D000_x", 0xD000, 0x1000, RAM, regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
+    backed_region ram_main_E000_x = {"ram1_main_E000_x", 0xE000, 0x2000, RAM, regions, [&]{return C08X_read_RAM;}, [&]{return ALTZP && C08X_write_RAM;}};
 
     set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
 
     MAINboard(unsigned char rom_image[32768])
     {
-        std::copy(rom_image + rom.base - 0x8000, rom_image + rom.base - 0x8000 + rom.size, rom.memory.begin());
+        std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
+        std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
         std::copy(rom_image + i1rom.base - 0x8000, rom_image + i1rom.base - 0x8000 + i1rom.size, i1rom.memory.begin());
         std::copy(rom_image + i3rom.base - 0x8000, rom_image + i3rom.base - 0x8000 + i3rom.size, i3rom.memory.begin());
-        std::fill(ram.memory.begin(), ram.memory.end(), 0x00);
         start_keyboard();
     }
 
@@ -220,6 +275,23 @@ struct MAINboard : board_base
                 data = 0x00;
                 return true;
             }
+            if((addr & 0xFFF0) == 0xC080) {
+                C08X_bank = ((addr >> 3) & 1) ? BANK1 : BANK2;
+                C08X_write_RAM = (addr >> 2) & 1;
+                C08X_read_RAM = ((addr >> 1) & 1) ^ C08X_write_RAM; // RAM flag is inverted by ROM!
+                if(debug & DEBUG_RW) printf("write C08X switch, return 0x%02X\n", data);
+                return true;
+            }
+            if(addr == 0xC011) {
+                data = (C08X_bank == BANK2) ? 0x80 : 0x0;
+                if(debug & DEBUG_RW) printf("read BSRBANK2, return 0x%02X\n", data);
+                return true;
+            }
+            if(addr == 0xC012) {
+                data = C08X_read_RAM ? 0x80 : 0x0;
+                if(debug & DEBUG_RW) printf("read BSRREADRAM, return 0x%02X\n", data);
+                return true;
+            }
             if(addr == 0xC000) {
                 data = get_keyboard_data_and_strobe();
                 if(debug & DEBUG_RW) printf("read KBD, return 0x%02X\n", data);
@@ -253,13 +325,13 @@ struct MAINboard : board_base
     {
         if(TEXT) {
             // TEXT takes precedence over all other modes
-            if(text1_region.contains(addr)) {
+            if(text_page1.write(addr, data)) {
                 printf("TEXT1 WRITE!\n");
-                if(!PAGE2) textport_change(&ram.memory[0x200]);
+                if(!PAGE2) textport_change(&text_page1.memory[0]);
             }
-            if(text2_region.contains(addr)) {
+            if(text_page2.write(addr, data)) {
                 printf("TEXT2 WRITE!\n");
-                if(PAGE2) textport_change(&ram.memory[0x600]);
+                if(PAGE2) textport_change(&text_page2.memory[0]);
             }
         } else {
             // MIXED shows text in last 4 columns in both HIRES or LORES
@@ -268,20 +340,20 @@ struct MAINboard : board_base
                 fflush(stdout); exit(0);
             } else {
                 if(HIRES) {
-                    if(hires1_region.contains(addr)) {
+                    if(hires_page1.write(addr, data)) {
                         printf("HIRES1 WRITE, abort!\n");
                         fflush(stdout); exit(0);
                     }
-                    if(hires2_region.contains(addr)) {
+                    if(hires_page2.write(addr, data)) {
                         printf("HIRES2 WRITE, abort!\n");
                         fflush(stdout); exit(0);
                     }
                 } else {
-                    if(text1_region.contains(addr)) {
+                    if(text_page1.write(addr, data)) {
                         printf("LORES1 WRITE, abort!\n");
                         fflush(stdout); exit(0);
                     }
-                    if(text2_region.contains(addr)) {
+                    if(text_page2.write(addr, data)) {
                         printf("LORES2 WRITE, abort!\n");
                         fflush(stdout); exit(0);
                     }
