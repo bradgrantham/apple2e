@@ -17,11 +17,15 @@ using namespace std;
 #include "dis6502.h"
 
 const unsigned int DEBUG_ERROR = 0x01;
-const unsigned int DEBUG_DECODE = 0x02;
-const unsigned int DEBUG_STATE = 0x04;
-const unsigned int DEBUG_RW = 0x08;
-const unsigned int DEBUG_BUS = 0x10;
-volatile unsigned int debug = DEBUG_ERROR ; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
+const unsigned int DEBUG_WARN = 0x02;
+const unsigned int DEBUG_DECODE = 0x04;
+const unsigned int DEBUG_STATE = 0x08;
+const unsigned int DEBUG_RW = 0x10;
+const unsigned int DEBUG_BUS = 0x20;
+volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN ; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
+
+volatile bool abort_on_banking = false;
+volatile bool abort_on_memory_fallthrough = true;
 
 struct SoftSwitch
 {
@@ -30,7 +34,7 @@ struct SoftSwitch
     int set_address;
     int read_address;
     bool read_also_changes;
-    bool sw = false;
+    bool enabled = false;
     bool implemented;
     SoftSwitch(const char* name_, int clear, int on, int read, bool read_changes, vector<SoftSwitch*>& s, bool implemented_ = false) :
         name(name_),
@@ -44,7 +48,7 @@ struct SoftSwitch
     }
     operator bool() const
     {
-        return sw;
+        return enabled;
     }
 };
 
@@ -174,9 +178,9 @@ struct MAINboard : board_base
     SoftSwitch ALTCHAR {"ALTCHAR", 0xC00E, 0xC00F, 0xC01E, false, switches};
     SoftSwitch VID80 {"VID80", 0xC00C, 0xC00D, 0xC01F, false, switches};
     SoftSwitch TEXT {"TEXT", 0xC050, 0xC051, 0xC01A, true, switches, true};
-    SoftSwitch MIXED {"MIXED", 0xC052, 0xC053, 0xC01B, true, switches};
+    SoftSwitch MIXED {"MIXED", 0xC052, 0xC053, 0xC01B, true, switches, true};
     SoftSwitch PAGE2 {"PAGE2", 0xC054, 0xC055, 0xC01C, true, switches, true};
-    SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches};
+    SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches, true};
 
     vector<backed_region*> regions;
     backed_region szp = {"szp", 0x0000, 0x0200, RAM, regions, [&](){return !ALTZP;}}; // stack and zero page
@@ -185,8 +189,8 @@ struct MAINboard : board_base
     backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, regions, [&]{return true;}};
     backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, regions, [&]{return true;}};
 
-    backed_region i1rom = {"i1rom", 0xC100, 0x0F00, ROM, regions, [&]{return CXROM;}};
-    backed_region i3rom = {"i3rom", 0xC300, 0x0F00, ROM, regions, [&]{return !CXROM && !C3ROM;}};
+    backed_region rom_C100 = {"rom_C100", 0xC100, 0x0F00, ROM, regions, [&]{return CXROM;}};
+    backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, regions, [&]{return !CXROM && !C3ROM;}};
 
     enabled_func read_from_aux_ram = [&]{return RAMRD;};
     enabled_func write_to_aux_ram = [&]{return RAMWRT;};
@@ -232,13 +236,25 @@ struct MAINboard : board_base
     backed_region ram_main_E000_x = {"ram1_main_E000_x", 0xE000, 0x2000, RAM, regions, [&]{return C08X_read_RAM;}, [&]{return ALTZP && C08X_write_RAM;}};
 
     set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
+    set<int> banking_read_switches = {
+        0xC080, 0xC081, 0xC082, 0xC083, 0xC084, 0xC085, 0xC086, 0xC087,
+        0xC088, 0xC089, 0xC08A, 0xC08B, 0xC08C, 0xC08D, 0xC08E, 0xC08F,
+    };
+    set<int> banking_write_switches = {
+        0xC006, 0xC007,
+        0xC000, 0xC001,
+        0xC002, 0xC003,
+        0xC004, 0xC005,
+        0xC008, 0xC009,
+        0xC00A, 0xC00B,
+    };
 
     MAINboard(unsigned char rom_image[32768])
     {
         std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
         std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
-        std::copy(rom_image + i1rom.base - 0x8000, rom_image + i1rom.base - 0x8000 + i1rom.size, i1rom.memory.begin());
-        std::copy(rom_image + i3rom.base - 0x8000, rom_image + i3rom.base - 0x8000 + i3rom.size, i3rom.memory.begin());
+        std::copy(rom_image + rom_C100.base - 0x8000, rom_image + rom_C100.base - 0x8000 + rom_C100.size, rom_C100.memory.begin());
+        std::copy(rom_image + rom_C300.base - 0x8000, rom_image + rom_C300.base - 0x8000 + rom_C300.size, rom_C300.memory.begin());
         start_keyboard();
     }
 
@@ -250,22 +266,26 @@ struct MAINboard : board_base
     {
         if(debug & DEBUG_RW) printf("MAIN board read\n");
         if(io_region.contains(addr)) {
+            if(abort_on_banking && (banking_read_switches.find(addr) != banking_read_switches.end())) {
+                printf("bank switch control %04X, aborting\n", addr);
+                exit(1);
+            }
             for(auto it = switches.begin(); it != switches.end(); it++) {
                 SoftSwitch* sw = *it;
                 if(addr == sw->read_address) {
-                    data = sw->sw ? 0x80 : 0x00;
+                    data = sw->enabled ? 0x80 : 0x00;
                     if(debug & DEBUG_RW) printf("Read status of %s = %02X\n", sw->name.c_str(), data);
                     return true;
                 } else if(sw->read_also_changes && addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
-                    sw->sw = true;
+                    sw->enabled = true;
                     if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(sw->read_also_changes && addr == sw->clear_address) {
-                    // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
+                    if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
-                    sw->sw = false;
+                    sw->enabled = false;
                     if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
                     return true;
                 }
@@ -319,6 +339,16 @@ struct MAINboard : board_base
                 return true;
             }
         }
+        if(debug & DEBUG_WARN) printf("unhandled memory read at %04X\n", addr);
+        if(abort_on_memory_fallthrough) {
+            printf("unhandled memory read at %04X, aborting\n", addr);
+            printf("Switches:\n");
+            for(auto it = switches.begin(); it != switches.end(); it++) {
+                SoftSwitch* sw = *it;
+                printf("    %s: %s\n", sw->name.c_str(), sw->enabled ? "enabled" : "disabled");
+            }
+            exit(1);
+        }
         return false;
     }
     virtual bool write(int addr, unsigned char data)
@@ -361,18 +391,22 @@ struct MAINboard : board_base
             }
         }
         if(io_region.contains(addr)) {
+            if(abort_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
+                printf("bank switch control %04X, aborting\n", addr);
+                exit(1);
+            }
             for(auto it = switches.begin(); it != switches.end(); it++) {
                 SoftSwitch* sw = *it;
                 if(addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
-                    sw->sw = true;
+                    sw->enabled = true;
                     if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(addr == sw->clear_address) {
                     // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
-                    sw->sw = false;
+                    sw->enabled = false;
                     if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
                     return true;
                 }
@@ -397,6 +431,11 @@ struct MAINboard : board_base
                 if(debug & DEBUG_RW) printf("wrote %02X to 0x%04X in %s\n", addr, data, r->name.c_str());
                 return true;
             }
+        }
+        if(debug & DEBUG_WARN) printf("unhandled memory write to %04X\n", addr);
+        if(abort_on_memory_fallthrough) {
+            printf("unhandled memory write to %04X, aborting\n", addr);
+            exit(1);
         }
         return false;
     }
@@ -537,6 +576,8 @@ struct CPU6502
             flag_change(Z, v == 0x00);
         if(flags & N)
             flag_change(N, v & 0x80);
+        if(flags & V)
+            flag_change(V, isset(C) != isset(N));
     }
     void cycle(bus_controller& bus)
     {
@@ -735,15 +776,12 @@ struct CPU6502
                 break;
             }
 
-            case 0x65: { // ADC
+            case 0xE5: { // SBC
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
-                int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                a = a + m + carry;
-                flag_change(N, a & 0x80);
-                flag_change(V, isset(C) != isset(N));
-                flag_change(Z, a == 0);
+                int borrow = isset(C) ? 0 : 1;
+                flag_change(C, !(a < m - borrow));
+                set_flags(N | Z | V, a = a - m - borrow);
                 break;
             }
 
@@ -753,43 +791,41 @@ struct CPU6502
                 m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < m - borrow));
-                a = a - m - borrow;
-                flag_change(N, a & 0x80);
-                flag_change(V, isset(C) != isset(N));
-                flag_change(Z, a == 0);
+                set_flags(N | Z | V, a = a - m - borrow);
                 break;
             }
+
             case 0xED: { // SBC
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
-                unsigned char imm = bus.read(addr);
+                unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < imm - borrow));
-                a = a - imm - borrow;
-                flag_change(N, a & 0x80);
-                flag_change(V, isset(C) != isset(N));
-                flag_change(Z, a == 0);
+                flag_change(C, !(a < m - borrow));
+                set_flags(N | Z | V, a = a - m - borrow);
                 break;
             }
 
             case 0xE9: { // SBC
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char m = read_pc_inc(bus);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < imm - borrow));
-                a = a - imm - borrow;
-                flag_change(N, a & 0x80);
-                flag_change(V, isset(C) != isset(N));
-                flag_change(Z, a == 0);
+                flag_change(C, !(a < m - borrow));
+                set_flags(N | Z | V, a = a - m - borrow);
+                break;
+            }
+
+            case 0x65: { // ADC
+                unsigned char zpg = read_pc_inc(bus);
+                m = bus.read(zpg);
+                int carry = isset(C) ? 1 : 0;
+                flag_change(C, (int)(a + m + carry) > 0xFF);
+                set_flags(N | Z | V, a = a + m + carry);
                 break;
             }
 
             case 0x69: { // ADC
-                unsigned char imm = read_pc_inc(bus);
+                m = read_pc_inc(bus);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + imm + carry) > 0xFF);
-                a = a + imm + carry;
-                flag_change(N, a & 0x80);
-                flag_change(V, isset(C) != isset(N));
-                flag_change(Z, a == 0);
+                flag_change(C, (int)(a + m + carry) > 0xFF);
+                set_flags(N | Z | V, a = a + m + carry);
                 break;
             }
 
@@ -1341,6 +1377,10 @@ int main(int argc, char **argv)
                 printf("continuing\n");
                 debugging = false;
                 start_keyboard();
+                continue;
+            } else if(strcmp(line, "banking") == 0) {
+                printf("abort on any banking\n");
+                abort_on_banking = true;
                 continue;
             } else if(strncmp(line, "debug", 5) == 0) {
                 sscanf(line + 6, "%d", &debug);
