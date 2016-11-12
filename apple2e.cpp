@@ -840,7 +840,7 @@ struct CPU6502
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
                 flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m - borrow));
+                set_flags(N | Z, a = a - (m + borrow));
                 break;
             }
 
@@ -851,7 +851,7 @@ struct CPU6502
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
                 flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m - borrow));
+                set_flags(N | Z, a = a - (m + borrow));
                 break;
             }
 
@@ -870,7 +870,7 @@ struct CPU6502
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
                 flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m - borrow));
+                set_flags(N | Z, a = a - (m + borrow));
                 break;
             }
 
