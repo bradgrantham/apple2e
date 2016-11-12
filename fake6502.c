@@ -176,6 +176,15 @@
 uint16_t pc;
 uint8_t sp, a, x, y, status;
 
+void get_registers(uint16_t reg[])
+{
+    reg[0] = pc;
+    reg[1] = sp;
+    reg[2] = a;
+    reg[3] = x;
+    reg[4] = y;
+    reg[5] = status;
+}
 
 //helper variables
 uint32_t instructions = 0; //keep track of total instructions executed
@@ -650,7 +659,7 @@ static void pha() {
 }
 
 static void php() {
-    push8(status | FLAG_BREAK);
+    push8(status); /* | FLAG_BREAK); */ /* neither 6502 ins manual *and* e-tradition.net state B is or'd */
 }
 
 static void pla() {
