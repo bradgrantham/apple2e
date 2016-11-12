@@ -387,35 +387,33 @@ struct MAINboard : board_base
         if(TEXT) {
             // TEXT takes precedence over all other modes
             if(text_page1.write(addr, data)) {
-                printf("TEXT1 WRITE!\n");
                 if(!PAGE2) textport_change(&text_page1.memory[0]);
             }
             if(text_page2.write(addr, data)) {
-                printf("TEXT2 WRITE!\n");
                 if(PAGE2) textport_change(&text_page2.memory[0]);
             }
         } else {
             // MIXED shows text in last 4 columns in both HIRES or LORES
             if(MIXED) {
-                printf("MIXED WRITE, abort!\n");
+                printf("MIXED WRITE, exit!\n");
                 fflush(stdout); exit(0);
             } else {
                 if(HIRES) {
                     if(hires_page1.write(addr, data)) {
-                        printf("HIRES1 WRITE, abort!\n");
+                        printf("HIRES1 WRITE, exit!\n");
                         fflush(stdout); exit(0);
                     }
                     if(hires_page2.write(addr, data)) {
-                        printf("HIRES2 WRITE, abort!\n");
+                        printf("HIRES2 WRITE, exit!\n");
                         fflush(stdout); exit(0);
                     }
                 } else {
                     if(text_page1.write(addr, data)) {
-                        printf("LORES1 WRITE, abort!\n");
+                        printf("LORES1 WRITE, exit!\n");
                         fflush(stdout); exit(0);
                     }
                     if(text_page2.write(addr, data)) {
-                        printf("LORES2 WRITE, abort!\n");
+                        printf("LORES2 WRITE, exit!\n");
                         fflush(stdout); exit(0);
                     }
                 }
@@ -423,7 +421,7 @@ struct MAINboard : board_base
         }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
-                printf("bank switch control %04X, aborting\n", addr);
+                printf("bank switch control %04X, exiting\n", addr);
                 exit(1);
             }
             for(auto it = switches.begin(); it != switches.end(); it++) {
@@ -467,7 +465,7 @@ struct MAINboard : board_base
         }
         if(debug & DEBUG_WARN) printf("unhandled memory write to %04X\n", addr);
         if(exit_on_memory_fallthrough) {
-            printf("unhandled memory write to %04X, aborting\n", addr);
+            printf("unhandled memory write to %04X, exiting\n", addr);
             exit(1);
         }
         return false;
@@ -833,13 +831,23 @@ struct CPU6502
                 break;
             }
 
+            case 0xF5: { // SBC zpg, X
+                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                m = bus.read(zpg);
+                int borrow = isset(C) ? 0 : 1;
+                flag_change(C, !(a < (m + borrow)));
+                flag_change(V, sbc_overflow(a, m, borrow));
+                set_flags(N | Z, a = a - (m + borrow));
+                break;
+            }
+
             case 0xE5: { // SBC zpg
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
                 flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m - borrow));
+                set_flags(N | Z, a = a - (m + borrow));
                 break;
             }
 
@@ -850,7 +858,7 @@ struct CPU6502
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
                 flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m - borrow));
+                set_flags(N | Z, a = a - (m + borrow));
                 break;
             }
 
@@ -869,7 +877,7 @@ struct CPU6502
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
                 flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m - borrow));
+                set_flags(N | Z, a = a - (m + borrow));
                 break;
             }
 
@@ -1118,6 +1126,12 @@ struct CPU6502
                 break;
             }
 
+            case 0xBE: { // LDX
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                set_flags(N | Z, x = bus.read(addr));
+                break;
+            }
+
             case 0xA6: { // LDX
                 unsigned char zpg = read_pc_inc(bus);
                 set_flags(N | Z, x = bus.read(zpg));
@@ -1154,9 +1168,8 @@ struct CPU6502
                 break;
             }
 
-            case 0xAD: {
+            case 0xAD: { // LDA
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
-                // LDA
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
