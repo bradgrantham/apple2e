@@ -862,6 +862,16 @@ struct CPU6502
                 break;
             }
 
+            case 0xFD: { // SBC abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                unsigned char m = bus.read(addr);
+                int borrow = isset(C) ? 0 : 1;
+                flag_change(C, !(a < (m + borrow)));
+                flag_change(V, sbc_overflow(a, m, borrow));
+                set_flags(N | Z, a = a - (m + borrow));
+                break;
+            }
+
             case 0xED: { // SBC abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 unsigned char m = bus.read(addr);
