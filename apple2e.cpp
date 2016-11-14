@@ -84,20 +84,33 @@ const int textport_row_base_addresses[] =
     0x7D0,
 };
 
-void textport_change(unsigned char *textport)
+bool textport_changed = false;
+unsigned char textport[24][40];
+
+void textport_display()
 {
-    printf("TEXTPORT:\n");
     printf("------------------------------------------\n");
     for(int row = 0; row < 24; row++) {
         printf("|");
         for(int col = 0; col < 40; col++) {
-            int addr = textport_row_base_addresses[row] - 0x400 + col;
-            int ch = textport[addr] & 0x7F;
+            int ch = textport[row][col];
             printf("%c", isprint(ch) ? ch : '?');
         }
         printf("|\n");
     }
     printf("------------------------------------------\n");
+}
+
+void textport_change(unsigned char *region)
+{
+    for(int row = 0; row < 24; row++) {
+        for(int col = 0; col < 40; col++) {
+            int addr = textport_row_base_addresses[row] - 0x400 + col;
+            int ch = region[addr] & 0x7F;
+            textport[row][col] = ch;
+        }
+    }
+    textport_changed = true;
 }
 
 struct region
@@ -1420,6 +1433,8 @@ string read_bus_and_disassemble(bus_controller &bus, int pc)
     return dis;
 }
 
+int millis_per_slice = 16;
+
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
@@ -1497,10 +1512,10 @@ int main(int argc, char **argv)
 
             if(have_key) {
                 if(key == '') {
-                debugging = true;
-                clear_strobe();
-                stop_keyboard();
-                continue;
+                    debugging = true;
+                    clear_strobe();
+                    stop_keyboard();
+                    continue;
                 } else {
                     mainboard->enqueue_key(key);
                     clear_strobe();
@@ -1508,7 +1523,8 @@ int main(int argc, char **argv)
             }
 
             chrono::time_point<chrono::system_clock> then;
-            for(int i = 0; i < 25575; i++) { // ~ 1/10th second
+            const int inst_per_slice = 255750 * millis_per_slice / 1000;
+            for(int i = 0; i < inst_per_slice; i++) {
                 string dis = read_bus_and_disassemble(bus, cpu.pc);
                 if(debug & DEBUG_DECODE)
                     printf("%s\n", dis.c_str());
@@ -1517,10 +1533,14 @@ int main(int argc, char **argv)
                 else
                     cpu.cycle(bus);
             }
+            if(textport_changed) {
+                textport_display();
+                textport_changed = false;
+            }
             chrono::time_point<chrono::system_clock> now;
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
-            this_thread::sleep_for(chrono::milliseconds(100) - elapsed_millis);
+            this_thread::sleep_for(chrono::milliseconds(millis_per_slice) - elapsed_millis);
 
         } else {
 
@@ -1552,6 +1572,10 @@ int main(int argc, char **argv)
                 step6502();
             else
                 cpu.cycle(bus);
+            if(textport_changed) {
+                textport_display();
+                textport_changed = false;
+            }
         }
     }
 }
