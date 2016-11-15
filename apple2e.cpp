@@ -291,6 +291,22 @@ struct MAINboard : board_base
     virtual ~MAINboard()
     {
     }
+
+    void reset()
+    {
+        // Partially from Apple //e Technical Reference
+        // XXX need to double-check these against the actual hardware
+        ALTZP.enabled = false;
+        CXROM.enabled = false;
+        RAMRD.enabled = false;
+        RAMWRT.enabled = false;
+        C3ROM.enabled = false;
+        C08X_bank = BANK2;
+        C08X_read_RAM = false;
+        C08X_write_RAM = true;
+        internal_C800_ROM_selected = true;
+    }
+
     virtual bool read(int addr, unsigned char &data)
     {
         if(debug & DEBUG_RW) printf("MAIN board read\n");
@@ -516,6 +532,13 @@ struct bus_controller
         if(debug & DEBUG_ERROR)
             fprintf(stderr, "no ownership of write %02X at %04X\n", data, addr);
     }
+
+    void reset()
+    {
+        for(auto b = boards.begin(); b != boards.end(); b++) {
+            (*b)->reset();
+        }
+    }
 };
 
 bus_controller bus;
@@ -606,6 +629,30 @@ struct CPU6502
         pc = bus.read(0xFFFC) + bus.read(0xFFFD) * 256;
         exception = NONE;
     }
+    void irq(bus_controller& bus)
+    {
+        stack_push(bus, (pc + 0) >> 8);
+        stack_push(bus, (pc + 0) & 0xFF);
+        stack_push(bus, p);
+        pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
+        exception = NONE;
+    }
+    void brk(bus_controller& bus)
+    {
+        stack_push(bus, (pc - 1) >> 8);
+        stack_push(bus, (pc - 1) & 0xFF);
+        stack_push(bus, p | B); // | B says the Synertek 6502 reference
+        pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
+        exception = NONE;
+    }
+    void nmi(bus_controller& bus)
+    {
+        stack_push(bus, (pc + 0) >> 8);
+        stack_push(bus, (pc + 0) & 0xFF);
+        stack_push(bus, p);
+        pc = bus.read(0xFFFA) + bus.read(0xFFFB) * 256;
+        exception = NONE;
+    }
     enum Operand {
         A,
         IMPL,
@@ -661,13 +708,25 @@ struct CPU6502
         if(exception == RESET) {
             if(debug & DEBUG_STATE) printf("RESET\n");
             reset(bus);
+        } if(exception == NMI) {
+            if(debug & DEBUG_STATE) printf("NMI\n");
+            nmi(bus);
+        } if(exception == INT) {
+            if(debug & DEBUG_STATE) printf("INT\n");
+            irq(bus);
         }
+        // BRK is a special case caused directly by an instruction
 
         unsigned char inst = read_pc_inc(bus);
 
         unsigned char m;
 
         switch(inst) {
+            case 0x00: { // BRK
+                brk(bus);
+                break;
+            }
+
             case 0xEA: { // NOP
                 break;
             }
@@ -758,6 +817,13 @@ struct CPU6502
                 break;
             }
 
+            case 0xF6: { // INC zpg, X
+                int zpg = (read_pc_inc(bus) + x) & 0xFF;
+                set_flags(N | Z, m = bus.read(zpg) + 1);
+                bus.write(zpg, m);
+                break;
+            }
+
             case 0xE8: { // INX
                 set_flags(N | Z, x = x + 1);
                 break;
@@ -793,6 +859,13 @@ struct CPU6502
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(isset(N))
                     pc += rel;
+                break;
+            }
+
+            case 0xA1: { // LDA (ind, X)
+                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
@@ -1010,6 +1083,12 @@ struct CPU6502
             case 0x09: { // ORA
                 unsigned char imm = read_pc_inc(bus);
                 set_flags(N | Z, a = a | imm);
+                break;
+            }
+
+            case 0x2D: { // AND
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                set_flags(N | Z, a = a & bus.read(addr));
                 break;
             }
 
@@ -1489,10 +1568,7 @@ int main(int argc, char **argv)
     MAINboard* mainboard;
 
     bus.boards.push_back(mainboard = new MAINboard(b));
-
-    for(auto b = bus.boards.begin(); b != bus.boards.end(); b++) {
-        (*b)->reset();
-    }
+    bus.reset();
 
     CPU6502 cpu;
 
@@ -1562,6 +1638,16 @@ int main(int argc, char **argv)
             } else if(strncmp(line, "debug", 5) == 0) {
                 sscanf(line + 6, "%d", &debug);
                 printf("debug set to %02X\n", debug);
+                continue;
+            } else if(strcmp(line, "reset") == 0) {
+                printf("machine reset.\n");
+                bus.reset();
+                cpu.reset(bus);
+                continue;
+            } else if(strcmp(line, "reboot") == 0) {
+                printf("CPU rebooted (NMI).\n");
+                bus.reset();
+                cpu.nmi(bus);
                 continue;
             }
             string dis = read_bus_and_disassemble(bus, cpu.pc);
