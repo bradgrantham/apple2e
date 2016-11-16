@@ -11,9 +11,11 @@ Thanks to Lawrence Kesteloot for keyboard code, and Bart Grantham for extracting
 Thanks to Mike Chambers (miker00lz@gmail.com) for his 6502 CPU emulator, which I used as a reference when mine hung on "PRINT 5".
 
 Usage:
+
     apple2e [-debugger] <romfile>
 
 Useful debugger commands:
+
     reset # Press CTRL-RESET
     reboot # Press CTRL-OpenApple-RESET
     debug N # Set debug flags to N (decimal). See apple2e.cpp for flags
