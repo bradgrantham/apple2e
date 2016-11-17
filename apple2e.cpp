@@ -8,7 +8,9 @@
 #include <iostream>
 #include <deque>
 #include <map>
+#include <thread>
 #include <signal.h>
+
 
 #include "fake6502.h"
 
@@ -19,6 +21,7 @@ using namespace std;
 #include "emulator.h"
 #include "keyboard.h"
 #include "dis6502.h"
+#include "interface.h"
 
 const unsigned int DEBUG_ERROR = 0x01;
 const unsigned int DEBUG_WARN = 0x02;
@@ -1514,6 +1517,119 @@ string read_bus_and_disassemble(bus_controller &bus, int pc)
 
 int millis_per_slice = 16;
 
+struct key_to_ascii
+{
+    unsigned char no_shift_no_control;
+    unsigned char yes_shift_no_control;
+    unsigned char no_shift_yes_control;
+    unsigned char yes_shift_yes_control;
+};
+
+map<int, key_to_ascii> interface_key_to_apple2e = 
+{
+    {'A', {97, 65, 1, 1}},
+    {'B', {98, 66, 2, 2}},
+    {'C', {99, 67, 3, 3}},
+    {'D', {100, 68, 4, 4}},
+    {'E', {101, 69, 5, 5}},
+    {'F', {102, 70, 6, 6}},
+    {'G', {103, 71, 7, 7}},
+    {'H', {104, 72, 8, 8}},
+    {'I', {105, 73, 9, 9}},
+    {'J', {106, 74, 10, 10}},
+    {'K', {107, 75, 11, 11}},
+    {'L', {108, 76, 12, 12}},
+    {'M', {109, 77, 13, 13}},
+    {'N', {110, 78, 14, 14}},
+    {'O', {111, 79, 15, 15}},
+    {'P', {112, 80, 16, 16}},
+    {'Q', {113, 81, 17, 17}},
+    {'R', {114, 82, 18, 18}},
+    {'S', {115, 83, 19, 19}},
+    {'T', {116, 84, 20, 20}},
+    {'U', {117, 85, 21, 21}},
+    {'V', {118, 86, 22, 22}},
+    {'W', {119, 87, 23, 23}},
+    {'X', {120, 88, 24, 24}},
+    {'Y', {121, 89, 25, 25}},
+    {'Z', {122, 90, 26, 26}},
+    {'1', {'1', '!', 0, 0}},
+    {'2', {'2', '@', 0, 0}},
+    {'3', {'3', '#', 0, 0}},
+    {'4', {'4', '$', 0, 0}},
+    {'5', {'5', '%', 0, 0}},
+    {'6', {'6', '^', 0, 0}},
+    {'7', {'7', '&', 0, 0}},
+    {'8', {'8', '*', 0, 0}},
+    {'9', {'9', '(', 0, 0}},
+    {'0', {'0', ')', 0, 0}},
+    {'-', {'-', '_', 0, 0}},
+    {'=', {'=', '+', 0, 0}},
+    {'[', {'[', '{', 0, 0}},
+    {']', {']', '}', 0, 0}},
+    {'\\', {'\\', '|', 0, 0}},
+    {';', {';', ':', 0, 0}},
+    {'\'', {'\'', '"', 0, 0}},
+    {',', {',', '<', 0, 0}},
+    {'.', {'.', '>', 0, 0}},
+    {'/', {'/', '?', 0, 0}},
+    {'`', {'`', '~', 0, 0}},
+    {' ', {' ', ' ', 0, 0}},
+};
+
+void keyboard_to_mainboard(MAINboard *board)
+{
+    static bool shift_down = false;
+    static bool control_down = false;
+    // skip CAPS for now
+
+    if(interface_event_waiting()) {
+        event e = interface_dequeue_event();
+        if(e.type == event::KEYDOWN) {
+            if((e.value == event::LEFT_SHIFT) || (e.value == event::RIGHT_SHIFT))
+                shift_down = true;
+            else if((e.value == event::LEFT_CONTROL) || (e.value == event::RIGHT_CONTROL))
+                control_down = true;
+            else if(e.value == event::ENTER) {
+                board->enqueue_key(141 - 128);
+            } else if(e.value == event::TAB) {
+                board->enqueue_key('	');
+            } else if(e.value == event::ESCAPE) {
+                board->enqueue_key('');
+            } else if(e.value == event::DELETE) {
+                board->enqueue_key(255 - 128);
+            } else if(e.value == event::RIGHT) {
+                board->enqueue_key(149 - 128);
+            } else if(e.value == event::LEFT) {
+                board->enqueue_key(136 - 128);
+            } else if(e.value == event::DOWN) {
+                board->enqueue_key(138 - 128);
+            } else if(e.value == event::UP) {
+                board->enqueue_key(139 - 128);
+            } else {
+                auto it = interface_key_to_apple2e.find(e.value);
+                if(it != interface_key_to_apple2e.end()) {
+                    const key_to_ascii& k = (*it).second;
+                    if(!shift_down && !control_down)
+                        board->enqueue_key(k.no_shift_no_control);
+                    else if(shift_down && !control_down)
+                        board->enqueue_key(k.yes_shift_no_control);
+                    else if(!shift_down && control_down)
+                        board->enqueue_key(k.no_shift_yes_control);
+                    else if(shift_down && control_down)
+                        board->enqueue_key(k.yes_shift_yes_control);
+                }
+            }
+        } else if(e.type == event::KEYUP) {
+            if((e.value == event::LEFT_SHIFT) || (e.value == event::RIGHT_SHIFT))
+                shift_down = false;
+            else if((e.value == event::LEFT_CONTROL) || (e.value == event::RIGHT_CONTROL))
+                control_down = false;
+        }
+    }
+}
+
+
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
@@ -1579,12 +1695,16 @@ int main(int argc, char **argv)
     if(use_fake6502)
         reset6502();
 
+    interface_start();
+
     while(1) {
         if(!debugging) {
             poll_keyboard();
 
             char key;
             bool have_key = peek_key(&key);
+
+            keyboard_to_mainboard(mainboard);
 
             if(have_key) {
                 if(key == '') {
@@ -1613,6 +1733,7 @@ int main(int argc, char **argv)
                 textport_display();
                 textport_changed = false;
             }
+            interface_iterate();
             chrono::time_point<chrono::system_clock> now;
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
@@ -1662,6 +1783,9 @@ int main(int argc, char **argv)
                 textport_display();
                 textport_changed = false;
             }
+            interface_iterate();
         }
     }
+
+    interface_shutdown();
 }
