@@ -1,7 +1,7 @@
 #include <tuple>
 
 struct event {
-    enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT} type;
+    enum Type {NONE, KEYDOWN, KEYUP, RESET, REBOOT, QUIT} type;
     static const int LEFT_SHIFT = 340;
     static const int LEFT_CONTROL = 341;
     static const int LEFT_ALT = 342;
@@ -26,7 +26,7 @@ struct event {
     static const int END = 269;
     static const int CAPS_LOCK = 280;
     int value;
-    event(EventType type_, int value_) :
+    event(Type type_, int value_) :
         type(type_),
         value(value_)
     {}

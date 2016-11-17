@@ -136,7 +136,6 @@ struct APPLE2Edisplay
                 if((within_page >= row_offset) && 
                     (within_page < row_offset + 40)){
                     int col = within_page - row_offset;
-                    printf("TEXT WRITE %d %d %d '%c'\n", page, row, col, data);
                     text_page[page][row][col] = data;
                 }
             }
@@ -1589,15 +1588,17 @@ map<int, key_to_ascii> interface_key_to_apple2e =
     {' ', {' ', ' ', 0, 0}},
 };
 
-void keyboard_to_mainboard(MAINboard *board)
+enum event::Type keyboard_to_mainboard(MAINboard *board)
 {
     static bool shift_down = false;
     static bool control_down = false;
     // skip CAPS for now
 
-    if(interface_event_waiting()) {
+    while(interface_event_waiting()) {
         event e = interface_dequeue_event();
-        if(e.type == event::KEYDOWN) {
+        if(e.type == event::QUIT) {
+            return event::QUIT;
+        } else if(e.type == event::KEYDOWN) {
             if((e.value == event::LEFT_SHIFT) || (e.value == event::RIGHT_SHIFT))
                 shift_down = true;
             else if((e.value == event::LEFT_CONTROL) || (e.value == event::RIGHT_CONTROL))
@@ -1639,6 +1640,7 @@ void keyboard_to_mainboard(MAINboard *board)
                 control_down = false;
         }
     }
+    return event::NONE;
 }
 
 
@@ -1717,7 +1719,9 @@ int main(int argc, char **argv)
             char key;
             bool have_key = peek_key(&key);
 
-            keyboard_to_mainboard(mainboard);
+            if(keyboard_to_mainboard(mainboard) == event::QUIT) {
+                break;
+            }
 
             if(have_key) {
                 if(key == '') {
@@ -1800,5 +1804,6 @@ int main(int argc, char **argv)
         }
     }
 
+    stop_keyboard();
     interface_shutdown();
 }

@@ -71,7 +71,6 @@ static void error_callback(int error, const char* description)
 
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
-    printf("key %d(%c), scancode %d, action %d, mods %02X\n", key, isprint(key) ? key : '?', scancode, action, mods);
     if(action == GLFW_PRESS) {
         event_queue.push_back({event::KEYDOWN, key});
     } else if(action == GLFW_RELEASE) {
@@ -167,7 +166,7 @@ void interface_start()
 void interface_iterate()
 {
     if(glfwWindowShouldClose(window)) {
-        // set to quit
+        event_queue.push_back({event::QUIT, 0});
     }
 
     redraw(window);
