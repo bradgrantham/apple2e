@@ -89,6 +89,7 @@ struct APPLE2Edisplay
          0x0350,  0x0750,  0x0B50,  0x0F50,  0x1350,  0x1750,  0x1B50,  0x1F50, 
          0x03D0,  0x07D0,  0x0BD0,  0x0FD0,  0x13D0,  0x17D0,  0x1BD0,  0x1FD0, 
     };
+    static int hires_memory_to_scanout_address[8192];
     static constexpr int text_row_base_offsets[] = 
     {
         0x000,
@@ -116,6 +117,10 @@ struct APPLE2Edisplay
         0x350,
         0x3D0,
     };
+    APPLE2Edisplay()
+    {
+    }
+    static void initialize_memory_to_scanout() __attribute__((constructor));
 
     // External display switches
     enum {TEXT, LORES, HIRES} mode = TEXT;
@@ -124,7 +129,7 @@ struct APPLE2Edisplay
 
     bool changed = false;
     unsigned char text_page[2][24][40];
-    unsigned char hires_page[2][192][40];
+    unsigned char hires_page[2][192 * 40];
     bool hires_row_changed[2][192];
 
     void display_text(int page)
@@ -148,7 +153,7 @@ struct APPLE2Edisplay
                 hires_row_changed[page][row] = false;
                 static unsigned char pixels[280 * 3];
                 for(int i = 0; i < 280; i++) {
-                    unsigned char *rowpixels = hires_page[page][row];
+                    unsigned char *rowpixels = hires_page[page] + row * 40;
                     int byte = i / 7;
                     int bit = i % 7;
                     if(rowpixels[byte] & (1 << bit)) {
@@ -173,9 +178,9 @@ struct APPLE2Edisplay
         // bool mixed_mode = false;
         if(mode == TEXT) {
             display_text(display_page);
-        } // else if(mode == HIRES) {
+        } else if(mode == HIRES) {
             display_hires(display_page, update);
-        // }
+        }
     }
 
     static const int text_page1_base = 0x400;
@@ -183,7 +188,7 @@ struct APPLE2Edisplay
     static const int text_page_size = 0x400;
     static const int hires_page1_base = 0x2000;
     static const int hires_page2_base = 0x4000;
-    static const int hires_page_size = 0x2000;
+    static const int hires_page_size = 8192;
     bool write(int addr, unsigned char data)
     {
         // We know text page 1 and 2 are contiguous
@@ -200,20 +205,16 @@ struct APPLE2Edisplay
             }
             changed = true;
             return true;
-        }
-        if((addr >= hires_page1_base) && (addr < hires_page2_base + hires_page_size)) {
-            int page = (addr >= hires_page2_base) ? 1 : 0;
-            int within_page = addr - hires_page1_base - page * hires_page_size;
-            // YUCK - use a lookup or at least a map...
-            for(int row = 0; row < 192; row++) {
-                int row_offset = hires_row_base_offsets[row];
-                if((within_page >= row_offset) && 
-                    (within_page < row_offset + 40)){
-                    int col = within_page - row_offset;
-                    hires_page[page][row][col] = data;
-                    hires_row_changed[page][row] = true;
-                }
-            }
+
+        } else if(((addr >= hires_page1_base) && (addr < hires_page1_base + hires_page_size)) || ((addr >= hires_page2_base) && (addr < hires_page2_base + hires_page_size))) {
+
+            int page = (addr < hires_page2_base) ? 0 : 1;
+            int page_base = (page == 0) ? hires_page1_base : hires_page2_base;
+            int within_page = addr - page_base;
+            int scanout_address = hires_memory_to_scanout_address[within_page];
+            hires_page[page][scanout_address] = data;
+            int row = scanout_address / 40;
+            hires_row_changed[page][row] = true;
             changed = true;
             return true;
         }
@@ -222,6 +223,17 @@ struct APPLE2Edisplay
 };
 constexpr int APPLE2Edisplay::text_row_base_offsets[24];
 constexpr int APPLE2Edisplay::hires_row_base_offsets[192];
+int APPLE2Edisplay::hires_memory_to_scanout_address[8192];
+
+void APPLE2Edisplay::initialize_memory_to_scanout()
+{
+    for(int row = 0; row < 192; row++) {
+        int row_address = hires_row_base_offsets[row];
+        for(int byte = 0; byte < 40; byte++) {
+            hires_memory_to_scanout_address[row_address + byte] = row * 40 + byte;
+        }
+    }
+}
 
 struct region
 {
