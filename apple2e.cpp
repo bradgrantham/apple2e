@@ -59,62 +59,94 @@ struct SoftSwitch
     }
 };
 
-const int textport_row_base_addresses[] = 
+struct APPLE2Edisplay
 {
-    0x400,
-    0x480,
-    0x500,
-    0x580,
-    0x600,
-    0x680,
-    0x700,
-    0x780,
-    0x428,
-    0x4A8,
-    0x528,
-    0x5A8,
-    0x628,
-    0x6A8,
-    0x728,
-    0x7A8,
-    0x450,
-    0x4D0,
-    0x550,
-    0x5D0,
-    0x650,
-    0x6D0,
-    0x750,
-    0x7D0,
+    static constexpr int text_row_base_offsets[] = 
+    {
+        0x000,
+        0x080,
+        0x100,
+        0x180,
+        0x200,
+        0x280,
+        0x300,
+        0x380,
+        0x028,
+        0x0A8,
+        0x128,
+        0x1A8,
+        0x228,
+        0x2A8,
+        0x328,
+        0x3A8,
+        0x050,
+        0x0D0,
+        0x150,
+        0x1D0,
+        0x250,
+        0x2D0,
+        0x350,
+        0x3D0,
+    };
+
+    // External display switches
+    enum {TEXT, LORES, HIRES} mode = TEXT;
+    int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
+    bool mixed_mode = false;
+
+    bool changed = false;
+    unsigned char text_page[2][24][40];
+
+    void display_text(int page)
+    {
+        printf("------------------------------------------\n");
+        for(int row = 0; row < 24; row++) {
+            printf("|");
+            for(int col = 0; col < 40; col++) {
+                int ch = text_page[page][row][col] & 0x7F;
+                printf("%c", isprint(ch) ? ch : '?');
+            }
+            printf("|\n");
+        }
+        printf("------------------------------------------\n");
+    }
+
+    void display()
+    {
+        // enum {TEXT, LORES, HIRES} mode = TEXT;
+        // int display_page = 0;
+        // bool mixed_mode = false;
+        if(mode == TEXT) {
+            display_text(display_page);
+        } else {
+        }
+    }
+
+    static const int text_page1_base = 0x400;
+    static const int text_page2_base = 0x800;
+    static const int text_page_size = 0x400;
+    bool write(int addr, unsigned char data)
+    {
+        // We know text page 1 and 2 are contiguous
+        if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
+            int page = (addr >= text_page2_base) ? 1 : 0;
+            int within_page = addr - text_page1_base - page * text_page_size;
+            for(int row = 0; row < 24; row++) {
+                int row_offset = text_row_base_offsets[row];
+                if((within_page >= row_offset) && 
+                    (within_page < row_offset + 40)){
+                    int col = within_page - row_offset;
+                    printf("TEXT WRITE %d %d %d '%c'\n", page, row, col, data);
+                    text_page[page][row][col] = data;
+                }
+            }
+            changed = true;
+            return true;
+        }
+        return false;
+    }
 };
-
-bool textport_changed = false;
-unsigned char textport[24][40];
-
-void textport_display()
-{
-    printf("------------------------------------------\n");
-    for(int row = 0; row < 24; row++) {
-        printf("|");
-        for(int col = 0; col < 40; col++) {
-            int ch = textport[row][col];
-            printf("%c", isprint(ch) ? ch : '?');
-        }
-        printf("|\n");
-    }
-    printf("------------------------------------------\n");
-}
-
-void textport_change(unsigned char *region)
-{
-    for(int row = 0; row < 24; row++) {
-        for(int col = 0; col < 40; col++) {
-            int addr = textport_row_base_addresses[row] - 0x400 + col;
-            int ch = region[addr] & 0x7F;
-            textport[row][col] = ch;
-        }
-    }
-    textport_changed = true;
-}
+constexpr int APPLE2Edisplay::text_row_base_offsets[24];
 
 struct region
 {
@@ -275,13 +307,16 @@ struct MAINboard : board_base
 
     deque<unsigned char> keyboard_buffer;
 
+    APPLE2Edisplay *display;
+
     void enqueue_key(unsigned char k)
     {
         keyboard_buffer.push_back(k);
     }
 
-    MAINboard(unsigned char rom_image[32768]) :
-        internal_C800_ROM_selected(true)
+    MAINboard(unsigned char rom_image[32768], APPLE2Edisplay *d) :
+        internal_C800_ROM_selected(true),
+        display(d)
     {
         std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
         std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
@@ -416,40 +451,17 @@ struct MAINboard : board_base
     }
     virtual bool write(int addr, unsigned char data)
     {
-        if(TEXT) {
-            // TEXT takes precedence over all other modes
-            if(text_page1.write(addr, data)) {
-                if(!PAGE2) textport_change(&text_page1.memory[0]);
-            }
-            if(text_page2.write(addr, data)) {
-                if(PAGE2) textport_change(&text_page2.memory[0]);
-            }
-        } else {
-            // MIXED shows text in last 4 columns in both HIRES or LORES
-            if(MIXED) {
-                printf("MIXED WRITE, exit!\n");
-                fflush(stdout); exit(0);
-            } else {
-                if(HIRES) {
-                    if(hires_page1.write(addr, data)) {
-                        printf("HIRES1 WRITE, exit!\n");
-                        fflush(stdout); exit(0);
-                    }
-                    if(hires_page2.write(addr, data)) {
-                        printf("HIRES2 WRITE, exit!\n");
-                        fflush(stdout); exit(0);
-                    }
-                } else {
-                    if(text_page1.write(addr, data)) {
-                        printf("LORES1 WRITE, exit!\n");
-                        fflush(stdout); exit(0);
-                    }
-                    if(text_page2.write(addr, data)) {
-                        printf("LORES2 WRITE, exit!\n");
-                        fflush(stdout); exit(0);
-                    }
-                }
-            }
+        if(text_page1.write(addr, data) ||
+            text_page1x.write(addr, data) ||
+            text_page2.write(addr, data) ||
+            text_page2x.write(addr, data) ||
+            hires_page1.write(addr, data) ||
+            hires_page1x.write(addr, data) ||
+            hires_page2.write(addr, data) ||
+            hires_page2x.write(addr, data))
+        {
+            display->write(addr, data);
+            return true;
         }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
@@ -1681,9 +1693,10 @@ int main(int argc, char **argv)
     }
     fclose(fp);
 
+    APPLE2Edisplay display;
     MAINboard* mainboard;
 
-    bus.boards.push_back(mainboard = new MAINboard(b));
+    bus.boards.push_back(mainboard = new MAINboard(b, &display));
     bus.reset();
 
     CPU6502 cpu;
@@ -1729,9 +1742,9 @@ int main(int argc, char **argv)
                 else
                     cpu.cycle(bus);
             }
-            if(textport_changed) {
-                textport_display();
-                textport_changed = false;
+            if(display.changed) {
+                display.display();
+                display.changed = false;
             }
             interface_iterate();
             chrono::time_point<chrono::system_clock> now;
@@ -1779,9 +1792,9 @@ int main(int argc, char **argv)
                 step6502();
             else
                 cpu.cycle(bus);
-            if(textport_changed) {
-                textport_display();
-                textport_changed = false;
+            if(display.changed) {
+                display.display();
+                display.changed = false;
             }
             interface_iterate();
         }
