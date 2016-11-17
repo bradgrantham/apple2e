@@ -37,3 +37,6 @@ event interface_dequeue_event();
 void interface_start();
 void interface_iterate();
 void interface_shutdown();
+
+void interface_setregion(int w, int h);
+void interface_updaterect(int x, int y, int w, int h, unsigned char *rgb);

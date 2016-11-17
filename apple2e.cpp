@@ -33,6 +33,7 @@ volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN ; // | DEBUG_DECODE | DEB
 
 volatile bool exit_on_banking = false;
 volatile bool exit_on_memory_fallthrough = true;
+volatile bool run_fast = false;
 
 struct SoftSwitch
 {
@@ -61,6 +62,33 @@ struct SoftSwitch
 
 struct APPLE2Edisplay
 {
+    static constexpr int hires_row_base_offsets[] = 
+    {
+         0x0000,  0x0400,  0x0800,  0x0C00,  0x1000,  0x1400,  0x1800,  0x1C00, 
+         0x0080,  0x0480,  0x0880,  0x0C80,  0x1080,  0x1480,  0x1880,  0x1C80, 
+         0x0100,  0x0500,  0x0900,  0x0D00,  0x1100,  0x1500,  0x1900,  0x1D00, 
+         0x0180,  0x0580,  0x0980,  0x0D80,  0x1180,  0x1580,  0x1980,  0x1D80, 
+         0x0200,  0x0600,  0x0A00,  0x0E00,  0x1200,  0x1600,  0x1A00,  0x1E00, 
+         0x0280,  0x0680,  0x0A80,  0x0E80,  0x1280,  0x1680,  0x1A80,  0x1E80, 
+         0x0300,  0x0700,  0x0B00,  0x0F00,  0x1300,  0x1700,  0x1B00,  0x1F00, 
+         0x0380,  0x0780,  0x0B80,  0x0F80,  0x1380,  0x1780,  0x1B80,  0x1F80, 
+         0x0028,  0x0428,  0x0828,  0x0C28,  0x1028,  0x1428,  0x1828,  0x1C28, 
+         0x00A8,  0x04A8,  0x08A8,  0x0CA8,  0x10A8,  0x14A8,  0x18A8,  0x1CA8, 
+         0x0128,  0x0528,  0x0928,  0x0D28,  0x1128,  0x1528,  0x1928,  0x1D28, 
+         0x01A8,  0x05A8,  0x09A8,  0x0DA8,  0x11A8,  0x15A8,  0x19A8,  0x1DA8, 
+         0x0228,  0x0628,  0x0A28,  0x0E28,  0x1228,  0x1628,  0x1A28,  0x1E28, 
+         0x02A8,  0x06A8,  0x0AA8,  0x0EA8,  0x12A8,  0x16A8,  0x1AA8,  0x1EA8, 
+         0x0328,  0x0728,  0x0B28,  0x0F28,  0x1328,  0x1728,  0x1B28,  0x1F28, 
+         0x03A8,  0x07A8,  0x0BA8,  0x0FA8,  0x13A8,  0x17A8,  0x1BA8,  0x1FA8, 
+         0x0050,  0x0450,  0x0850,  0x0C50,  0x1050,  0x1450,  0x1850,  0x1C50, 
+         0x00D0,  0x04D0,  0x08D0,  0x0CD0,  0x10D0,  0x14D0,  0x18D0,  0x1CD0, 
+         0x0150,  0x0550,  0x0950,  0x0D50,  0x1150,  0x1550,  0x1950,  0x1D50, 
+         0x01D0,  0x05D0,  0x09D0,  0x0DD0,  0x11D0,  0x15D0,  0x19D0,  0x1DD0, 
+         0x0250,  0x0650,  0x0A50,  0x0E50,  0x1250,  0x1650,  0x1A50,  0x1E50, 
+         0x02D0,  0x06D0,  0x0AD0,  0x0ED0,  0x12D0,  0x16D0,  0x1AD0,  0x1ED0, 
+         0x0350,  0x0750,  0x0B50,  0x0F50,  0x1350,  0x1750,  0x1B50,  0x1F50, 
+         0x03D0,  0x07D0,  0x0BD0,  0x0FD0,  0x13D0,  0x17D0,  0x1BD0,  0x1FD0, 
+    };
     static constexpr int text_row_base_offsets[] = 
     {
         0x000,
@@ -96,35 +124,66 @@ struct APPLE2Edisplay
 
     bool changed = false;
     unsigned char text_page[2][24][40];
+    unsigned char hires_page[2][192][40];
+    bool hires_row_changed[2][192];
 
     void display_text(int page)
     {
-        printf("------------------------------------------\n");
+        fputs("------------------------------------------\n", stdout);
         for(int row = 0; row < 24; row++) {
-            printf("|");
+            fputs("|", stdout);
             for(int col = 0; col < 40; col++) {
                 int ch = text_page[page][row][col] & 0x7F;
-                printf("%c", isprint(ch) ? ch : '?');
+                fputc(isprint(ch) ? ch : '?', stdout);
             }
-            printf("|\n");
+            fputs("|\n", stdout);
         }
-        printf("------------------------------------------\n");
+        fputs("------------------------------------------\n", stdout);
     }
 
-    void display()
+    void display_hires(int page, std::function<void(int,int,int,int,unsigned char*)> update)
+    {
+        for(int row = 0; row < 192; row++) {
+            if(hires_row_changed[page][row]) {
+                hires_row_changed[page][row] = false;
+                static unsigned char pixels[280 * 3];
+                for(int i = 0; i < 280; i++) {
+                    unsigned char *rowpixels = hires_page[page][row];
+                    int byte = i / 7;
+                    int bit = i % 7;
+                    if(rowpixels[byte] & (1 << bit)) {
+                        pixels[i * 3 + 0] = 255;
+                        pixels[i * 3 + 1] = 255;
+                        pixels[i * 3 + 2] = 255;
+                    } else {
+                        pixels[i * 3 + 0] = 0;
+                        pixels[i * 3 + 1] = 0;
+                        pixels[i * 3 + 2] = 0;
+                    }
+                }
+                update(0, row, 280, 1, pixels);
+            }
+        }
+    }
+
+    void display(std::function<void(int,int,int,int,unsigned char*)> update)
     {
         // enum {TEXT, LORES, HIRES} mode = TEXT;
         // int display_page = 0;
         // bool mixed_mode = false;
         if(mode == TEXT) {
             display_text(display_page);
-        } else {
-        }
+        } // else if(mode == HIRES) {
+            display_hires(display_page, update);
+        // }
     }
 
     static const int text_page1_base = 0x400;
     static const int text_page2_base = 0x800;
     static const int text_page_size = 0x400;
+    static const int hires_page1_base = 0x2000;
+    static const int hires_page2_base = 0x4000;
+    static const int hires_page_size = 0x2000;
     bool write(int addr, unsigned char data)
     {
         // We know text page 1 and 2 are contiguous
@@ -142,10 +201,27 @@ struct APPLE2Edisplay
             changed = true;
             return true;
         }
+        if((addr >= hires_page1_base) && (addr < hires_page2_base + hires_page_size)) {
+            int page = (addr >= hires_page2_base) ? 1 : 0;
+            int within_page = addr - hires_page1_base - page * hires_page_size;
+            // YUCK - use a lookup or at least a map...
+            for(int row = 0; row < 192; row++) {
+                int row_offset = hires_row_base_offsets[row];
+                if((within_page >= row_offset) && 
+                    (within_page < row_offset + 40)){
+                    int col = within_page - row_offset;
+                    hires_page[page][row][col] = data;
+                    hires_row_changed[page][row] = true;
+                }
+            }
+            changed = true;
+            return true;
+        }
         return false;
     }
 };
 constexpr int APPLE2Edisplay::text_row_base_offsets[24];
+constexpr int APPLE2Edisplay::hires_row_base_offsets[192];
 
 struct region
 {
@@ -1643,7 +1719,6 @@ enum event::Type keyboard_to_mainboard(MAINboard *board)
     return event::NONE;
 }
 
-
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
@@ -1712,6 +1787,8 @@ int main(int argc, char **argv)
 
     interface_start();
 
+    interface_setregion(280, 192);
+
     while(1) {
         if(!debugging) {
             poll_keyboard();
@@ -1736,7 +1813,7 @@ int main(int argc, char **argv)
             }
 
             chrono::time_point<chrono::system_clock> then;
-            const int inst_per_slice = 255750 * millis_per_slice / 1000;
+            int inst_per_slice = 255750 * millis_per_slice / 1000 * 2;
             for(int i = 0; i < inst_per_slice; i++) {
                 string dis = read_bus_and_disassemble(bus, cpu.pc);
                 if(debug & DEBUG_DECODE)
@@ -1747,15 +1824,16 @@ int main(int argc, char **argv)
                     cpu.cycle(bus);
             }
             if(display.changed) {
-                display.display();
+                display.display([&](int x, int y, int w, int h, unsigned char *p){interface_updaterect(x, y, w, h, p);});
                 display.changed = false;
             }
             interface_iterate();
             chrono::time_point<chrono::system_clock> now;
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
-            this_thread::sleep_for(chrono::milliseconds(millis_per_slice) - elapsed_millis);
-
+            if(!run_fast)
+                this_thread::sleep_for(chrono::milliseconds(millis_per_slice) - elapsed_millis);
+            
         } else {
 
             printf("> ");
@@ -1768,6 +1846,14 @@ int main(int argc, char **argv)
                 printf("continuing\n");
                 debugging = false;
                 start_keyboard();
+                continue;
+            } else if(strcmp(line, "fast") == 0) {
+                printf("run flat out\n");
+                run_fast = true;
+                continue;
+            } else if(strcmp(line, "1mhz") == 0) {
+                printf("run 1mhz\n");
+                run_fast = false;
                 continue;
             } else if(strcmp(line, "banking") == 0) {
                 printf("abort on any banking\n");
@@ -1797,7 +1883,7 @@ int main(int argc, char **argv)
             else
                 cpu.cycle(bus);
             if(display.changed) {
-                display.display();
+                display.display([&](int x, int y, int w, int h, unsigned char *p){interface_updaterect(x, y, w, h, p);});
                 display.changed = false;
             }
             interface_iterate();

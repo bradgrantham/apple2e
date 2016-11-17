@@ -1,5 +1,5 @@
 INCFLAGS        += -I/opt/local/include -I/opt/local/include/freetype2
-CXXFLAGS        += $(INCFLAGS) -g -Wall --std=c++11 # -O
+CXXFLAGS        += $(INCFLAGS) -g -Wall --std=c++11 -O
 LDFLAGS        += -L/opt/local/lib
 LDLIBS          += -lglfw -lglew -lfreeimageplus -lfreetype -framework OpenGL -framework Cocoa -framework IOkit
 
