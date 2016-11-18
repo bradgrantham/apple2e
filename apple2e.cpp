@@ -178,9 +178,9 @@ struct APPLE2Edisplay
         // bool mixed_mode = false;
         if(mode == TEXT) {
             display_text(display_page);
-        } else if(mode == HIRES) {
+        } // else if(mode == HIRES) {
             display_hires(display_page, update);
-        }
+        // }
     }
 
     static const int text_page1_base = 0x400;
@@ -322,6 +322,8 @@ struct MAINboard : board_base
     SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches, true};
 
     vector<backed_region*> regions;
+    vector<backed_region*> regions_by_page[256];
+
     backed_region szp = {"szp", 0x0000, 0x0200, RAM, regions, [&](){return !ALTZP;}}; // stack and zero page
     backed_region aszp = {"aszp", 0x0000, 0x0200, RAM, regions, [&](){return ALTZP;}}; // alternate stack and zero page
 
@@ -411,6 +413,18 @@ struct MAINboard : board_base
         std::copy(rom_image + rom_C300.base - 0x8000, rom_image + rom_C300.base - 0x8000 + rom_C300.size, rom_C300.memory.begin());
         std::copy(rom_image + rom_C400.base - 0x8000, rom_image + rom_C400.base - 0x8000 + rom_C400.size, rom_C400.memory.begin());
         std::copy(rom_image + rom_C800.base - 0x8000, rom_image + rom_C800.base - 0x8000 + rom_C800.size, rom_C800.memory.begin());
+
+        for(auto it = regions.begin(); it != regions.end(); it++) {
+            backed_region* r = *it;
+            int firstpage = r->base / 256;
+            int lastpage = (r->base + r->size + 255) / 256 - 1;
+            printf("%04X %04X ->", r->base, r->base + r->size - 1);
+            for(int i = firstpage; i <= lastpage; i++) {
+                printf(" %02X", i);
+                regions_by_page[i].push_back(r);
+            }
+            printf("\n");
+        }
     }
 
     virtual ~MAINboard()
@@ -509,7 +523,7 @@ struct MAINboard : board_base
             printf("unhandled MMIO Read at %04X\n", addr);
             fflush(stdout); exit(0);
         }
-        for(auto it = regions.begin(); it != regions.end(); it++) {
+        for(auto it = regions_by_page[addr / 256].begin(); it != regions_by_page[addr / 256].end(); it++) {
             backed_region* r = *it;
             if(r->read(addr, data)) {
                 if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from %s\n", addr, data, r->name.c_str());
@@ -538,6 +552,7 @@ struct MAINboard : board_base
     }
     virtual bool write(int addr, unsigned char data)
     {
+#if 0
         if(text_page1.write(addr, data) ||
             text_page1x.write(addr, data) ||
             text_page2.write(addr, data) ||
@@ -546,9 +561,11 @@ struct MAINboard : board_base
             hires_page1x.write(addr, data) ||
             hires_page2.write(addr, data) ||
             hires_page2x.write(addr, data))
+#else
+        if(((addr >= 0x400) && (addr <= 0xBFF)) || ((addr >= 0x2000) && (addr <= 0x5FFF)))
+#endif
         {
             display->write(addr, data);
-            return true;
         }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
@@ -587,7 +604,7 @@ struct MAINboard : board_base
             printf("unhandled MMIO Write at %04X\n", addr);
             fflush(stdout); exit(0);
         }
-        for(auto it = regions.begin(); it != regions.end(); it++) {
+        for(auto it = regions_by_page[addr / 256].begin(); it != regions_by_page[addr / 256].end(); it++) {
             backed_region* r = *it;
             if(r->write(addr, data)) {
                 if(debug & DEBUG_RW) printf("wrote %02X to 0x%04X in %s\n", addr, data, r->name.c_str());
