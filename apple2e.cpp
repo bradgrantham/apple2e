@@ -308,6 +308,7 @@ const region io_region = {"io", 0xC000, 0x100};
 struct MAINboard : board_base
 {
     vector<SoftSwitch*> switches;
+    SoftSwitch* switches_by_address[256];
     SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches, true};
     SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches, true};
     SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches};
@@ -418,12 +419,17 @@ struct MAINboard : board_base
             backed_region* r = *it;
             int firstpage = r->base / 256;
             int lastpage = (r->base + r->size + 255) / 256 - 1;
-            printf("%04X %04X ->", r->base, r->base + r->size - 1);
             for(int i = firstpage; i <= lastpage; i++) {
-                printf(" %02X", i);
                 regions_by_page[i].push_back(r);
             }
-            printf("\n");
+        }
+        for(int i = 0; i < 256; i++)
+            switches_by_address[i] = NULL;
+        for(auto it = switches.begin(); it != switches.end(); it++) {
+            SoftSwitch* sw = *it;
+            switches_by_address[sw->clear_address] = sw;
+            switches_by_address[sw->set_address] = sw;
+            switches_by_address[sw->read_address] = sw;
         }
     }
 
@@ -454,8 +460,8 @@ struct MAINboard : board_base
                 printf("bank switch control %04X, aborting\n", addr);
                 exit(1);
             }
-            for(auto it = switches.begin(); it != switches.end(); it++) {
-                SoftSwitch* sw = *it;
+            SoftSwitch* sw = switches_by_address[addr];
+            if(sw != NULL) {
                 if(addr == sw->read_address) {
                     data = sw->enabled ? 0x80 : 0x00;
                     if(debug & DEBUG_RW) printf("Read status of %s = %02X\n", sw->name.c_str(), data);
@@ -572,8 +578,8 @@ struct MAINboard : board_base
                 printf("bank switch control %04X, exiting\n", addr);
                 exit(1);
             }
-            for(auto it = switches.begin(); it != switches.end(); it++) {
-                SoftSwitch* sw = *it;
+            SoftSwitch* sw = switches_by_address[addr];
+            if(sw != NULL) {
                 if(addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
