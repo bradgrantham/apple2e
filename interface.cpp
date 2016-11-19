@@ -60,6 +60,7 @@ const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
 GLuint textport_texture[2];
 GLuint textport_texture_location;
+GLuint lores_texture_location;
 const int textport_w = 40;
 const int textport_h = 24;
 GLuint hires_texture[2];
@@ -194,14 +195,17 @@ static const char *text_fragment_shader = "\n\
     {\n\
         uint character;\n\
         character = texture(textport_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u)).x; \n\
-        if(character >= 0u && character <= 31u)\n\
-            character = character - 0u + 32u; // INVERSE \n\
-        else if(character >= 32u && character <= 63u)\n\
-            character = character - 32u + 0u; // INVERSE \n\
-        else if(character >= 64u && character <= 95u)\n\
-            character = character - 64u + 32u; // BLINK \n\
+        bool inverse = false;\n\
+        if(character >= 0u && character <= 31u) {\n\
+            character = character - 0u + 32u;\n\
+            inverse = true;\n\
+        } else if(character >= 32u && character <= 63u) {\n\
+            character = character - 32u + 0u;\n\
+            inverse = true;\n\
+        } else if(character >= 64u && character <= 95u)\n\
+            character = character - 64u + 32u; // XXX BLINK \n\
         else if(character >= 96u && character <= 127u)\n\
-            character = character - 96u + 0u; // BLINK \n\
+            character = character - 96u + 0u; // XXX BLINK \n\
         else if(character >= 128u && character <= 159u)\n\
             character = character - 128u + 32u;\n\
         else if(character >= 160u && character <= 191u)\n\
@@ -215,12 +219,86 @@ static const char *text_fragment_shader = "\n\
         uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
         uint pixel = texture(font_texture, infont).x;\n\
-        float value = pixel / 255.0;\n\
+        float value;\n\
+        if(inverse)\n\
+            value = 1.0 - pixel / 255.0;\n\
+        else\n\
+            value = pixel / 255.0;\n\
         color = vec4(value, value, value, value);\n\
         // color = vec4(value, float(inglyph.x)/7, float(inglyph.y)/8, value);\n\
         // color = vec4(vec2(inglyph) / vec2(7, 8), 0, 1);\n\
         // BLINK?? \n\
         // INVERSE?? \n\
+    }\n";
+
+static const char *lores_fragment_shader = "\n\
+    in vec2 raster_coords;\n\
+    in vec2 text_coords;\n\
+    uniform usampler2DRect font_texture;\n\
+    uniform usampler2DRect lores_texture;\n\
+    \n\
+    out vec4 color;\n\
+    \n\
+    void main()\n\
+    {\n\
+        uint byte;\n\
+        byte = texture(lores_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u)).x; \n\
+        uint inglyph_y = uint(raster_coords.y) % 8u;\n\
+        uint lorespixel;\n\
+        if(inglyph_y < 4u)\n\
+            lorespixel = byte % 16u;\n\
+        else\n\
+            lorespixel = byte / 16u;\n\
+        switch(lorespixel) {\n\
+            case 0:\n\
+                color = vec4(0, 0, 0, 1);\n\
+                break;\n\
+            case 1:\n\
+                color = vec4(227.0/255.0, 30.0/255.0, 96.0/255.0, 1);\n\
+                break;\n\
+            case 2:\n\
+                color = vec4(96.0/255.0, 78.0/255.0, 189.0/255.0, 1);\n\
+                break;\n\
+            case 3:\n\
+                color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1);\n\
+                break;\n\
+            case 4:\n\
+                color = vec4(9.0/255.0, 163.0/255.0, 96.0/255.0, 1);\n\
+                break;\n\
+            case 5:\n\
+                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);\n\
+                break;\n\
+            case 6:\n\
+                color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1);\n\
+                break;\n\
+            case 7:\n\
+                color = vec4(208.0/255.0, 195.0/255.0, 255.0/255.0, 1);\n\
+                break;\n\
+            case 8:\n\
+                color = vec4(96.0/255.0, 114.0/255.0, 3.0/255.0, 1);\n\
+                break;\n\
+            case 9:\n\
+                color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1);\n\
+                break;\n\
+            case 10:\n\
+                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);\n\
+                break;\n\
+            case 11:\n\
+                color = vec4(255.0/255.0, 160.0/255.0, 208.0/255.0, 1);\n\
+                break;\n\
+            case 12:\n\
+                color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1);\n\
+                break;\n\
+            case 13:\n\
+                color = vec4(208.0/255.0, 221.0/255.0, 141.0/255.0, 1);\n\
+                break;\n\
+            case 14:\n\
+                color = vec4(114.0/255.0, 255.0/255.0, 208.0/255.0, 1);\n\
+                break;\n\
+            case 15:\n\
+                color = vec4(255.0/255.0, 255.0/255.0, 255.0/255.0, 1);\n\
+                break;\n\
+        }\n\
     }\n";
 
 static GLuint GenerateProgram(const string& shader_name, const string& vertex_shader_text, const string& fragment_shader_text)
@@ -348,6 +426,10 @@ void initialize_gl(void)
     font_texture_location = glGetUniformLocation(text_program, "font_texture");
     CheckOpenGL(__FILE__, __LINE__);
 
+    lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
+    lores_texture_location = glGetUniformLocation(text_program, "lores_texture");
+    CheckOpenGL(__FILE__, __LINE__);
+
     initialize_screen_areas();
     CheckOpenGL(__FILE__, __LINE__);
 }
@@ -381,7 +463,11 @@ static void redraw(GLFWwindow *window)
 
     } else if(mode == LORES) {
 
-        // LORES!!
+        glUseProgram(lores_program);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
+        glUniform1i(lores_texture_location, 0);
 
     } else {
 
@@ -413,6 +499,12 @@ static void redraw(GLFWwindow *window)
         glUniform1i(font_texture_location, 1);
 
     } else if(mode == LORES) {
+
+        glUseProgram(lores_program);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
+        glUniform1i(lores_texture_location, 0);
 
     } else if(mode == HIRES) {
 
