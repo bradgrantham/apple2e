@@ -3,6 +3,8 @@
 #include <cctype>
 #include <deque>
 #include <string>
+#include <chrono>
+#include <iostream>
 
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
@@ -14,6 +16,8 @@ using namespace std;
 
 namespace APPLE2Einterface
 {
+
+chrono::time_point<chrono::system_clock> start_time;
 
 DisplayMode mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
@@ -60,6 +64,7 @@ const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
 GLuint textport_texture[2];
 GLuint textport_texture_location;
+GLuint blink_location;
 GLuint lores_texture_location;
 const int textport_w = 40;
 const int textport_h = 24;
@@ -186,6 +191,7 @@ static const char *hires_fragment_shader = "\n\
 static const char *text_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     in vec2 text_coords;\n\
+    uniform int blink;\n\
     uniform usampler2DRect font_texture;\n\
     uniform usampler2DRect textport_texture;\n\
     \n\
@@ -202,11 +208,13 @@ static const char *text_fragment_shader = "\n\
         } else if(character >= 32u && character <= 63u) {\n\
             character = character - 32u + 0u;\n\
             inverse = true;\n\
-        } else if(character >= 64u && character <= 95u)\n\
+        } else if(character >= 64u && character <= 95u) {\n\
             character = character - 64u + 32u; // XXX BLINK \n\
-        else if(character >= 96u && character <= 127u)\n\
+            inverse = blink == 0;\n\
+        } else if(character >= 96u && character <= 127u){\n\
             character = character - 96u + 0u; // XXX BLINK \n\
-        else if(character >= 128u && character <= 159u)\n\
+            inverse = blink == 0;\n\
+        } else if(character >= 128u && character <= 159u)\n\
             character = character - 128u + 32u;\n\
         else if(character >= 160u && character <= 191u)\n\
             character = character - 160u + 0u;\n\
@@ -424,6 +432,7 @@ void initialize_gl(void)
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
     textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
     font_texture_location = glGetUniformLocation(text_program, "font_texture");
+    blink_location = glGetUniformLocation(text_program, "blink");
     CheckOpenGL(__FILE__, __LINE__);
 
     lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
@@ -438,6 +447,11 @@ unsigned char textport[2][24][40];
 
 static void redraw(GLFWwindow *window)
 { 
+    chrono::time_point<chrono::system_clock> now;
+    now = std::chrono::system_clock::now();
+
+    auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - start_time).count();
+
     CheckOpenGL(__FILE__, __LINE__);
 
     if(0) if(mode == TEXT) {
@@ -479,6 +493,7 @@ static void redraw(GLFWwindow *window)
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
         glUniform1i(font_texture_location, 1);
+        glUniform1i(blink_location, (elapsed_millis / 250) % 2);
     }
 
     // bind upper shader
@@ -497,6 +512,10 @@ static void redraw(GLFWwindow *window)
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
         glUniform1i(font_texture_location, 1);
+        cout << elapsed_millis << endl;
+        cout << elapsed_millis /1870 << endl;
+        cout << (elapsed_millis /1870) % 2 << endl;
+        glUniform1i(blink_location, (elapsed_millis / 1870) % 2);
 
     } else if(mode == LORES) {
 
@@ -592,6 +611,7 @@ const int pixel_scale = 3;
 void start()
 {
     glfwSetErrorCallback(error_callback);
+    start_time = std::chrono::system_clock::now();
 
     if(!glfwInit())
         exit(EXIT_FAILURE);
