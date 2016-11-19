@@ -52,12 +52,12 @@ int main(int argc, char **argv)
     printf("int font_offset = 32;\n");
     printf("unsigned char font_bytes[96 * 7 * 8] = {\n");
 
-    for(int k = 0; k < 95; k++) {
+    for(int k = 0; k < 96; k++) {
         int c = k + 32;
         if(c == '\\')
-            printf("    // backslash\n");
+            printf("    // %d : backslash\n", c);
         else
-            printf("    // %c\n", c);
+            printf("    // %d : %c\n", c, c);
         for(int j = 0; j < 8; j++) {
             printf("    ");
             for(int i = 0; i < 7; i++)
