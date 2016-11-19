@@ -1533,6 +1533,13 @@ enum APPLE2Einterface::EventType keyboard_to_mainboard(MAINboard *board)
         APPLE2Einterface::event e = APPLE2Einterface::dequeue_event();
         if(e.type == APPLE2Einterface::QUIT) {
             return APPLE2Einterface::QUIT;
+        } else if(e.type == APPLE2Einterface::PASTE) {
+            for(int i = 0; i < strlen(e.str); i++)
+                if(e.str[i] == '\n')
+                    board->enqueue_key('\r');
+                else
+                    board->enqueue_key(e.str[i]);
+            free(e.str);
         } else if(e.type == APPLE2Einterface::KEYDOWN) {
             if((e.value == APPLE2Einterface::LEFT_SHIFT) || (e.value == APPLE2Einterface::RIGHT_SHIFT))
                 shift_down = true;

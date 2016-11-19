@@ -2,7 +2,7 @@
 
 namespace APPLE2Einterface
 {
-enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT, QUIT};
+enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT, PASTE, QUIT};
 
 const int LEFT_SHIFT = 340;
 const int LEFT_CONTROL = 341;
@@ -31,9 +31,11 @@ const int CAPS_LOCK = 280;
 struct event {
     EventType type;
     int value;
-    event(EventType type_, int value_) :
+    char *str;
+    event(EventType type_, int value_, char *str_ = NULL) :
         type(type_),
-        value(value_)
+        value(value_),
+        str(str_)
     {}
 };
 

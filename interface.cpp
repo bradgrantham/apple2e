@@ -48,7 +48,7 @@ event dequeue_event()
 {
     if(event_waiting()) {
         event e = event_queue.front();
-        event_queue.pop_back();
+        event_queue.pop_front();
         return e;
     } else
         return {NONE, 0};
@@ -454,17 +454,6 @@ static void redraw(GLFWwindow *window)
 
     CheckOpenGL(__FILE__, __LINE__);
 
-    if(0) if(mode == TEXT) {
-        printf("------------------------------------------\n");
-        for(int row = 0; row < 24; row++) {
-            printf("|");
-            for(int col = 0; col < 24; col++)
-                fputc(textport[display_page][row][col] & 0x7F, stdout);
-            printf("|\n");
-        }
-        printf("------------------------------------------\n");
-    }
-
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     if(mode == HIRES) {
@@ -512,9 +501,6 @@ static void redraw(GLFWwindow *window)
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
         glUniform1i(font_texture_location, 1);
-        cout << elapsed_millis << endl;
-        cout << elapsed_millis /1870 << endl;
-        cout << (elapsed_millis /1870) % 2 << endl;
         glUniform1i(blink_location, (elapsed_millis / 1870) % 2);
 
     } else if(mode == LORES) {
@@ -549,9 +535,20 @@ static void error_callback(int error, const char* description)
 
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
+    static bool super_down = false;
+
     if(action == GLFW_PRESS) {
-        event_queue.push_back({KEYDOWN, key});
+        if(key == GLFW_KEY_RIGHT_SUPER)
+            super_down = true;
+        else if(key == GLFW_KEY_V) {
+            const char* text = glfwGetClipboardString(window);
+            if (text)
+                event_queue.push_back({PASTE, 0, strdup(text)});
+        } else
+            event_queue.push_back({KEYDOWN, key});
     } else if(action == GLFW_RELEASE) {
+        if(key == GLFW_KEY_RIGHT_SUPER)
+            super_down = false;
         event_queue.push_back({KEYUP, key});
     }
 }
