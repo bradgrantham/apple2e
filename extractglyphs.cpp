@@ -10,20 +10,17 @@
 using namespace std;
 
 // image_out and image_in have identical dimensions
-void extract_glyph(fipImage &image_in, int g, unsigned char glyph[8])
+void extract_glyph(fipImage &image_in, int g, unsigned char glyph[8][7])
 {
     int glyphs_across = image_in.getWidth() / 7;
     int x = (g % glyphs_across) * 7;
     int y = (g / glyphs_across) * 8; // XXX why invert in Y?
     for(int j = 0; j < 8; j++) {
-        unsigned char byte = 0;
         for(int i = 0; i < 7; i++) {
             RGBQUAD result;
             image_in.getPixelColor(x + i, image_in.getHeight() - 1 - (y + j), &result);
-            int pixel = (result.rgbRed > 127) ? 1 : 0;
-            byte = byte | (pixel << i);
+            glyph[j][i] = (result.rgbRed > 127) ? 255 : 0;
         }
-        glyph[j] = byte;
     }
 }
 
@@ -42,21 +39,31 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    printf("int font_offset = 32;\n");
-    printf("unsigned char font_bytes[][8] = {\n");
-
-    static unsigned char font[96][8];
-    for(int i = 0; i <= 95; i++) {
-        extract_glyph(image_in, i, font[i]);
-        printf("    {");
-
+    unsigned char font[96 * 8 * 7];
+    for(int k = 0; k <= 95; k++) {
+        unsigned char glyph[8][7];
+        extract_glyph(image_in, k, glyph);
         for(int j = 0; j < 8; j++)
-            printf("0x%02X%s", font[i][j], (j < 7) ? ", " : "");
+            for(int i = 0; i < 7; i++) {
+                font[i + j * 7 + k * 7 * 8] = glyph[j][i];
+            }
+    }
 
-        if(i < 95)
-            printf("},\n");
+    printf("int font_offset = 32;\n");
+    printf("unsigned char font_bytes[96 * 7 * 8] = {\n");
+
+    for(int k = 0; k < 95; k++) {
+        int c = k + 32;
+        if(c == '\\')
+            printf("    // backslash\n");
         else
-            printf("}\n");
+            printf("    // %c\n", c);
+        for(int j = 0; j < 8; j++) {
+            printf("    ");
+            for(int i = 0; i < 7; i++)
+                printf("0x%02X,", font[i + j * 7 + k * 7 * 8]);
+            printf("\n");
+        }
     }
 
     printf("};\n");
