@@ -60,181 +60,6 @@ struct SoftSwitch
     }
 };
 
-struct APPLE2Edisplay
-{
-    static constexpr int hires_row_base_offsets[] = 
-    {
-         0x0000,  0x0400,  0x0800,  0x0C00,  0x1000,  0x1400,  0x1800,  0x1C00, 
-         0x0080,  0x0480,  0x0880,  0x0C80,  0x1080,  0x1480,  0x1880,  0x1C80, 
-         0x0100,  0x0500,  0x0900,  0x0D00,  0x1100,  0x1500,  0x1900,  0x1D00, 
-         0x0180,  0x0580,  0x0980,  0x0D80,  0x1180,  0x1580,  0x1980,  0x1D80, 
-         0x0200,  0x0600,  0x0A00,  0x0E00,  0x1200,  0x1600,  0x1A00,  0x1E00, 
-         0x0280,  0x0680,  0x0A80,  0x0E80,  0x1280,  0x1680,  0x1A80,  0x1E80, 
-         0x0300,  0x0700,  0x0B00,  0x0F00,  0x1300,  0x1700,  0x1B00,  0x1F00, 
-         0x0380,  0x0780,  0x0B80,  0x0F80,  0x1380,  0x1780,  0x1B80,  0x1F80, 
-         0x0028,  0x0428,  0x0828,  0x0C28,  0x1028,  0x1428,  0x1828,  0x1C28, 
-         0x00A8,  0x04A8,  0x08A8,  0x0CA8,  0x10A8,  0x14A8,  0x18A8,  0x1CA8, 
-         0x0128,  0x0528,  0x0928,  0x0D28,  0x1128,  0x1528,  0x1928,  0x1D28, 
-         0x01A8,  0x05A8,  0x09A8,  0x0DA8,  0x11A8,  0x15A8,  0x19A8,  0x1DA8, 
-         0x0228,  0x0628,  0x0A28,  0x0E28,  0x1228,  0x1628,  0x1A28,  0x1E28, 
-         0x02A8,  0x06A8,  0x0AA8,  0x0EA8,  0x12A8,  0x16A8,  0x1AA8,  0x1EA8, 
-         0x0328,  0x0728,  0x0B28,  0x0F28,  0x1328,  0x1728,  0x1B28,  0x1F28, 
-         0x03A8,  0x07A8,  0x0BA8,  0x0FA8,  0x13A8,  0x17A8,  0x1BA8,  0x1FA8, 
-         0x0050,  0x0450,  0x0850,  0x0C50,  0x1050,  0x1450,  0x1850,  0x1C50, 
-         0x00D0,  0x04D0,  0x08D0,  0x0CD0,  0x10D0,  0x14D0,  0x18D0,  0x1CD0, 
-         0x0150,  0x0550,  0x0950,  0x0D50,  0x1150,  0x1550,  0x1950,  0x1D50, 
-         0x01D0,  0x05D0,  0x09D0,  0x0DD0,  0x11D0,  0x15D0,  0x19D0,  0x1DD0, 
-         0x0250,  0x0650,  0x0A50,  0x0E50,  0x1250,  0x1650,  0x1A50,  0x1E50, 
-         0x02D0,  0x06D0,  0x0AD0,  0x0ED0,  0x12D0,  0x16D0,  0x1AD0,  0x1ED0, 
-         0x0350,  0x0750,  0x0B50,  0x0F50,  0x1350,  0x1750,  0x1B50,  0x1F50, 
-         0x03D0,  0x07D0,  0x0BD0,  0x0FD0,  0x13D0,  0x17D0,  0x1BD0,  0x1FD0, 
-    };
-    static int hires_memory_to_scanout_address[8192];
-    static constexpr int text_row_base_offsets[] = 
-    {
-        0x000,
-        0x080,
-        0x100,
-        0x180,
-        0x200,
-        0x280,
-        0x300,
-        0x380,
-        0x028,
-        0x0A8,
-        0x128,
-        0x1A8,
-        0x228,
-        0x2A8,
-        0x328,
-        0x3A8,
-        0x050,
-        0x0D0,
-        0x150,
-        0x1D0,
-        0x250,
-        0x2D0,
-        0x350,
-        0x3D0,
-    };
-    APPLE2Edisplay()
-    {
-    }
-    static void initialize_memory_to_scanout() __attribute__((constructor));
-
-    // External display switches
-    enum {TEXT, LORES, HIRES} mode = TEXT;
-    int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
-    bool mixed_mode = false;
-
-    bool changed = false;
-    unsigned char text_page[2][24][40];
-    unsigned char hires_page[2][192 * 40];
-    bool hires_row_changed[2][192];
-
-    void display_text(int page)
-    {
-        fputs("------------------------------------------\n", stdout);
-        for(int row = 0; row < 24; row++) {
-            fputs("|", stdout);
-            for(int col = 0; col < 40; col++) {
-                int ch = text_page[page][row][col] & 0x7F;
-                fputc(isprint(ch) ? ch : '?', stdout);
-            }
-            fputs("|\n", stdout);
-        }
-        fputs("------------------------------------------\n", stdout);
-    }
-
-    void display_hires(int page, std::function<void(int,int,int,int,unsigned char*)> update)
-    {
-        for(int row = 0; row < 192; row++) {
-            if(hires_row_changed[page][row]) {
-                hires_row_changed[page][row] = false;
-                static unsigned char pixels[280 * 3];
-                for(int i = 0; i < 280; i++) {
-                    unsigned char *rowpixels = hires_page[page] + row * 40;
-                    int byte = i / 7;
-                    int bit = i % 7;
-                    if(rowpixels[byte] & (1 << bit)) {
-                        pixels[i * 3 + 0] = 255;
-                        pixels[i * 3 + 1] = 255;
-                        pixels[i * 3 + 2] = 255;
-                    } else {
-                        pixels[i * 3 + 0] = 0;
-                        pixels[i * 3 + 1] = 0;
-                        pixels[i * 3 + 2] = 0;
-                    }
-                }
-                update(0, row, 280, 1, pixels);
-            }
-        }
-    }
-
-    void display(std::function<void(int,int,int,int,unsigned char*)> update)
-    {
-        // enum {TEXT, LORES, HIRES} mode = TEXT;
-        // int display_page = 0;
-        // bool mixed_mode = false;
-        if(mode == TEXT) {
-            display_text(display_page);
-        } // else if(mode == HIRES) {
-            display_hires(display_page, update);
-        // }
-    }
-
-    static const int text_page1_base = 0x400;
-    static const int text_page2_base = 0x800;
-    static const int text_page_size = 0x400;
-    static const int hires_page1_base = 0x2000;
-    static const int hires_page2_base = 0x4000;
-    static const int hires_page_size = 8192;
-    bool write(int addr, unsigned char data)
-    {
-        // We know text page 1 and 2 are contiguous
-        if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
-            int page = (addr >= text_page2_base) ? 1 : 0;
-            int within_page = addr - text_page1_base - page * text_page_size;
-            for(int row = 0; row < 24; row++) {
-                int row_offset = text_row_base_offsets[row];
-                if((within_page >= row_offset) && 
-                    (within_page < row_offset + 40)){
-                    int col = within_page - row_offset;
-                    text_page[page][row][col] = data;
-                }
-            }
-            changed = true;
-            return true;
-
-        } else if(((addr >= hires_page1_base) && (addr < hires_page1_base + hires_page_size)) || ((addr >= hires_page2_base) && (addr < hires_page2_base + hires_page_size))) {
-
-            int page = (addr < hires_page2_base) ? 0 : 1;
-            int page_base = (page == 0) ? hires_page1_base : hires_page2_base;
-            int within_page = addr - page_base;
-            int scanout_address = hires_memory_to_scanout_address[within_page];
-            hires_page[page][scanout_address] = data;
-            int row = scanout_address / 40;
-            hires_row_changed[page][row] = true;
-            changed = true;
-            return true;
-        }
-        return false;
-    }
-};
-constexpr int APPLE2Edisplay::text_row_base_offsets[24];
-constexpr int APPLE2Edisplay::hires_row_base_offsets[192];
-int APPLE2Edisplay::hires_memory_to_scanout_address[8192];
-
-void APPLE2Edisplay::initialize_memory_to_scanout()
-{
-    for(int row = 0; row < 192; row++) {
-        int row_address = hires_row_base_offsets[row];
-        for(int byte = 0; byte < 40; byte++) {
-            hires_memory_to_scanout_address[row_address + byte] = row * 40 + byte;
-        }
-    }
-}
-
 struct region
 {
     string name;
@@ -397,16 +222,15 @@ struct MAINboard : board_base
 
     deque<unsigned char> keyboard_buffer;
 
-    APPLE2Edisplay *display;
-
     void enqueue_key(unsigned char k)
     {
         keyboard_buffer.push_back(k);
     }
-
-    MAINboard(unsigned char rom_image[32768], APPLE2Edisplay *d) :
+    typedef std::function<bool (int addr, unsigned char data)> display_write_func;
+    display_write_func display_write;
+    MAINboard(unsigned char rom_image[32768],  display_write_func display_write_) :
         internal_C800_ROM_selected(true),
-        display(d)
+        display_write(display_write_)
     {
         std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
         std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
@@ -427,9 +251,9 @@ struct MAINboard : board_base
             switches_by_address[i] = NULL;
         for(auto it = switches.begin(); it != switches.end(); it++) {
             SoftSwitch* sw = *it;
-            switches_by_address[sw->clear_address] = sw;
-            switches_by_address[sw->set_address] = sw;
-            switches_by_address[sw->read_address] = sw;
+            switches_by_address[sw->clear_address - 0xC000] = sw;
+            switches_by_address[sw->set_address - 0xC000] = sw;
+            switches_by_address[sw->read_address - 0xC000] = sw;
         }
     }
 
@@ -460,7 +284,7 @@ struct MAINboard : board_base
                 printf("bank switch control %04X, aborting\n", addr);
                 exit(1);
             }
-            SoftSwitch* sw = switches_by_address[addr];
+            SoftSwitch* sw = switches_by_address[addr - 0xC000];
             if(sw != NULL) {
                 if(addr == sw->read_address) {
                     data = sw->enabled ? 0x80 : 0x00;
@@ -571,14 +395,14 @@ struct MAINboard : board_base
         if(((addr >= 0x400) && (addr <= 0xBFF)) || ((addr >= 0x2000) && (addr <= 0x5FFF)))
 #endif
         {
-            display->write(addr, data);
+            display_write(addr, data);
         }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
                 printf("bank switch control %04X, exiting\n", addr);
                 exit(1);
             }
-            SoftSwitch* sw = switches_by_address[addr];
+            SoftSwitch* sw = switches_by_address[addr - 0xC000];
             if(sw != NULL) {
                 if(addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
@@ -1699,36 +1523,36 @@ map<int, key_to_ascii> interface_key_to_apple2e =
     {' ', {' ', ' ', 0, 0}},
 };
 
-enum event::Type keyboard_to_mainboard(MAINboard *board)
+enum APPLE2Einterface::EventType keyboard_to_mainboard(MAINboard *board)
 {
     static bool shift_down = false;
     static bool control_down = false;
     // skip CAPS for now
 
-    while(interface_event_waiting()) {
-        event e = interface_dequeue_event();
-        if(e.type == event::QUIT) {
-            return event::QUIT;
-        } else if(e.type == event::KEYDOWN) {
-            if((e.value == event::LEFT_SHIFT) || (e.value == event::RIGHT_SHIFT))
+    while(APPLE2Einterface::event_waiting()) {
+        APPLE2Einterface::event e = APPLE2Einterface::dequeue_event();
+        if(e.type == APPLE2Einterface::QUIT) {
+            return APPLE2Einterface::QUIT;
+        } else if(e.type == APPLE2Einterface::KEYDOWN) {
+            if((e.value == APPLE2Einterface::LEFT_SHIFT) || (e.value == APPLE2Einterface::RIGHT_SHIFT))
                 shift_down = true;
-            else if((e.value == event::LEFT_CONTROL) || (e.value == event::RIGHT_CONTROL))
+            else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = true;
-            else if(e.value == event::ENTER) {
+            else if(e.value == APPLE2Einterface::ENTER) {
                 board->enqueue_key(141 - 128);
-            } else if(e.value == event::TAB) {
+            } else if(e.value == APPLE2Einterface::TAB) {
                 board->enqueue_key('	');
-            } else if(e.value == event::ESCAPE) {
+            } else if(e.value == APPLE2Einterface::ESCAPE) {
                 board->enqueue_key('');
-            } else if(e.value == event::DELETE) {
+            } else if(e.value == APPLE2Einterface::DELETE) {
                 board->enqueue_key(255 - 128);
-            } else if(e.value == event::RIGHT) {
+            } else if(e.value == APPLE2Einterface::RIGHT) {
                 board->enqueue_key(149 - 128);
-            } else if(e.value == event::LEFT) {
+            } else if(e.value == APPLE2Einterface::LEFT) {
                 board->enqueue_key(136 - 128);
-            } else if(e.value == event::DOWN) {
+            } else if(e.value == APPLE2Einterface::DOWN) {
                 board->enqueue_key(138 - 128);
-            } else if(e.value == event::UP) {
+            } else if(e.value == APPLE2Einterface::UP) {
                 board->enqueue_key(139 - 128);
             } else {
                 auto it = interface_key_to_apple2e.find(e.value);
@@ -1744,14 +1568,14 @@ enum event::Type keyboard_to_mainboard(MAINboard *board)
                         board->enqueue_key(k.yes_shift_yes_control);
                 }
             }
-        } else if(e.type == event::KEYUP) {
-            if((e.value == event::LEFT_SHIFT) || (e.value == event::RIGHT_SHIFT))
+        } else if(e.type == APPLE2Einterface::KEYUP) {
+            if((e.value == APPLE2Einterface::LEFT_SHIFT) || (e.value == APPLE2Einterface::RIGHT_SHIFT))
                 shift_down = false;
-            else if((e.value == event::LEFT_CONTROL) || (e.value == event::RIGHT_CONTROL))
+            else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = false;
         }
     }
-    return event::NONE;
+    return APPLE2Einterface::NONE;
 }
 
 int main(int argc, char **argv)
@@ -1759,8 +1583,6 @@ int main(int argc, char **argv)
     char *progname = argv[0];
     argc -= 1;
     argv += 1;
-
-    atexit(cleanup);
 
     while((argc > 0) && (argv[0][0] == '-')) {
 	if(strcmp(argv[0], "-debugger") == 0) {
@@ -1805,13 +1627,15 @@ int main(int argc, char **argv)
     }
     fclose(fp);
 
-    APPLE2Edisplay display;
     MAINboard* mainboard;
 
-    bus.boards.push_back(mainboard = new MAINboard(b, &display));
+    MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
+    bus.boards.push_back(mainboard = new MAINboard(b, display));
     bus.reset();
 
     CPU6502 cpu;
+
+    atexit(cleanup);
 
     if(!debugging) {
         start_keyboard();
@@ -1820,9 +1644,7 @@ int main(int argc, char **argv)
     if(use_fake6502)
         reset6502();
 
-    interface_start();
-
-    interface_setregion(280, 192);
+    APPLE2Einterface::start();
 
     while(1) {
         if(!debugging) {
@@ -1831,7 +1653,7 @@ int main(int argc, char **argv)
             char key;
             bool have_key = peek_key(&key);
 
-            if(keyboard_to_mainboard(mainboard) == event::QUIT) {
+            if(keyboard_to_mainboard(mainboard) == APPLE2Einterface::QUIT) {
                 break;
             }
 
@@ -1858,11 +1680,10 @@ int main(int argc, char **argv)
                 else
                     cpu.cycle(bus);
             }
-            if(display.changed) {
-                display.display([&](int x, int y, int w, int h, unsigned char *p){interface_updaterect(x, y, w, h, p);});
-                display.changed = false;
-            }
-            interface_iterate();
+            APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
+            int page = mainboard->PAGE2 ? 1 : 0;
+            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page);
+            APPLE2Einterface::iterate();
             chrono::time_point<chrono::system_clock> now;
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
@@ -1917,14 +1738,14 @@ int main(int argc, char **argv)
                 step6502();
             else
                 cpu.cycle(bus);
-            if(display.changed) {
-                display.display([&](int x, int y, int w, int h, unsigned char *p){interface_updaterect(x, y, w, h, p);});
-                display.changed = false;
-            }
-            interface_iterate();
+
+            APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
+            int page = mainboard->PAGE2 ? 1 : 0;
+            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page);
+            APPLE2Einterface::iterate();
         }
     }
 
     stop_keyboard();
-    interface_shutdown();
+    APPLE2Einterface::shutdown();
 }
