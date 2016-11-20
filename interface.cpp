@@ -175,7 +175,7 @@ static const char *hires_vertex_shader = "\n\
     {\n\
         vec2 eye_coords = vertex_coords / vec2(280,192) * vec2(2, 2) - vec2(1, 1);\n\
         raster_coords = vertex_coords;\n\
-        gl_Position = vec4(eye_coords * .9 * vec2(1, -1), 0.5, 1.0);\n\
+        gl_Position = vec4(eye_coords * vec2(1, -1), 0.5, 1.0);\n\
     }\n";
 
 static const char *text_vertex_shader = "\n\
@@ -188,7 +188,7 @@ static const char *text_vertex_shader = "\n\
         vec2 eye_coords = vertex_coords / vec2(280,192) * vec2(2, 2) - vec2(1, 1);\n\
         raster_coords = vertex_coords;\n\
         text_coords = vec2(int(vertex_coords.x / 7), int(vertex_coords.y / 8));\n\
-        gl_Position = vec4(eye_coords * .9 * vec2(1, -1), 0.5, 1.0);\n\
+        gl_Position = vec4(eye_coords * vec2(1, -1), 0.5, 1.0);\n\
     }\n";
 
 static const char *hires_fragment_shader = "\n\
