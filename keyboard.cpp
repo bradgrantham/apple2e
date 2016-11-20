@@ -111,21 +111,26 @@ unsigned char get_any_key_down_and_clear_strobe()
     return 0x00;
 }
 
+bool started = false;
+
 void start_keyboard()
 {
     // Set raw mode on stdin.
     if (ttyraw(0) < 0) {
-        fprintf(stderr,"Can't go to raw mode.\n");
-        exit(1);
+        fprintf(stderr,"Can't go to raw mode. Oh, well!\n");
+        // exit(1);
+        return;
     }
+    started = true;
 }
 
 void stop_keyboard()
 {
-    if (ttyreset(0) < 0) {
+    if (started && (ttyreset(0) < 0)) {
         fprintf(stderr, "Cannot reset terminal!\n");
         exit(-1);
     }
+    started = false;
 }
 
 bool peek_key(char *k)
@@ -144,6 +149,9 @@ void poll_keyboard()
 {
     int i;
     char c;
+
+    if(!started)
+        return;
 
     i = read(0, &c, 1);
     if (i == -1) {
