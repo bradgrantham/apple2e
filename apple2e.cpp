@@ -1684,7 +1684,7 @@ int main(int argc, char **argv)
             chrono::time_point<chrono::system_clock> then;
             int inst_per_slice;
             if(run_fast)
-                inst_per_slice = 2557500;
+                inst_per_slice = 320000;
             else
                 inst_per_slice = 255750 * millis_per_slice / 1000 * 2;
             for(int i = 0; i < inst_per_slice; i++) {
@@ -1724,7 +1724,7 @@ int main(int argc, char **argv)
                 printf("run flat out\n");
                 run_fast = true;
                 continue;
-            } else if(strcmp(line, "1mhz") == 0) {
+            } else if(strcmp(line, "slow") == 0) {
                 printf("run 1mhz\n");
                 run_fast = false;
                 continue;
