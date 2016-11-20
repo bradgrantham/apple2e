@@ -19,7 +19,7 @@ namespace APPLE2Einterface
 
 chrono::time_point<chrono::system_clock> start_time;
 
-DisplayMode mode = TEXT;
+DisplayMode display_mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
 bool mixed_mode = false;
 
@@ -72,6 +72,35 @@ GLuint hires_texture[2];
 GLuint hires_texture_location;
 const int hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
 const int hires_h = 192;
+
+#if 0
+struct button
+{
+    int string_texture;
+    string content;
+    button(const string& content_) :
+        content(content_)
+    {
+        // construct string texture
+    }
+    tuple<int, int> get_dimensions()
+    {
+        int w = content.size() * 7 + 3 * 2;
+        int h = 8 + 3 * 2;
+    }
+    void draw()
+    {
+        // draw lines 2 pixels around
+        // draw lines 1 pixels around
+        // blank area 0 pixels around
+        // draw string
+    }
+};
+
+struct buttons
+{
+}
+#endif
 
 static void CheckOpenGL(const char *filename, int line)
 {
@@ -352,10 +381,11 @@ static GLuint GenerateProgram(const string& shader_name, const string& vertex_sh
     return program;
 }
 
-void initialize_screen_areas()
+GLuint make_rectangle_vertex_array(float x, float y, float w, float h)
 {
-    glGenVertexArrays(1, &upper_screen_area);
-    glBindVertexArray(upper_screen_area);
+    GLuint array;
+    glGenVertexArrays(1, &array);
+    glBindVertexArray(array);
     CheckOpenGL(__FILE__, __LINE__);
 
     /* just x, y, also pixel coords */
@@ -363,40 +393,25 @@ void initialize_screen_areas()
 
     glGenBuffers(1, &vertices);
     glBindBuffer(GL_ARRAY_BUFFER, vertices);
-    static float upper[4][2] =  {
-        {0, 0},
-        {280, 0},
-        {0, 160},
-        {280, 160},
+    float coords[4][2] = {
+        {x, y},
+        {x + w, y},
+        {x, y + h},
+        {x + w, y + h},
     };
-    glBufferData(GL_ARRAY_BUFFER, sizeof(upper[0]) * 4, upper, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(coords[0]) * 4, coords, GL_STATIC_DRAW);
     CheckOpenGL(__FILE__, __LINE__);
 
     glVertexAttribPointer(raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(raster_coords_attrib);
     CheckOpenGL(__FILE__, __LINE__);
+    return array;
+}
 
-
-    glGenVertexArrays(1, &lower_screen_area);
-    glBindVertexArray(lower_screen_area);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    glGenBuffers(1, &vertices);
-    glBindBuffer(GL_ARRAY_BUFFER, vertices);
-    static float lower[4][2] =  {
-        {0, 160},
-        {280, 160},
-        {0, 192},
-        {280, 192},
-    };
-    glBufferData(GL_ARRAY_BUFFER, sizeof(lower[0]) * 4, lower, GL_STATIC_DRAW);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    glVertexAttribPointer(raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glEnableVertexAttribArray(raster_coords_attrib);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    glBindVertexArray(GL_NONE);
+void initialize_screen_areas()
+{
+    upper_screen_area = make_rectangle_vertex_array(0, 0, 280, 160);
+    lower_screen_area = make_rectangle_vertex_array(0, 160, 280, 32);
 }
 
 GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
@@ -445,6 +460,39 @@ void initialize_gl(void)
 
 unsigned char textport[2][24][40];
 
+void set_shader(DisplayMode display_mode, bool mixed_mode, int blink)
+{
+    if(mixed_mode || (display_mode == TEXT)) {
+
+        glUseProgram(text_program);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
+        glUniform1i(textport_texture_location, 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
+        glUniform1i(font_texture_location, 1);
+        glUniform1i(blink_location, blink);
+
+    } else if(display_mode == LORES) {
+
+        glUseProgram(lores_program);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
+        glUniform1i(lores_texture_location, 0);
+
+    } else if(display_mode == HIRES) {
+
+        glUseProgram(hires_program);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture[display_page]);
+        glUniform1i(hires_texture_location, 0);
+
+    }
+}
+
 static void redraw(GLFWwindow *window)
 { 
     chrono::time_point<chrono::system_clock> now;
@@ -456,72 +504,15 @@ static void redraw(GLFWwindow *window)
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if(mode == HIRES) {
+    set_shader(display_mode, false, (elapsed_millis / 1870) % 2);
 
-        glUseProgram(hires_program);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture[display_page]);
-        glUniform1i(hires_texture_location, 0);
-
-    } else if(mode == LORES) {
-
-        glUseProgram(lores_program);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
-        glUniform1i(lores_texture_location, 0);
-
-    } else {
-
-        glUseProgram(text_program);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
-        glUniform1i(textport_texture_location, 0);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
-        glUniform1i(font_texture_location, 1);
-        glUniform1i(blink_location, (elapsed_millis / 250) % 2);
-    }
-
-    // bind upper shader
     glBindVertexArray(upper_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     CheckOpenGL(__FILE__, __LINE__);
 
-    if(mixed_mode || (mode == TEXT)) {
+    set_shader(display_mode, mixed_mode, (elapsed_millis / 1870) % 2);
 
-        glUseProgram(text_program);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
-        glUniform1i(textport_texture_location, 0);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
-        glUniform1i(font_texture_location, 1);
-        glUniform1i(blink_location, (elapsed_millis / 1870) % 2);
-
-    } else if(mode == LORES) {
-
-        glUseProgram(lores_program);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
-        glUniform1i(lores_texture_location, 0);
-
-    } else if(mode == HIRES) {
-
-        glUseProgram(hires_program);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture[display_page]);
-        glUniform1i(hires_texture_location, 0);
-
-    }
-
-    // bind lower shader
     glBindVertexArray(lower_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -556,7 +547,7 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 static void resize(GLFWwindow *window, int x, int y)
 {
     glfwGetFramebufferSize(window, &gWindowWidth, &gWindowHeight);
-    glViewport(0, 0, gWindowWidth, gWindowWidth);
+    glViewport(0, 0, gWindowWidth, gWindowHeight);
 }
 
 static void button(GLFWwindow *window, int b, int action, int mods)
@@ -667,7 +658,7 @@ void shutdown()
 
 void set_switches(DisplayMode mode_, bool mixed, int page)
 {
-    mode = mode_;
+    display_mode = mode_;
     mixed_mode = mixed;
     display_page = page;
 }
