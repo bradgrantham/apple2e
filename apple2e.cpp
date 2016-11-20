@@ -1430,7 +1430,7 @@ struct CPU6502
 void usage(char *progname)
 {
     printf("\n");
-    printf("usage: %s [-debugger] ROM.bin\n", progname);
+    printf("usage: %s [-debugger] [-fast] ROM.bin\n", progname);
     printf("\n");
     printf("\n");
 }
@@ -1596,6 +1596,10 @@ int main(int argc, char **argv)
             debugging = true;
             argv++;
             argc--;
+	} else if(strcmp(argv[0], "-fast") == 0) {
+            run_fast = true;
+            argv += 1;
+            argc -= 1;
 	} else if(strcmp(argv[0], "-d") == 0) {
             debug = atoi(argv[1]);
             argv += 2;
@@ -1667,6 +1671,7 @@ int main(int argc, char **argv)
             if(have_key) {
                 if(key == '') {
                     debugging = true;
+                    printf("enter debugger\n");
                     clear_strobe();
                     stop_keyboard();
                     continue;
@@ -1677,11 +1682,16 @@ int main(int argc, char **argv)
             }
 
             chrono::time_point<chrono::system_clock> then;
-            int inst_per_slice = 255750 * millis_per_slice / 1000 * 2;
+            int inst_per_slice;
+            if(run_fast)
+                inst_per_slice = 2557500;
+            else
+                inst_per_slice = 255750 * millis_per_slice / 1000 * 2;
             for(int i = 0; i < inst_per_slice; i++) {
-                string dis = read_bus_and_disassemble(bus, cpu.pc);
-                if(debug & DEBUG_DECODE)
+                if(debug & DEBUG_DECODE) {
+                    string dis = read_bus_and_disassemble(bus, cpu.pc);
                     printf("%s\n", dis.c_str());
+                }
                 if(use_fake6502)
                     step6502();
                 else
@@ -1737,9 +1747,10 @@ int main(int argc, char **argv)
                 cpu.nmi(bus);
                 continue;
             }
-            string dis = read_bus_and_disassemble(bus, cpu.pc);
-            if(debug & DEBUG_DECODE)
+            if(debug & DEBUG_DECODE) {
+                string dis = read_bus_and_disassemble(bus, cpu.pc);
                 printf("%s\n", dis.c_str());
+            }
             
             if(use_fake6502)
                 step6502();
