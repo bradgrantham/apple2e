@@ -16,7 +16,7 @@
 72  HCOLOR= 3: HPLOT ZL * ZS,YL * YS
 75 RY = V2 - ZL * ZN:RP = V2 - YL * YN
 80 YA = Y + RY *  COS (R) + RP *  SIN (R):PA = P + RP *  COS (R) + RY * SIN (R)
-90 TX = VX +  COS (PA) *  COS (YA):TY = VY +  SIN (PA):TZ = VZ +  COS (P A) *  SIN (YA)
+90 TX = VX +  COS (PA) *  COS (YA):TY = VY +  SIN (PA):TZ = VZ +  COS (PA) *  SIN (YA)
 95 I = 0:M = TX - VX:N = TY - VY:P = TZ - VZ:B2 = M ^ 2 + N ^ 2 + P ^ 2
 100  FOR S2 = 1 TO S:X = VX - SP(S2,1):Y = VY - SP(S2,2):Z = VZ - SP(S2, 3)
 105 B1 = X * M + Y * N + Z * P:BS = B1 ^ 2 / B2:C = X ^ 2 + Y ^ 2 + Z ^ 2 + SP(S2,4) ^ 2
