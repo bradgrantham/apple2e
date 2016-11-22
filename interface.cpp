@@ -54,26 +54,28 @@ event dequeue_event()
         return {NONE, 0};
 }
 
-using namespace std;
-
-float                aspectRatio = 1;
-
 GLuint font_texture;
 GLuint font_texture_location;
 const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
 
+GLuint text_program;
+const int textport_w = 40;
+const int textport_h = 24;
 GLuint textport_texture[2];
 GLuint textport_texture_location;
 GLuint blink_location;
 GLuint textport_x_offset_location;
 GLuint textport_y_offset_location;
 GLuint textport_to_screen_location;
-const int textport_w = 40;
-const int textport_h = 24;
 
+GLuint lores_program;
 GLuint lores_texture_location;
+GLuint lores_x_offset_location;
+GLuint lores_y_offset_location;
+GLuint lores_to_screen_location;
 
+GLuint hires_program;
 GLuint hires_texture[2];
 GLuint hires_texture_location;
 const int hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
@@ -142,10 +144,6 @@ static bool CheckProgramLink(GLuint program)
 
     return false;
 }
-
-GLuint hires_program;
-GLuint text_program;
-GLuint lores_program;
 
 static const char *hires_vertex_shader = "\n\
     uniform mat3 to_screen;\n\
@@ -443,7 +441,10 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 
     lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
-    lores_texture_location = glGetUniformLocation(text_program, "lores_texture");
+    lores_texture_location = glGetUniformLocation(lores_program, "lores_texture");
+    lores_x_offset_location = glGetUniformLocation(lores_program, "x_offset");
+    lores_y_offset_location = glGetUniformLocation(lores_program, "y_offset");
+    lores_to_screen_location = glGetUniformLocation(lores_program, "to_screen");
     CheckOpenGL(__FILE__, __LINE__);
 
     initialize_screen_areas();
@@ -481,9 +482,9 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
         glUniform1i(lores_texture_location, 0);
-        glUniformMatrix3fv(textport_to_screen_location, 1, GL_FALSE, to_screen);
-        glUniform1f(textport_x_offset_location, x);
-        glUniform1f(textport_y_offset_location, y);
+        glUniformMatrix3fv(lores_to_screen_location, 1, GL_FALSE, to_screen);
+        glUniform1f(lores_x_offset_location, x);
+        glUniform1f(lores_y_offset_location, y);
 
     } else if(display_mode == HIRES) {
 
