@@ -62,45 +62,25 @@ GLuint font_texture;
 GLuint font_texture_location;
 const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
+
 GLuint textport_texture[2];
 GLuint textport_texture_location;
 GLuint blink_location;
-GLuint lores_texture_location;
+GLuint textport_x_offset_location;
+GLuint textport_y_offset_location;
+GLuint textport_to_screen_location;
 const int textport_w = 40;
 const int textport_h = 24;
+
+GLuint lores_texture_location;
+
 GLuint hires_texture[2];
 GLuint hires_texture_location;
 const int hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
 const int hires_h = 192;
-
-#if 0
-struct button
-{
-    int string_texture;
-    string content;
-    button(const string& content_) :
-        content(content_)
-    {
-        // construct string texture
-    }
-    tuple<int, int> get_dimensions()
-    {
-        int w = content.size() * 7 + 3 * 2;
-        int h = 8 + 3 * 2;
-    }
-    void draw()
-    {
-        // draw lines 2 pixels around
-        // draw lines 1 pixels around
-        // blank area 0 pixels around
-        // draw string
-    }
-};
-
-struct buttons
-{
-}
-#endif
+GLuint hires_to_screen_location;
+GLuint hires_x_offset_location;
+GLuint hires_y_offset_location;
 
 static void CheckOpenGL(const char *filename, int line)
 {
@@ -168,27 +148,33 @@ GLuint text_program;
 GLuint lores_program;
 
 static const char *hires_vertex_shader = "\n\
+    uniform mat3 to_screen;\n\
     in vec2 vertex_coords;\n\
     out vec2 raster_coords;\n\
+    uniform float x_offset;\n\
+    uniform float y_offset;\n\
     \n\
     void main()\n\
     {\n\
-        vec2 eye_coords = vertex_coords / vec2(280,192) * vec2(2, 2) - vec2(1, 1);\n\
         raster_coords = vertex_coords;\n\
-        gl_Position = vec4(eye_coords * vec2(1, -1), 0.5, 1.0);\n\
+        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);\n\
+        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
     }\n";
 
 static const char *text_vertex_shader = "\n\
+    uniform mat3 to_screen;\n\
     in vec2 vertex_coords;\n\
+    uniform float x_offset;\n\
+    uniform float y_offset;\n\
     out vec2 text_coords;\n\
     out vec2 raster_coords;\n\
     \n\
     void main()\n\
     {\n\
-        vec2 eye_coords = vertex_coords / vec2(280,192) * vec2(2, 2) - vec2(1, 1);\n\
         raster_coords = vertex_coords;\n\
         text_coords = vec2(int(vertex_coords.x / 7), int(vertex_coords.y / 8));\n\
-        gl_Position = vec4(eye_coords * vec2(1, -1), 0.5, 1.0);\n\
+        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);\n\
+        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
     }\n";
 
 static const char *hires_fragment_shader = "\n\
@@ -443,11 +429,17 @@ void initialize_gl(void)
 
     hires_program = GenerateProgram("hires", hires_vertex_shader, hires_fragment_shader);
     hires_texture_location = glGetUniformLocation(hires_program, "hires_texture");
+    hires_to_screen_location = glGetUniformLocation(hires_program, "to_screen");
+    hires_x_offset_location = glGetUniformLocation(hires_program, "x_offset");
+    hires_y_offset_location = glGetUniformLocation(hires_program, "y_offset");
 
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
     textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
     font_texture_location = glGetUniformLocation(text_program, "font_texture");
     blink_location = glGetUniformLocation(text_program, "blink");
+    textport_x_offset_location = glGetUniformLocation(text_program, "x_offset");
+    textport_y_offset_location = glGetUniformLocation(text_program, "y_offset");
+    textport_to_screen_location = glGetUniformLocation(text_program, "to_screen");
     CheckOpenGL(__FILE__, __LINE__);
 
     lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
@@ -460,19 +452,27 @@ void initialize_gl(void)
 
 unsigned char textport[2][24][40];
 
-void set_shader(DisplayMode display_mode, bool mixed_mode, int blink)
+void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink, float x, float y)
+{
+    glUseProgram(text_program);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture);
+    glUniform1i(textport_texture_location, 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
+    glUniform1i(font_texture_location, 1);
+    glUniform1i(blink_location, blink);
+    glUniform1f(textport_x_offset_location, x);
+    glUniform1f(textport_y_offset_location, y);
+    glUniformMatrix3fv(textport_to_screen_location, 1, GL_FALSE, to_screen);
+}
+
+void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, int blink, float x, float y)
 {
     if(mixed_mode || (display_mode == TEXT)) {
 
-        glUseProgram(text_program);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
-        glUniform1i(textport_texture_location, 0);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
-        glUniform1i(font_texture_location, 1);
-        glUniform1i(blink_location, blink);
+        set_textport_shader(to_screen, textport_texture[display_page], blink, x, y);
 
     } else if(display_mode == LORES) {
 
@@ -481,6 +481,9 @@ void set_shader(DisplayMode display_mode, bool mixed_mode, int blink)
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
         glUniform1i(lores_texture_location, 0);
+        glUniformMatrix3fv(textport_to_screen_location, 1, GL_FALSE, to_screen);
+        glUniform1f(textport_x_offset_location, x);
+        glUniform1f(textport_y_offset_location, y);
 
     } else if(display_mode == HIRES) {
 
@@ -489,9 +492,64 @@ void set_shader(DisplayMode display_mode, bool mixed_mode, int blink)
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture[display_page]);
         glUniform1i(hires_texture_location, 0);
+        glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
+        glUniform1f(hires_x_offset_location, x);
+        glUniform1f(hires_y_offset_location, y);
 
     }
 }
+
+#if 0
+struct button
+{
+    GLuint string_texture;
+    GLuint rectangle;
+    string content;
+    button(const string& content_) :
+        content(content_)
+    {
+        // construct string texture
+        auto_ptr<char*> bytes = new content.size() + 1;
+        int i = 0;
+        for(auto it = content.begin(); it != content.end(); it++) {
+            unsigned char c = *it;
+            if(c > ' ' && c <= '?')
+                bytes[i] = c - ' ' + 160;
+            else if(c > '@' && c <= '_')
+                bytes[i] = c - '@' + 128;
+            else if(c > '`' && c <= '~')
+                bytes[i] = c - '`' + 224;
+            else
+                bytes[i] = 255;
+            i++;
+        }
+        string_texture = initialize_texture(i, 1, bytes);
+        rectangle = make_rectangle_vertex_array(0, 0, 280, 160);
+    }
+    tuple<int, int> get_dimensions()
+    {
+        int w = content.size() * 7 + 3 * 2;
+        int h = 8 + 3 * 2;
+    }
+    void draw(float to_screen[9], float x, float y)
+    {
+        // draw lines 2 pixels around
+        // draw lines 1 pixels around
+        // blank area 0 pixels around
+
+        set_textport_shader(to_screen, string_texture, (elapsed_millis / 1870) % 2, x, y);
+
+        glBindVertexArray(rectangle);
+        CheckOpenGL(__FILE__, __LINE__);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        CheckOpenGL(__FILE__, __LINE__);
+    }
+};
+
+struct buttons
+{
+};
+#endif
 
 static void redraw(GLFWwindow *window)
 { 
@@ -504,14 +562,25 @@ static void redraw(GLFWwindow *window)
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    set_shader(display_mode, false, (elapsed_millis / 1870) % 2);
+    float to_screen[9];
+    to_screen[0 * 3 + 0] = 2/280.0;
+    to_screen[0 * 3 + 1] = 0;
+    to_screen[0 * 3 + 2] = 0;
+    to_screen[1 * 3 + 0] = 0;
+    to_screen[1 * 3 + 1] = -2/192.0;
+    to_screen[1 * 3 + 2] = 0;
+    to_screen[2 * 3 + 0] = -1;
+    to_screen[2 * 3 + 1] = 1;
+    to_screen[2 * 3 + 2] = 1;
+
+    set_shader(to_screen, display_mode, false, (elapsed_millis / 1870) % 2, 0, 0);
 
     glBindVertexArray(upper_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     CheckOpenGL(__FILE__, __LINE__);
 
-    set_shader(display_mode, mixed_mode, (elapsed_millis / 1870) % 2);
+    set_shader(to_screen, display_mode, mixed_mode, (elapsed_millis / 1870) % 2, 0, 0);
 
     glBindVertexArray(lower_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
