@@ -19,6 +19,8 @@ namespace APPLE2Einterface
 
 chrono::time_point<chrono::system_clock> start_time;
 
+static GLFWwindow* my_window;
+
 DisplayMode display_mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
 bool mixed_mode = false;
@@ -55,7 +57,6 @@ event dequeue_event()
 }
 
 GLuint font_texture;
-GLuint font_texture_location;
 const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
 
@@ -68,6 +69,9 @@ GLuint blink_location;
 GLuint textport_x_offset_location;
 GLuint textport_y_offset_location;
 GLuint textport_to_screen_location;
+GLuint textport_foreground_location;
+GLuint textport_background_location;
+GLuint font_texture_location;
 
 GLuint lores_program;
 GLuint lores_texture_location;
@@ -205,6 +209,8 @@ static const char *text_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     in vec2 text_coords;\n\
     uniform int blink;\n\
+    uniform vec4 foreground;\n\
+    uniform vec4 background;\n\
     uniform usampler2DRect font_texture;\n\
     uniform usampler2DRect textport_texture;\n\
     \n\
@@ -223,10 +229,10 @@ static const char *text_fragment_shader = "\n\
             inverse = true;\n\
         } else if(character >= 64u && character <= 95u) {\n\
             character = character - 64u + 32u; // XXX BLINK \n\
-            inverse = blink == 0;\n\
+            inverse = blink == 1;\n\
         } else if(character >= 96u && character <= 127u){\n\
             character = character - 96u + 0u; // XXX BLINK \n\
-            inverse = blink == 0;\n\
+            inverse = blink == 1;\n\
         } else if(character >= 128u && character <= 159u)\n\
             character = character - 128u + 32u;\n\
         else if(character >= 160u && character <= 191u)\n\
@@ -242,14 +248,9 @@ static const char *text_fragment_shader = "\n\
         uint pixel = texture(font_texture, infont).x;\n\
         float value;\n\
         if(inverse)\n\
-            value = 1.0 - pixel / 255.0;\n\
+            color = mix(background, foreground, 1.0 - pixel / 255.0);\n\
         else\n\
-            value = pixel / 255.0;\n\
-        color = vec4(value, value, value, value);\n\
-        // color = vec4(value, float(inglyph.x)/7, float(inglyph.y)/8, value);\n\
-        // color = vec4(vec2(inglyph) / vec2(7, 8), 0, 1);\n\
-        // BLINK?? \n\
-        // INVERSE?? \n\
+            color = mix(background, foreground, pixel / 255.0);\n\
     }\n";
 
 static const char *lores_fragment_shader = "\n\
@@ -413,47 +414,9 @@ GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
     return texture;
 }
 
-void initialize_gl(void)
-{
-    glClearColor(0, 0, 0, 1);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
-    textport_texture[0] = initialize_texture(textport_w, textport_h);
-    textport_texture[1] = initialize_texture(textport_w, textport_h);
-    hires_texture[0] = initialize_texture(hires_w, hires_h);
-    hires_texture[1] = initialize_texture(hires_w, hires_h);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    hires_program = GenerateProgram("hires", hires_vertex_shader, hires_fragment_shader);
-    hires_texture_location = glGetUniformLocation(hires_program, "hires_texture");
-    hires_to_screen_location = glGetUniformLocation(hires_program, "to_screen");
-    hires_x_offset_location = glGetUniformLocation(hires_program, "x_offset");
-    hires_y_offset_location = glGetUniformLocation(hires_program, "y_offset");
-
-    text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
-    textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
-    font_texture_location = glGetUniformLocation(text_program, "font_texture");
-    blink_location = glGetUniformLocation(text_program, "blink");
-    textport_x_offset_location = glGetUniformLocation(text_program, "x_offset");
-    textport_y_offset_location = glGetUniformLocation(text_program, "y_offset");
-    textport_to_screen_location = glGetUniformLocation(text_program, "to_screen");
-    CheckOpenGL(__FILE__, __LINE__);
-
-    lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
-    lores_texture_location = glGetUniformLocation(lores_program, "lores_texture");
-    lores_x_offset_location = glGetUniformLocation(lores_program, "x_offset");
-    lores_y_offset_location = glGetUniformLocation(lores_program, "y_offset");
-    lores_to_screen_location = glGetUniformLocation(lores_program, "to_screen");
-    CheckOpenGL(__FILE__, __LINE__);
-
-    initialize_screen_areas();
-    CheckOpenGL(__FILE__, __LINE__);
-}
-
 unsigned char textport[2][24][40];
 
-void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink, float x, float y)
+void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink, float x, float y, float bg[4], float fg[4])
 {
     glUseProgram(text_program);
 
@@ -466,6 +429,8 @@ void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink,
     glUniform1i(blink_location, blink);
     glUniform1f(textport_x_offset_location, x);
     glUniform1f(textport_y_offset_location, y);
+    glUniform4fv(textport_background_location, 1, bg);
+    glUniform4fv(textport_foreground_location, 1, fg);
     glUniformMatrix3fv(textport_to_screen_location, 1, GL_FALSE, to_screen);
 }
 
@@ -473,7 +438,9 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
 {
     if(mixed_mode || (display_mode == TEXT)) {
 
-        set_textport_shader(to_screen, textport_texture[display_page], blink, x, y);
+        float bg[4] = {0, 0, 0, 1};
+        float fg[4] = {1, 1, 1, 1};
+        set_textport_shader(to_screen, textport_texture[display_page], blink, x, y, bg, fg);
 
     } else if(display_mode == LORES) {
 
@@ -500,60 +467,161 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
     }
 }
 
-#if 0
 struct button
 {
     GLuint string_texture;
     GLuint rectangle;
     string content;
+    bool on;
+
     button(const string& content_) :
-        content(content_)
+        content(content_),
+        on(false)
     {
         // construct string texture
-        auto_ptr<char*> bytes = new content.size() + 1;
+        auto_ptr<unsigned char> bytes(new unsigned char[content.size() + 1]);
         int i = 0;
         for(auto it = content.begin(); it != content.end(); it++) {
             unsigned char c = *it;
             if(c > ' ' && c <= '?')
-                bytes[i] = c - ' ' + 160;
+                bytes.get()[i] = c - ' ' + 160;
             else if(c > '@' && c <= '_')
-                bytes[i] = c - '@' + 128;
+                bytes.get()[i] = c - '@' + 128;
             else if(c > '`' && c <= '~')
-                bytes[i] = c - '`' + 224;
+                bytes.get()[i] = c - '`' + 224;
             else
-                bytes[i] = 255;
+                bytes.get()[i] = 255;
             i++;
         }
-        string_texture = initialize_texture(i, 1, bytes);
-        rectangle = make_rectangle_vertex_array(0, 0, 280, 160);
+        string_texture = initialize_texture(i, 1, bytes.get());
+        rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
     }
-    tuple<int, int> get_dimensions()
+
+    tuple<int, int> get_dimensions() const
     {
         int w = content.size() * 7 + 3 * 2;
         int h = 8 + 3 * 2;
+        return make_tuple(w, h);
     }
-    void draw(float to_screen[9], float x, float y)
+
+    void draw(double now, float to_screen[9], float x, float y)
     {
         // draw lines 2 pixels around
         // draw lines 1 pixels around
         // blank area 0 pixels around
 
-        set_textport_shader(to_screen, string_texture, (elapsed_millis / 1870) % 2, x, y);
+        float bg[4] = {0, 0, 0, 1};
+        float fg[4] = {1, 1, 1, 1};
+        if(on)
+            set_textport_shader(to_screen, string_texture, 0, x + 3, y + 3, fg, bg);
+        else
+            set_textport_shader(to_screen, string_texture, 0, x + 3, y + 3, bg, fg);
 
         glBindVertexArray(rectangle);
         CheckOpenGL(__FILE__, __LINE__);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
     }
+
+    bool click(double now, float x, float y)
+    {
+        int w, h;
+        tie(w, h) = get_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            on = true;
+            event_queue.push_back({RESET, 0});
+            return true;
+        }
+        return false;
+    }
+
+    void drag(double now, float x, float y)
+    {
+        int w, h;
+        tie(w, h) = get_dimensions();
+        on = (x >= 0 && y >= 0 & x < w && y < h);
+    }
+
+    void release(double now, float x, float y)
+    {
+        on = false;
+    }
 };
 
-struct buttons
+
+int reset_button_location[2] = {280, 100};
+button *reset_button;
+
+void initialize_gl(void)
 {
-};
-#endif
+    glClearColor(0, 0, 0, 1);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
+    textport_texture[0] = initialize_texture(textport_w, textport_h);
+    textport_texture[1] = initialize_texture(textport_w, textport_h);
+    hires_texture[0] = initialize_texture(hires_w, hires_h);
+    hires_texture[1] = initialize_texture(hires_w, hires_h);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    hires_program = GenerateProgram("hires", hires_vertex_shader, hires_fragment_shader);
+    hires_texture_location = glGetUniformLocation(hires_program, "hires_texture");
+    hires_to_screen_location = glGetUniformLocation(hires_program, "to_screen");
+    hires_x_offset_location = glGetUniformLocation(hires_program, "x_offset");
+    hires_y_offset_location = glGetUniformLocation(hires_program, "y_offset");
+
+    text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
+    textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
+    font_texture_location = glGetUniformLocation(text_program, "font_texture");
+    blink_location = glGetUniformLocation(text_program, "blink");
+    textport_x_offset_location = glGetUniformLocation(text_program, "x_offset");
+    textport_y_offset_location = glGetUniformLocation(text_program, "y_offset");
+    textport_to_screen_location = glGetUniformLocation(text_program, "to_screen");
+    textport_foreground_location = glGetUniformLocation(text_program, "foreground");
+    textport_background_location = glGetUniformLocation(text_program, "background");
+    CheckOpenGL(__FILE__, __LINE__);
+
+    lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
+    lores_texture_location = glGetUniformLocation(lores_program, "lores_texture");
+    lores_x_offset_location = glGetUniformLocation(lores_program, "x_offset");
+    lores_y_offset_location = glGetUniformLocation(lores_program, "y_offset");
+    lores_to_screen_location = glGetUniformLocation(lores_program, "to_screen");
+    CheckOpenGL(__FILE__, __LINE__);
+
+    initialize_screen_areas();
+    CheckOpenGL(__FILE__, __LINE__);
+
+    reset_button = new button("RESET");
+    CheckOpenGL(__FILE__, __LINE__);
+}
+
+const float widget_scale = 4;
+float to_screen_transform[9];
+
+void make_to_screen_transform()
+{
+    to_screen_transform[0 * 3 + 0] = 2.0 / gWindowWidth * widget_scale;
+    to_screen_transform[0 * 3 + 1] = 0;
+    to_screen_transform[0 * 3 + 2] = 0;
+    to_screen_transform[1 * 3 + 0] = 0;
+    to_screen_transform[1 * 3 + 1] = -2.0 / gWindowHeight * widget_scale;
+    to_screen_transform[1 * 3 + 2] = 0;
+    to_screen_transform[2 * 3 + 0] = -1;
+    to_screen_transform[2 * 3 + 1] = 1;
+    to_screen_transform[2 * 3 + 2] = 1;
+}
+
+tuple<float, float> window_to_widget(float x, float y)
+{
+    float wx, wy;
+    wx = x * 2.0 / widget_scale;
+    wy = y * 2.0 / widget_scale;
+
+    return make_tuple(wx, wy);
+}
 
 static void redraw(GLFWwindow *window)
-{ 
+{
     chrono::time_point<chrono::system_clock> now;
     now = std::chrono::system_clock::now();
 
@@ -563,30 +631,21 @@ static void redraw(GLFWwindow *window)
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    float to_screen[9];
-    to_screen[0 * 3 + 0] = 2/280.0;
-    to_screen[0 * 3 + 1] = 0;
-    to_screen[0 * 3 + 2] = 0;
-    to_screen[1 * 3 + 0] = 0;
-    to_screen[1 * 3 + 1] = -2/192.0;
-    to_screen[1 * 3 + 2] = 0;
-    to_screen[2 * 3 + 0] = -1;
-    to_screen[2 * 3 + 1] = 1;
-    to_screen[2 * 3 + 2] = 1;
-
-    set_shader(to_screen, display_mode, false, (elapsed_millis / 1870) % 2, 0, 0);
+    set_shader(to_screen_transform, display_mode, false, (elapsed_millis / 1870) % 2, 0, 0);
 
     glBindVertexArray(upper_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     CheckOpenGL(__FILE__, __LINE__);
 
-    set_shader(to_screen, display_mode, mixed_mode, (elapsed_millis / 1870) % 2, 0, 0);
+    set_shader(to_screen_transform, display_mode, mixed_mode, (elapsed_millis / 1870) % 2, 0, 0);
 
     glBindVertexArray(lower_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     CheckOpenGL(__FILE__, __LINE__);
+
+    reset_button->draw(0.0, to_screen_transform, reset_button_location[0], reset_button_location[1]);
 }
 
 static void error_callback(int error, const char* description)
@@ -618,7 +677,10 @@ static void resize(GLFWwindow *window, int x, int y)
 {
     glfwGetFramebufferSize(window, &gWindowWidth, &gWindowHeight);
     glViewport(0, 0, gWindowWidth, gWindowHeight);
+    make_to_screen_transform();
 }
+
+button *button_clicked = NULL;
 
 static void button(GLFWwindow *window, int b, int action, int mods)
 {
@@ -629,9 +691,21 @@ static void button(GLFWwindow *window, int b, int action, int mods)
         gButtonPressed = 1;
 	gOldMouseX = x;
 	gOldMouseY = y;
+
+        float wx, wy;
+        tie(wx, wy) = window_to_widget(x, y);
+        if(reset_button->click(0.0, wx - reset_button_location[0], wy - reset_button_location[1])) {
+            button_clicked = reset_button;
+        }
     } else {
         gButtonPressed = -1;
+        if(button_clicked) {
+            float wx, wy;
+            tie(wx, wy) = window_to_widget(x, y);
+            button_clicked->release(0.0, wx - reset_button_location[0], wy - reset_button_location[1]);
+        }
     }
+    redraw(window);
 }
 
 static void motion(GLFWwindow *window, double x, double y)
@@ -654,15 +728,18 @@ static void motion(GLFWwindow *window, double x, double y)
     gOldMouseY = y;
 
     if(gButtonPressed == 1) {
-        // mouse does nothing
+        if(button_clicked) {
+            float wx, wy;
+            tie(wx, wy) = window_to_widget(x, y);
+            button_clicked->drag(0.0, wx - reset_button_location[0], wy - reset_button_location[1]);
+        }
     }
+    redraw(window);
 }
 
 static void scroll(GLFWwindow *window, double dx, double dy)
 {
 }
-
-static GLFWwindow* window;
 
 const int pixel_scale = 3;
 
@@ -680,42 +757,43 @@ void start()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); 
 
     glfwWindowHint(GLFW_SAMPLES, 4);
-    window = glfwCreateWindow(gWindowWidth = 280 * pixel_scale, gWindowHeight = 192 * pixel_scale, "Apple //e", NULL, NULL);
-    if (!window) {
+    my_window = glfwCreateWindow(280 * pixel_scale, 192 * pixel_scale, "Apple //e", NULL, NULL);
+    if (!my_window) {
         glfwTerminate();
         fprintf(stdout, "Couldn't open main window\n");
         exit(EXIT_FAILURE);
     }
 
-    glfwMakeContextCurrent(window);
-    CheckOpenGL(__FILE__, __LINE__);
+    glfwMakeContextCurrent(my_window);
     printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
     printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
-    CheckOpenGL(__FILE__, __LINE__);
 
+    glfwGetFramebufferSize(my_window, &gWindowWidth, &gWindowHeight);
+    glViewport(0, 0, gWindowWidth, gWindowHeight);
+    make_to_screen_transform();
     initialize_gl();
     CheckOpenGL(__FILE__, __LINE__);
 
-    glfwSetKeyCallback(window, key);
-    glfwSetMouseButtonCallback(window, button);
-    glfwSetCursorPosCallback(window, motion);
-    glfwSetScrollCallback(window, scroll);
-    glfwSetFramebufferSizeCallback(window, resize);
-    glfwSetWindowRefreshCallback(window, redraw);
+    glfwSetKeyCallback(my_window, key);
+    glfwSetMouseButtonCallback(my_window, button);
+    glfwSetCursorPosCallback(my_window, motion);
+    glfwSetScrollCallback(my_window, scroll);
+    glfwSetFramebufferSizeCallback(my_window, resize);
+    glfwSetWindowRefreshCallback(my_window, redraw);
     CheckOpenGL(__FILE__, __LINE__);
 }
 
 void iterate()
 {
     CheckOpenGL(__FILE__, __LINE__);
-    if(glfwWindowShouldClose(window)) {
+    if(glfwWindowShouldClose(my_window)) {
         event_queue.push_back({QUIT, 0});
     }
 
     CheckOpenGL(__FILE__, __LINE__);
-    redraw(window);
+    redraw(my_window);
     CheckOpenGL(__FILE__, __LINE__);
-    glfwSwapBuffers(window);
+    glfwSwapBuffers(my_window);
     CheckOpenGL(__FILE__, __LINE__);
 
     glfwPollEvents();

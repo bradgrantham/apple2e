@@ -1523,7 +1523,7 @@ map<int, key_to_ascii> interface_key_to_apple2e =
     {' ', {' ', ' ', 0, 0}},
 };
 
-enum APPLE2Einterface::EventType keyboard_to_mainboard(MAINboard *board)
+enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_controller& bus, CPU6502& cpu)
 {
     static bool shift_down = false;
     static bool control_down = false;
@@ -1531,9 +1531,7 @@ enum APPLE2Einterface::EventType keyboard_to_mainboard(MAINboard *board)
 
     while(APPLE2Einterface::event_waiting()) {
         APPLE2Einterface::event e = APPLE2Einterface::dequeue_event();
-        if(e.type == APPLE2Einterface::QUIT) {
-            return APPLE2Einterface::QUIT;
-        } else if(e.type == APPLE2Einterface::PASTE) {
+        if(e.type == APPLE2Einterface::PASTE) {
             for(int i = 0; i < strlen(e.str); i++)
                 if(e.str[i] == '\n')
                     board->enqueue_key('\r');
@@ -1580,7 +1578,16 @@ enum APPLE2Einterface::EventType keyboard_to_mainboard(MAINboard *board)
                 shift_down = false;
             else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = false;
-        }
+        } if(e.type == APPLE2Einterface::RESET) {
+            printf("machine reset.\n");
+            bus.reset();
+            cpu.reset(bus);
+        } else if(e.type == APPLE2Einterface::REBOOT) {
+            printf("CPU rebooted (NMI).\n");
+            bus.reset();
+            cpu.nmi(bus);
+        } else if(e.type == APPLE2Einterface::QUIT)
+            return e.type;
     }
     return APPLE2Einterface::NONE;
 }
@@ -1664,7 +1671,7 @@ int main(int argc, char **argv)
             char key;
             bool have_key = peek_key(&key);
 
-            if(keyboard_to_mainboard(mainboard) == APPLE2Einterface::QUIT) {
+            if(process_events(mainboard, bus, cpu) == APPLE2Einterface::QUIT) {
                 break;
             }
 
