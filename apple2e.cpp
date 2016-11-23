@@ -36,6 +36,14 @@ volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
+struct system_clock
+{
+    unsigned long long value = 0;
+    operator unsigned long long() const { return value; }
+    unsigned long long operator+=(unsigned long long i) { return value += i; }
+    unsigned long long operator++() { return value ++; }
+} clk;
+
 struct SoftSwitch
 {
     string name;
@@ -133,6 +141,8 @@ const region io_region = {"io", 0xC000, 0x100};
 
 struct MAINboard : board_base
 {
+    system_clock& clk;
+
     vector<SoftSwitch*> switches;
     SoftSwitch* switches_by_address[256];
     SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches, true};
@@ -229,7 +239,8 @@ struct MAINboard : board_base
     }
     typedef std::function<bool (int addr, unsigned char data)> display_write_func;
     display_write_func display_write;
-    MAINboard(unsigned char rom_image[32768],  display_write_func display_write_) :
+    MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_) :
+        clk(clk_),
         internal_C800_ROM_selected(true),
         display_write(display_write_)
     {
@@ -525,6 +536,8 @@ bool adc_overflow(unsigned char a, unsigned char b, int carry)
 
 struct CPU6502
 {
+    system_clock &clk;
+
     unsigned char a, x, y, s, p;
     static const unsigned char N = 0x80;
     static const unsigned char V = 0x40;
@@ -541,7 +554,8 @@ struct CPU6502
         BRK,
         INT,
     } exception;
-    CPU6502() :
+    CPU6502(system_clock& clk_) :
+        clk(clk_),
         p(0x20),
         exception(RESET)
     {
@@ -603,6 +617,25 @@ struct CPU6502
         pc = bus.read(0xFFFA) + bus.read(0xFFFB) * 256;
         exception = NONE;
     }
+    int cycles[256] = 
+    {
+        7, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, -1, 4, 6, -1,
+        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        6, 6, -1, -1, 3, 3, 5, -1, 4, 2, 2, -1, 4, 4, 6, -1,
+        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        6, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, 3, 4, 6, -1,
+        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        6, 6, -1, -1, -1, 3, 5, -1, 4, 2, 2, -1, 5, 4, 6, -1,
+        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        -1, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
+        2, 6, -1, -1, 4, 4, 4, -1, 2, 5, 2, -1, -1, 5, -1, -1,
+        2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, -1,
+        2, 5, -1, -1, 4, 4, 4, -1, 2, 4, 2, -1, 4, 4, 4, -1,
+        2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 3, -1,
+        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 6, -1,
+        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+    };
     enum Operand {
         A,
         IMPL,
@@ -1425,6 +1458,7 @@ struct CPU6502
             printf("%s ", (p & C) ? "C" : "c");
             printf("S:%02X (%02X %02X %02X ...) PC:%04X (%02X %02X %02X ...)\n", s, s0, s1, s2, pc, pc0, pc1, pc2);
         }
+        clk += cycles[inst];
     }
 };
 
@@ -1648,13 +1682,15 @@ int main(int argc, char **argv)
     }
     fclose(fp);
 
+    system_clock clk;
+
     MAINboard* mainboard;
 
     MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
-    bus.boards.push_back(mainboard = new MAINboard(b, display));
+    bus.boards.push_back(mainboard = new MAINboard(clk, b, display));
     bus.reset();
 
-    CPU6502 cpu;
+    CPU6502 cpu(clk);
 
     atexit(cleanup);
 
@@ -1770,6 +1806,7 @@ int main(int argc, char **argv)
                 step6502();
             else
                 cpu.cycle(bus);
+            printf("clock = %llu\n", clk.value);
 
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
             int page = mainboard->PAGE2 ? 1 : 0;
