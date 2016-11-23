@@ -34,6 +34,7 @@ volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN ; // | DEBUG_DECODE | DEB
 volatile bool exit_on_banking = false;
 volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
+volatile bool pause_cpu = false;
 
 struct SoftSwitch
 {
@@ -1584,11 +1585,10 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_controller
         } else if(e.type == APPLE2Einterface::REBOOT) {
             bus.reset();
             cpu.nmi(bus);
+        } else if(e.type == APPLE2Einterface::PAUSE) {
+            pause_cpu = e.value;
         } else if(e.type == APPLE2Einterface::SPEED) {
-            if(e.value == 0)
-                run_fast = false;
-            else
-                run_fast = true;
+            run_fast = e.value;
         } else if(e.type == APPLE2Einterface::QUIT)
             return e.type;
     }
@@ -1693,10 +1693,14 @@ int main(int argc, char **argv)
 
             chrono::time_point<chrono::system_clock> then;
             int inst_per_slice;
-            if(run_fast)
-                inst_per_slice = 320000;
-            else
-                inst_per_slice = 255750 * millis_per_slice / 1000 * 2;
+            if(pause_cpu)
+                inst_per_slice = 0;
+            else {
+                if(run_fast)
+                    inst_per_slice = 320000;
+                else
+                    inst_per_slice = 255750 * millis_per_slice / 1000 * 2;
+            }
             for(int i = 0; i < inst_per_slice; i++) {
                 if(debug & DEBUG_DECODE) {
                     string dis = read_bus_and_disassemble(bus, cpu.pc);
@@ -1714,7 +1718,7 @@ int main(int argc, char **argv)
             chrono::time_point<chrono::system_clock> now;
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
-            if(!run_fast)
+            if(!run_fast || pause_cpu)
                 this_thread::sleep_for(chrono::milliseconds(millis_per_slice) - elapsed_millis);
             
         } else {

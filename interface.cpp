@@ -48,6 +48,9 @@ static int gButtonPressed = -1;
 
 deque<event> event_queue;
 
+bool force_caps_on = false; // XXX implement!
+bool draw_using_color = false; // XXX implement!
+
 bool event_waiting()
 {
     return event_queue.size() > 0;
@@ -505,7 +508,7 @@ struct vbox : public widget
             float cw, ch;
             tie(cw, ch) = child->get_min_dimensions();
             h += ch;
-            w += std::max(w, cw);
+            w = std::max(w, cw);
         }
         float y = 0;
         for(auto it = children_.begin(); it != children_.end(); it++) {
@@ -814,10 +817,13 @@ void initialize_gl(void)
     initialize_screen_areas();
     CheckOpenGL(__FILE__, __LINE__);
 
-    momentary *reset = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
-    momentary *reboot = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
-    toggle *go_fast = new toggle("FAST", [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
-    vector<widget*> widgets = {reset, reboot, go_fast};
+    momentary *reset_momentary = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
+    momentary *reboot_momentary = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
+    toggle *fast_toggle = new toggle("FAST", [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
+    toggle *caps_toggle = new toggle("CAPS", [](){force_caps_on = true;}, [](){force_caps_on = false;});
+    toggle *color_toggle = new toggle("COLOR", [](){draw_using_color = true;}, [](){draw_using_color = false;});
+    toggle *pause_toggle = new toggle("PAUSE", [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
+    vector<widget*> widgets = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle};
     ui = new vbox(widgets);
     CheckOpenGL(__FILE__, __LINE__);
 }
