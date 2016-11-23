@@ -7,6 +7,12 @@
 #include <chrono>
 #include <iostream>
 
+// implicit centering in widget? Or special centering widget?
+// lines (for around toggle and momentary)
+// widget which is graphics/text/lores screen
+// hbox
+// what is window resize / shrink policy?
+
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
 #include <GL/glext.h>
@@ -470,7 +476,7 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
 
 struct widget
 {
-    virtual tuple<float, float> get_dimensions() const = 0;
+    virtual tuple<float, float> get_min_dimensions() const = 0;
     virtual void draw(double now, float to_screen[9], float x, float y) = 0;
     virtual bool click(double now, float x, float y) = 0;
     virtual void drag(double now, float x, float y) = 0;
@@ -497,7 +503,7 @@ struct vbox : public widget
         for(auto it = children_.begin(); it != children_.end(); it++) {
             widget *child = *it;
             float cw, ch;
-            tie(cw, ch) = child->get_dimensions();
+            tie(cw, ch) = child->get_min_dimensions();
             h += ch;
             w += std::max(w, cw);
         }
@@ -505,13 +511,13 @@ struct vbox : public widget
         for(auto it = children_.begin(); it != children_.end(); it++) {
             widget *child = *it;
             float cw, ch;
-            tie(cw, ch) = child->get_dimensions();
+            tie(cw, ch) = child->get_min_dimensions();
             float x = (w - cw) / 2;
             children.push_back({child, x, y});
             y += ch;
         }
     }
-    virtual tuple<float, float> get_dimensions() const
+    virtual tuple<float, float> get_min_dimensions() const
     {
         return make_tuple(w, h);
     }
@@ -585,7 +591,7 @@ struct text_widget : public widget
         rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
     }
 
-    virtual tuple<float, float> get_dimensions() const
+    virtual tuple<float, float> get_min_dimensions() const
     {
         return make_tuple(content.size() * 7, 8);
     }
@@ -602,7 +608,7 @@ struct text_widget : public widget
     virtual bool click(double now, float x, float y)
     {
         float w, h;
-        tie(w, h) = get_dimensions();
+        tie(w, h) = get_min_dimensions();
         if(x >= 0 && y >= 0 & x < w && y < h) {
             return true;
         }
@@ -628,10 +634,10 @@ struct momentary : public text_widget
         set(fg, 1, 1, 1, 1);
     }
 
-    virtual tuple<float, float> get_dimensions() const
+    virtual tuple<float, float> get_min_dimensions() const
     {
         float w, h;
-        tie(w, h) = text_widget::get_dimensions();
+        tie(w, h) = text_widget::get_min_dimensions();
         return make_tuple(w + 3 * 2, h + 3 * 2);
     }
 
@@ -647,7 +653,7 @@ struct momentary : public text_widget
     virtual bool click(double now, float x, float y)
     {
         float w, h;
-        tie(w, h) = get_dimensions();
+        tie(w, h) = get_min_dimensions();
         if(x >= 0 && y >= 0 & x < w && y < h) {
             on = true;
             set(fg, 0, 0, 0, 1);
@@ -660,7 +666,7 @@ struct momentary : public text_widget
     virtual void drag(double now, float x, float y)
     {
         float w, h;
-        tie(w, h) = get_dimensions();
+        tie(w, h) = get_min_dimensions();
         on = (x >= 0 && y >= 0 & x < w && y < h);
         if(on) {
             set(fg, 0, 0, 0, 1);
@@ -696,10 +702,10 @@ struct toggle : public text_widget
         set(fg, 1, 1, 1, 1);
     }
 
-    virtual tuple<float, float> get_dimensions() const
+    virtual tuple<float, float> get_min_dimensions() const
     {
         float w, h;
-        tie(w, h) = text_widget::get_dimensions();
+        tie(w, h) = text_widget::get_min_dimensions();
         return make_tuple(w + 3 * 2, h + 3 * 2);
     }
 
@@ -715,7 +721,7 @@ struct toggle : public text_widget
     virtual bool click(double now, float x, float y)
     {
         float w, h;
-        tie(w, h) = get_dimensions();
+        tie(w, h) = get_min_dimensions();
         if(x >= 0 && y >= 0 & x < w && y < h) {
             if(on) {
                 set(fg, 0, 0, 0, 1);
@@ -732,7 +738,7 @@ struct toggle : public text_widget
     virtual void drag(double now, float x, float y)
     {
         float w, h;
-        tie(w, h) = get_dimensions();
+        tie(w, h) = get_min_dimensions();
         if(x >= 0 && y >= 0 & x < w && y < h) {
             if(on) {
                 set(fg, 0, 0, 0, 1);
@@ -987,8 +993,8 @@ void start()
     }
 
     glfwMakeContextCurrent(my_window);
-    printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
-    printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
+    // printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
+    // printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
 
     glfwGetFramebufferSize(my_window, &gWindowWidth, &gWindowHeight);
     glViewport(0, 0, gWindowWidth, gWindowHeight);
