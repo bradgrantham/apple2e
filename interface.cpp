@@ -253,7 +253,7 @@ static const char *text_fragment_shader = "\n\
             character = character - 224u + 64u;\n\
         else \n\
             character = 33u;\n\
-        uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);\n\
+        uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u + 1u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
         uint pixel = texture(font_texture, infont).x;\n\
         float value;\n\
