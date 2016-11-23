@@ -1579,13 +1579,16 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_controller
             else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = false;
         } if(e.type == APPLE2Einterface::RESET) {
-            printf("machine reset.\n");
             bus.reset();
             cpu.reset(bus);
         } else if(e.type == APPLE2Einterface::REBOOT) {
-            printf("CPU rebooted (NMI).\n");
             bus.reset();
             cpu.nmi(bus);
+        } else if(e.type == APPLE2Einterface::SPEED) {
+            if(e.value == 0)
+                run_fast = false;
+            else
+                run_fast = true;
         } else if(e.type == APPLE2Einterface::QUIT)
             return e.type;
     }

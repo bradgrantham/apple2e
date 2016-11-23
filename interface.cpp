@@ -3,6 +3,7 @@
 #include <cctype>
 #include <deque>
 #include <string>
+#include <vector>
 #include <chrono>
 #include <iostream>
 
@@ -416,7 +417,7 @@ GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
 
 unsigned char textport[2][24][40];
 
-void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink, float x, float y, float bg[4], float fg[4])
+void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink, float x, float y, float fg[4], float bg[4])
 {
     glUseProgram(text_program);
 
@@ -440,7 +441,7 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
 
         float bg[4] = {0, 0, 0, 1};
         float fg[4] = {1, 1, 1, 1};
-        set_textport_shader(to_screen, textport_texture[display_page], blink, x, y, bg, fg);
+        set_textport_shader(to_screen, textport_texture[display_page], blink, x, y, fg, bg);
 
     } else if(display_mode == LORES) {
 
@@ -467,17 +468,104 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
     }
 }
 
-struct button
+struct widget
+{
+    virtual tuple<float, float> get_dimensions() const = 0;
+    virtual void draw(double now, float to_screen[9], float x, float y) = 0;
+    virtual bool click(double now, float x, float y) = 0;
+    virtual void drag(double now, float x, float y) = 0;
+    virtual void release(double now, float x, float y) = 0;
+};
+
+struct placed_widget
+{
+    widget *w;
+    float x, y;
+};
+
+struct vbox : public widget
+{
+    float w, h;
+    vector<placed_widget> children;
+    placed_widget focus;
+
+    vbox(vector<widget*> children_) :
+        w(0),
+        h(0),
+        focus({nullptr, 0, 0})
+    {
+        for(auto it = children_.begin(); it != children_.end(); it++) {
+            widget *child = *it;
+            float cw, ch;
+            tie(cw, ch) = child->get_dimensions();
+            h += ch;
+            w += std::max(w, cw);
+        }
+        float y = 0;
+        for(auto it = children_.begin(); it != children_.end(); it++) {
+            widget *child = *it;
+            float cw, ch;
+            tie(cw, ch) = child->get_dimensions();
+            float x = (w - cw) / 2;
+            children.push_back({child, x, y});
+            y += ch;
+        }
+    }
+    virtual tuple<float, float> get_dimensions() const
+    {
+        return make_tuple(w, h);
+    }
+    virtual void draw(double now, float to_screen[9], float x, float y)
+    {
+        for(auto it = children.begin(); it != children.end(); it++) {
+            placed_widget& child = *it;
+            child.w->draw(now, to_screen, x + child.x, y + child.y);
+        }
+    }
+    virtual bool click(double now, float x, float y)
+    {
+        for(auto it = children.begin(); it != children.end(); it++) {
+            placed_widget& child = *it;
+            if(child.w->click(now, x - child.x, y - child.y)) {
+                focus = child;
+                return true;
+            }
+        }
+        return false;
+    }
+    virtual void drag(double now, float x, float y)
+    {
+        focus.w->click(now, x - focus.x, y - focus.y);
+    }
+    virtual void release(double now, float x, float y)
+    {
+        focus.w->release(now, x - focus.x, y - focus.y);
+        focus = {nullptr, 0, 0};
+    }
+};
+
+void set(float v[4], float x, float y, float z, float w)
+{
+    v[0] = x;
+    v[1] = y;
+    v[2] = z;
+    v[3] = w;
+}
+
+struct text_widget : public widget
 {
     GLuint string_texture;
     GLuint rectangle;
     string content;
-    bool on;
+    float fg[4];
+    float bg[4];
 
-    button(const string& content_) :
-        content(content_),
-        on(false)
+    text_widget(const string& content_) :
+        content(content_)
     {
+        set(fg, 1, 1, 1, 0);
+        set(bg, 0, 0, 0, 0);
+
         // construct string texture
         auto_ptr<unsigned char> bytes(new unsigned char[content.size() + 1]);
         int i = 0;
@@ -497,60 +585,189 @@ struct button
         rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
     }
 
-    tuple<int, int> get_dimensions() const
+    virtual tuple<float, float> get_dimensions() const
     {
-        int w = content.size() * 7 + 3 * 2;
-        int h = 8 + 3 * 2;
-        return make_tuple(w, h);
+        return make_tuple(content.size() * 7, 8);
     }
 
-    void draw(double now, float to_screen[9], float x, float y)
+    virtual void draw(double now, float to_screen[9], float x, float y)
     {
-        // draw lines 2 pixels around
-        // draw lines 1 pixels around
-        // blank area 0 pixels around
-
-        float bg[4] = {0, 0, 0, 1};
-        float fg[4] = {1, 1, 1, 1};
-        if(on)
-            set_textport_shader(to_screen, string_texture, 0, x + 3, y + 3, fg, bg);
-        else
-            set_textport_shader(to_screen, string_texture, 0, x + 3, y + 3, bg, fg);
+        set_textport_shader(to_screen, string_texture, 0, x + 3, y + 3, fg, bg);
 
         glBindVertexArray(rectangle);
-        CheckOpenGL(__FILE__, __LINE__);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
     }
 
-    bool click(double now, float x, float y)
+    virtual bool click(double now, float x, float y)
     {
-        int w, h;
+        float w, h;
         tie(w, h) = get_dimensions();
         if(x >= 0 && y >= 0 & x < w && y < h) {
-            on = true;
-            event_queue.push_back({RESET, 0});
             return true;
         }
         return false;
     }
 
-    void drag(double now, float x, float y)
+    virtual void drag(double now, float x, float y) { }
+
+    virtual void release(double now, float x, float y) { }
+};
+
+struct momentary : public text_widget
+{
+    bool on;
+    std::function<void()> action;
+
+    momentary(const string& content_, std::function<void()> action_) :
+        text_widget(content_),
+        on(false),
+        action(action_)
     {
-        int w, h;
-        tie(w, h) = get_dimensions();
-        on = (x >= 0 && y >= 0 & x < w && y < h);
+        set(bg, 0, 0, 0, 1);
+        set(fg, 1, 1, 1, 1);
     }
 
-    void release(double now, float x, float y)
+    virtual tuple<float, float> get_dimensions() const
     {
+        float w, h;
+        tie(w, h) = text_widget::get_dimensions();
+        return make_tuple(w + 3 * 2, h + 3 * 2);
+    }
+
+    virtual void draw(double now, float to_screen[9], float x, float y)
+    {
+        // draw lines 2 pixels around
+        // draw lines 1 pixels around
+        // blank area 0 pixels around
+
+        text_widget::draw(now, to_screen, x, y);
+    }
+
+    virtual bool click(double now, float x, float y)
+    {
+        float w, h;
+        tie(w, h) = get_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            on = true;
+            set(fg, 0, 0, 0, 1);
+            set(bg, 1, 1, 1, 1);
+            return true;
+        }
+        return false;
+    }
+
+    virtual void drag(double now, float x, float y)
+    {
+        float w, h;
+        tie(w, h) = get_dimensions();
+        on = (x >= 0 && y >= 0 & x < w && y < h);
+        if(on) {
+            set(fg, 0, 0, 0, 1);
+            set(bg, 1, 1, 1, 1);
+        } else {
+            set(bg, 0, 0, 0, 1);
+            set(fg, 1, 1, 1, 1);
+        }
+    }
+
+    virtual void release(double now, float x, float y)
+    {
+        action();
         on = false;
+        set(bg, 0, 0, 0, 1);
+        set(fg, 1, 1, 1, 1);
     }
 };
 
+struct toggle : public text_widget
+{
+    bool on;
+    std::function<void()> action_on;
+    std::function<void()> action_off;
 
-int reset_button_location[2] = {280, 100};
-button *reset_button;
+    toggle(const string& content_, std::function<void()> action_on_, std::function<void()> action_off_) :
+        text_widget(content_),
+        on(false),
+        action_on(action_on_),
+        action_off(action_off_)
+    {
+        set(bg, 0, 0, 0, 1);
+        set(fg, 1, 1, 1, 1);
+    }
+
+    virtual tuple<float, float> get_dimensions() const
+    {
+        float w, h;
+        tie(w, h) = text_widget::get_dimensions();
+        return make_tuple(w + 3 * 2, h + 3 * 2);
+    }
+
+    virtual void draw(double now, float to_screen[9], float x, float y)
+    {
+        // draw lines 2 pixels around
+        // draw lines 1 pixels around
+        // blank area 0 pixels around
+
+        text_widget::draw(now, to_screen, x, y);
+    }
+
+    virtual bool click(double now, float x, float y)
+    {
+        float w, h;
+        tie(w, h) = get_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            if(on) {
+                set(fg, 0, 0, 0, 1);
+                set(bg, 1, 1, 1, 1);
+            } else {
+                set(fg, 1, 1, 1, 1);
+                set(bg, 0, 0, 0, 1);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    virtual void drag(double now, float x, float y)
+    {
+        float w, h;
+        tie(w, h) = get_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            if(on) {
+                set(fg, 0, 0, 0, 1);
+                set(bg, 1, 1, 1, 1);
+            } else {
+                set(fg, 1, 1, 1, 1);
+                set(bg, 0, 0, 0, 1);
+            }
+        } else {
+            if(on) {
+                set(bg, 0, 0, 0, 1);
+                set(fg, 1, 1, 1, 1);
+            } else {
+                set(bg, 1, 1, 1, 1);
+                set(fg, 0, 0, 0, 1);
+            }
+        }
+    }
+
+    virtual void release(double now, float x, float y)
+    {
+        if(on) {
+            action_off();
+            set(bg, 0, 0, 0, 1);
+            set(fg, 1, 1, 1, 1);
+        } else {
+            action_on();
+            set(bg, 1, 1, 1, 1);
+            set(fg, 0, 0, 0, 1);
+        }
+        on = !on;
+    }
+};
+
+vbox *ui;
 
 void initialize_gl(void)
 {
@@ -591,7 +808,11 @@ void initialize_gl(void)
     initialize_screen_areas();
     CheckOpenGL(__FILE__, __LINE__);
 
-    reset_button = new button("RESET");
+    momentary *reset = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
+    momentary *reboot = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
+    toggle *go_fast = new toggle("FAST", [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
+    vector<widget*> widgets = {reset, reboot, go_fast};
+    ui = new vbox(widgets);
     CheckOpenGL(__FILE__, __LINE__);
 }
 
@@ -645,7 +866,7 @@ static void redraw(GLFWwindow *window)
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     CheckOpenGL(__FILE__, __LINE__);
 
-    reset_button->draw(0.0, to_screen_transform, reset_button_location[0], reset_button_location[1]);
+    ui->draw(0.0, to_screen_transform, 280, 0);
 }
 
 static void error_callback(int error, const char* description)
@@ -680,7 +901,7 @@ static void resize(GLFWwindow *window, int x, int y)
     make_to_screen_transform();
 }
 
-button *button_clicked = NULL;
+widget *widget_clicked = NULL;
 
 static void button(GLFWwindow *window, int b, int action, int mods)
 {
@@ -694,16 +915,17 @@ static void button(GLFWwindow *window, int b, int action, int mods)
 
         float wx, wy;
         tie(wx, wy) = window_to_widget(x, y);
-        if(reset_button->click(0.0, wx - reset_button_location[0], wy - reset_button_location[1])) {
-            button_clicked = reset_button;
+        if(ui->click(0.0, wx - 280, wy - 0)) {
+            widget_clicked = ui;
         }
     } else {
         gButtonPressed = -1;
-        if(button_clicked) {
+        if(widget_clicked) {
             float wx, wy;
             tie(wx, wy) = window_to_widget(x, y);
-            button_clicked->release(0.0, wx - reset_button_location[0], wy - reset_button_location[1]);
+            widget_clicked->release(0.0, wx - 280, wy - 0);
         }
+        widget_clicked = nullptr;
     }
     redraw(window);
 }
@@ -728,10 +950,10 @@ static void motion(GLFWwindow *window, double x, double y)
     gOldMouseY = y;
 
     if(gButtonPressed == 1) {
-        if(button_clicked) {
+        if(widget_clicked) {
             float wx, wy;
             tie(wx, wy) = window_to_widget(x, y);
-            button_clicked->drag(0.0, wx - reset_button_location[0], wy - reset_button_location[1]);
+            widget_clicked->drag(0.0, wx - 280, wy - 0);
         }
     }
     redraw(window);
