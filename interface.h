@@ -2,7 +2,7 @@
 
 namespace APPLE2Einterface
 {
-enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT, PASTE, QUIT};
+enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT, PASTE, SPEED, QUIT};
 
 const int LEFT_SHIFT = 340;
 const int LEFT_CONTROL = 341;
