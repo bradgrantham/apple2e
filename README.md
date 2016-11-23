@@ -12,12 +12,19 @@ Thanks to Mike Chambers (miker00lz@gmail.com) for his 6502 CPU emulator, which I
 
 Usage:
 
-    apple2e [-debugger] <romfile>
+    apple2e [options] <romfile>
+
+Options:
+
+    -debugger # start in the debugger
+    -fast     # start with CPU running as fast as it can run
 
 Useful debugger commands:
 
     reset # Press CTRL-RESET
     reboot # Press CTRL-OpenApple-RESET
+    fast # run CPU as fast as it can go
+    slow # Approximate CPU at 1.023 MHz
     debug N # Set debug flags to N (decimal). See apple2e.cpp for flags
     go # Exit debugging, free-run.  Press CTRL-B to break back into the debugger
     # Enter a blank line to step one instruction
