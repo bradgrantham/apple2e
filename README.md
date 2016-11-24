@@ -10,6 +10,15 @@ Thanks to [Lawrence Kesteloot](http://github.com/lkesteloot) for keyboard code, 
 
 Thanks to Mike Chambers (miker00lz@gmail.com) for his 6502 CPU emulator, which I used as a reference when mine hung on "PRINT 5".
 
+Requirements for building:
+
+* GLFW
+* OpenGL 3.2-compatible system
+* C++11
+* Currently, MacOSX because of linker line in Makefile, but C++ itself should be cross-platform
+
+On MacOSX with MacPorts, the GLFW dependency can be satisfied with `sudo port install glfw`.  According to https://support.apple.com/en-us/HT202823, almost all modern Macs should have OpenGL 3.2 or later.  On my machine, I've been compiling with a g++ that outputs `Apple LLVM version 8.0.0 (clang-800.0.42.1)` for `g++ -v`.
+
 Usage:
 
     apple2e [options] <romfile>
