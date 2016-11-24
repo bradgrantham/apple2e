@@ -6,6 +6,8 @@ I wrote this not because the world needed another //e emulator, but because I wa
 
 At the time of writing, the emulator handles only 40-column text mode and no floppy.
 
+There are several AppleSoft files in this project (`*.A`) that can be copied into the clipboard and then pasted into the emulator window with CMD-V.
+
 Thanks to [Lawrence Kesteloot](http://github.com/lkesteloot) for keyboard code, and [Bart Grantham](http://github.com/bartgrantham) for extracting all our old floppy disk images!
 
 Thanks to Mike Chambers (miker00lz@gmail.com) for his 6502 CPU emulator, which I used as a reference when mine hung on "PRINT 5".
