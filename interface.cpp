@@ -15,7 +15,6 @@
 
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
-#include <GL/glext.h>
 
 #include "interface.h"
 
@@ -419,7 +418,7 @@ GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
     glTexParameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     CheckOpenGL(__FILE__, __LINE__);
-    glTexImage2D(GL_TEXTURE_RECTANGLE, 0, GL_R8UI, w, h, 0, GL_RED_INTEGER_EXT, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_RECTANGLE, 0, GL_R8UI, w, h, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
     CheckOpenGL(__FILE__, __LINE__);
     return texture;
 }
@@ -1067,7 +1066,7 @@ bool write(int addr, unsigned char data)
                 (within_page < row_offset + 40)){
                 int col = within_page - row_offset;
                 glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[page]);
-                glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col, row, 1, 1, GL_RED_INTEGER_EXT, GL_UNSIGNED_BYTE, &data);
+                glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col, row, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &data);
                 textport[page][row][col] = data;
                 CheckOpenGL(__FILE__, __LINE__);
             }
@@ -1086,7 +1085,7 @@ bool write(int addr, unsigned char data)
         unsigned char pixels[8];
         for(int i = 0; i < 8 ; i++)
             pixels[i] = ((data & (1 << i)) ? 255 : 0);
-        glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col * 8, row, 8, 1, GL_RED_INTEGER_EXT, GL_UNSIGNED_BYTE, pixels);
+        glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col * 8, row, 8, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
         CheckOpenGL(__FILE__, __LINE__);
         return true;
     }
