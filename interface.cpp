@@ -890,16 +890,16 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
     static bool super_down = false;
 
     if(action == GLFW_PRESS) {
-        if(key == GLFW_KEY_RIGHT_SUPER)
+        if(key == GLFW_KEY_RIGHT_SUPER || key == GLFW_KEY_LEFT_SUPER)
             super_down = true;
-        else if(key == GLFW_KEY_V) {
+        else if(super_down && key == GLFW_KEY_V) {
             const char* text = glfwGetClipboardString(window);
             if (text)
                 event_queue.push_back({PASTE, 0, strdup(text)});
         } else
             event_queue.push_back({KEYDOWN, key});
     } else if(action == GLFW_RELEASE) {
-        if(key == GLFW_KEY_RIGHT_SUPER)
+        if(key == GLFW_KEY_RIGHT_SUPER || key == GLFW_KEY_LEFT_SUPER)
             super_down = false;
         event_queue.push_back({KEYUP, key});
     }
