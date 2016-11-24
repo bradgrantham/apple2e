@@ -1056,6 +1056,14 @@ struct CPU6502
                 break;
             }
 
+            case 0x11: { // ORA (ind), Y
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                m = bus.read(addr);
+                set_flags(N | Z, a = a | m);
+                break;
+            }
+
             case 0x05: { // ORA
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
