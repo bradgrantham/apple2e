@@ -10,6 +10,7 @@
 #include <map>
 #include <thread>
 #include <signal.h>
+#include <ao/ao.h>
 
 
 #include "fake6502.h"
@@ -36,13 +37,16 @@ volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
+typedef unsigned long long clk_t;
 struct system_clock
 {
-    unsigned long long value = 0;
-    operator unsigned long long() const { return value; }
-    unsigned long long operator+=(unsigned long long i) { return value += i; }
-    unsigned long long operator++(int) { unsigned long long v = value; value ++; return v; }
+    clk_t value = 0;
+    operator clk_t() const { return value; }
+    clk_t operator+=(clk_t i) { return value += i; }
+    clk_t operator++(int) { clk_t v = value; value ++; return v; }
 } clk;
+
+const int machine_clock_rate = 1023000;
 
 struct SoftSwitch
 {
@@ -233,16 +237,45 @@ struct MAINboard : board_base
 
     deque<unsigned char> keyboard_buffer;
 
+    static const int sample_rate = 44100;
+    static const size_t audio_buffer_size = sample_rate / 10;
+    char audio_buffer[audio_buffer_size];
+    long long audio_buffer_start_sample = 0;
+    long long audio_buffer_next_sample = -1;
+    bool speaker_energized = false;
+
+    void fill_flush_audio()
+    {
+        long long current_sample = clk * sample_rate / machine_clock_rate;
+        for(long long i = audio_buffer_next_sample; i < current_sample; i++) {
+            audio_buffer[i % audio_buffer_size] = speaker_energized ? 128 - 32 : 128 + 32;
+            if(i - audio_buffer_start_sample == audio_buffer_size - 1) {
+                audio_flush(audio_buffer, audio_buffer_size);
+                audio_buffer_start_sample = i + 1;
+            }
+        }
+        audio_buffer_next_sample = current_sample;
+    }
+
+    // flush anything needing flushing
+    void sync()
+    {
+        fill_flush_audio();
+    }
+
     void enqueue_key(unsigned char k)
     {
         keyboard_buffer.push_back(k);
     }
     typedef std::function<bool (int addr, unsigned char data)> display_write_func;
     display_write_func display_write;
-    MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_) :
+    typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
+    audio_flush_func audio_flush;
+    MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_) :
         clk(clk_),
         internal_C800_ROM_selected(true),
-        display_write(display_write_)
+        display_write(display_write_),
+        audio_flush(audio_flush_)
     {
         std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
         std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
@@ -349,9 +382,10 @@ struct MAINboard : board_base
             }
             if(addr == 0xC030) {
                 if(debug & DEBUG_RW) printf("read SPKR, force 0x00\n");
-                // printf("%llu\n", clk.value); <-- clock is more or less correct at this moment
-                // click
+
+                fill_flush_audio();
                 data = 0x00;
+                speaker_energized = !speaker_energized;
                 return true;
             }
             if(addr == 0xC010) {
@@ -1694,6 +1728,31 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_controller
     return APPLE2Einterface::NONE;
 }
 
+ao_device *open_ao()
+{
+    ao_device *device;
+    ao_sample_format format;
+    int default_driver;
+
+    ao_initialize();
+
+    default_driver = ao_default_driver_id();
+
+    memset(&format, 0, sizeof(format));
+    format.bits = 8;
+    format.channels = 1;
+    format.rate = 44100;
+    format.byte_format = AO_FMT_LITTLE;
+
+    /* -- Open driver -- */
+    device = ao_open_live(default_driver, &format, NULL /* no options */);
+    if (device == NULL) {
+        fprintf(stderr, "Error opening libao audio device.\n");
+        return nullptr;
+    }
+    return device;
+}
+
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
@@ -1749,10 +1808,15 @@ int main(int argc, char **argv)
 
     system_clock clk;
 
+    ao_device *aodev = open_ao();
+    if(aodev == NULL)
+        exit(EXIT_FAILURE);
+
     MAINboard* mainboard;
 
     MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
-    bus.boards.push_back(mainboard = new MAINboard(clk, b, display));
+    MAINboard::audio_flush_func audio = [aodev](char *buf, size_t sz){ao_play(aodev, buf, sz);};
+    bus.boards.push_back(mainboard = new MAINboard(clk, b, display, audio));
     bus.reset();
 
     CPU6502 cpu(clk);
@@ -1812,6 +1876,7 @@ int main(int argc, char **argv)
                 else
                     cpu.cycle(bus);
             }
+            mainboard->sync();
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
             int page = mainboard->PAGE2 ? 1 : 0;
             APPLE2Einterface::set_switches(mode, mainboard->MIXED, page);
@@ -1871,6 +1936,7 @@ int main(int argc, char **argv)
                 step6502();
             else
                 cpu.cycle(bus);
+            mainboard->sync();
 
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
             int page = mainboard->PAGE2 ? 1 : 0;
