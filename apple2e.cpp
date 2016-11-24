@@ -41,7 +41,7 @@ struct system_clock
     unsigned long long value = 0;
     operator unsigned long long() const { return value; }
     unsigned long long operator+=(unsigned long long i) { return value += i; }
-    unsigned long long operator++() { return value ++; }
+    unsigned long long operator++(int) { unsigned long long v = value; value ++; return v; }
 } clk;
 
 struct SoftSwitch
@@ -349,6 +349,7 @@ struct MAINboard : board_base
             }
             if(addr == 0xC030) {
                 if(debug & DEBUG_RW) printf("read SPKR, force 0x00\n");
+                // printf("%llu\n", clk.value); <-- clock is more or less correct at this moment
                 // click
                 data = 0x00;
                 return true;
@@ -819,31 +820,92 @@ struct CPU6502
 
             case 0x10: { // BPL
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(!isset(N))
+                if(!isset(N)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
                     pc += rel;
+                }
                 break;
             }
 
             case 0x50: { // BVC
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(!isset(V))
+                if(!isset(V)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
                     pc += rel;
+                }
                 break;
             }
 
             case 0x70: { // BVS
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(isset(V))
+                if(isset(V)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
                     pc += rel;
+                }
                 break;
             }
 
             case 0x30: { // BMI
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(isset(N))
+                if(isset(N)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
                     pc += rel;
+                }
                 break;
             }
+
+            case 0x90: { // BCC
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                if(!isset(C)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
+                    pc += rel;
+                }
+                break;
+            }
+
+            case 0xB0: { // BCS
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                if(isset(C)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
+                    pc += rel;
+                }
+                break;
+            }
+
+            case 0xD0: { // BNE
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                if(!isset(Z)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
+                    pc += rel;
+                }
+                break;
+            }
+
+            case 0xF0: { // BEQ
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                if(isset(Z)) {
+                    clk++;
+                    if((pc + rel) / 256 != pc / 256)
+                        clk++;
+                    pc += rel;
+                }
+                break;
+            }
+
 
             case 0xA1: { // LDA (ind, X)
                 unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
@@ -862,6 +924,8 @@ struct CPU6502
             case 0xB1: { // LDA ind, Y
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
@@ -875,6 +939,8 @@ struct CPU6502
             case 0xDD: { // CMP abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + x);
+                if((addr + x) / 256 != addr / 256)
+                    clk++;
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
                 break;
@@ -883,6 +949,8 @@ struct CPU6502
             case 0xD9: { // CMP abs, Y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + y);
+                if((addr + y) / 256 != addr / 256)
+                    clk++;
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
                 break;
@@ -891,12 +959,16 @@ struct CPU6502
             case 0xB9: { // LDA abs, Y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = bus.read(addr + y));
+                if((addr + y) / 256 != addr / 256)
+                    clk++;
                 break;
             }
 
             case 0xBD: { // LDA abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = bus.read(addr + x));
+                if((addr + x) / 256 != addr / 256)
+                    clk++;
                 break;
             }
 
@@ -923,6 +995,8 @@ struct CPU6502
             case 0xF1: { // SBC ind, Y
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xff) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
                 m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
@@ -933,6 +1007,8 @@ struct CPU6502
 
             case 0xFD: { // SBC abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                if((addr - x) / 256 != addr / 256)
+                    clk++;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
                 flag_change(C, !(a < (m + borrow)));
@@ -972,6 +1048,8 @@ struct CPU6502
 
             case 0x79: { // ADC abs, Y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
                 flag_change(C, (int)(a + m + carry) > 0xFF);
@@ -1059,6 +1137,8 @@ struct CPU6502
             case 0x11: { // ORA (ind), Y
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
                 break;
@@ -1144,9 +1224,8 @@ struct CPU6502
                 break;
             }
 
-            case 0x4C: {
+            case 0x4C: { // JMP
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
-                // JMP
                 pc = addr;
                 break;
             }
@@ -1221,6 +1300,8 @@ struct CPU6502
 
             case 0xBE: { // LDX
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
                 set_flags(N | Z, x = bus.read(addr));
                 break;
             }
@@ -1304,6 +1385,8 @@ struct CPU6502
             case 0x51: { // EOR
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a ^ m);
                 break;
@@ -1312,6 +1395,8 @@ struct CPU6502
             case 0xD1: { // CMP
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
                 m = bus.read(addr);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
@@ -1362,34 +1447,6 @@ struct CPU6502
                 m = bus.read(zpg);
                 flag_change(C, m <= y);
                 set_flags(N | Z, m = y - m);
-                break;
-            }
-
-            case 0x90: { // BCC
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(!isset(C))
-                    pc += rel;
-                break;
-            }
-
-            case 0xB0: { // BCS
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(isset(C))
-                    pc += rel;
-                break;
-            }
-
-            case 0xD0: { // BNE
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(!isset(Z))
-                    pc += rel;
-                break;
-            }
-
-            case 0xF0: { // BEQ
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                if(isset(Z))
-                    pc += rel;
                 break;
             }
 
@@ -1814,7 +1871,6 @@ int main(int argc, char **argv)
                 step6502();
             else
                 cpu.cycle(bus);
-            printf("clock = %llu\n", clk.value);
 
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
             int page = mainboard->PAGE2 ? 1 : 0;
