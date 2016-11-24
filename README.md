@@ -15,7 +15,7 @@ Requirements for building:
 * GLFW
 * OpenGL 3.2-compatible system
 * C++11
-* Currently, MacOSX because of linker line in Makefile, but C++ itself should be cross-platform
+* Currently the project only builds on MacOSX because of the linker line in `Makefile`, but the C++ code itself should be cross-platform.
 
 On MacOSX with MacPorts, the GLFW dependency can be satisfied with `sudo port install glfw`.  According to https://support.apple.com/en-us/HT202823, almost all modern Macs should have OpenGL 3.2 or later.  On my machine, I've been compiling with a g++ that outputs `Apple LLVM version 8.0.0 (clang-800.0.42.1)` for `g++ -v`.
 
