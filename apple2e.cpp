@@ -15,8 +15,6 @@
 
 #include "fake6502.h"
 
-const int rom_image_size = 0x3000;
-
 using namespace std;
 
 #include "emulator.h"
@@ -47,6 +45,25 @@ struct system_clock
 } clk;
 
 const int machine_clock_rate = 1023000;
+
+bool read_blob(char *name, unsigned char *b, size_t sz)
+{
+    FILE *fp = fopen(name, "rb");
+    if(fp == NULL) {
+        fprintf(stderr, "failed to open %s for reading\n", name);
+        fclose(fp);
+        return false;
+    }
+    size_t length = fread(b, 1, sz, fp);
+    if(length < sz) {
+        fprintf(stderr, "File read from %s was unexpectedly short (%zd bytes, expected %zd)\n", name, length, sz);
+        perror("read_blob");
+        fclose(fp);
+        return false;
+    }
+    fclose(fp);
+    return true;
+}
 
 struct SoftSwitch
 {
@@ -95,7 +112,7 @@ struct backed_region : region
     enabled_func read_enabled;
     enabled_func write_enabled;
 
-    backed_region(const char* name, int base, int size, MemoryType type_, vector<backed_region*>& regions, enabled_func enabled_) :
+    backed_region(const char* name, int base, int size, MemoryType type_, vector<backed_region*>* regions, enabled_func enabled_) :
         region{name, base, size},
         memory(size),
         type(type_),
@@ -103,10 +120,11 @@ struct backed_region : region
         write_enabled(enabled_)
     {
         std::fill(memory.begin(), memory.end(), 0x00);
-        regions.push_back(this);
+        if(regions)
+            regions->push_back(this);
     }
 
-    backed_region(const char* name, int base, int size, MemoryType type_, vector<backed_region*>& regions, enabled_func read_enabled_, enabled_func write_enabled_) :
+    backed_region(const char* name, int base, int size, MemoryType type_, vector<backed_region*>* regions, enabled_func read_enabled_, enabled_func write_enabled_) :
         region{name, base, size},
         memory(size),
         type(type_),
@@ -114,7 +132,8 @@ struct backed_region : region
         write_enabled(write_enabled_)
     {
         std::fill(memory.begin(), memory.end(), 0x00);
-        regions.push_back(this);
+        if(regions)
+            regions->push_back(this);
     }
 
     bool contains(int addr) const
@@ -143,9 +162,57 @@ struct backed_region : region
 
 const region io_region = {"io", 0xC000, 0x100};
 
+struct DISKIIboard : board_base
+{
+    // CA0     EQU $C0E0       ;stepper phase 0 / control line 0
+    // CA1     EQU $C0E2       ;stepper phase 1 / control line 1
+    // CA2     EQU $C0E4       ;stepper phase 2 / control line 2
+    // LSTRB   EQU $C0E6       ;stepper phase 3 / control strobe
+    // ENABLE  EQU $C0E8       ;disk drive off/on
+    // SELECT  EQU $C0EA       ;select drive 1/2
+    // Q6      EQU $C0EC
+    // Q7      EQU $C0EE
+
+    backed_region rom_C600 = {"rom_C600", 0xC600, 0x0100, ROM, nullptr, [&]{return true;}};
+
+    unsigned char floppy_image[2][143360];
+    bool floppy_present[2];
+
+    void set_floppy(int number, char *name) // number 0 or 1; name = NULL to eject
+    {
+        floppy_present[number] = false;
+        if(name) {
+            if(!read_blob(name, floppy_image[number], sizeof(floppy_image[0])))
+                throw "Couldn't read floppy";
+            
+            floppy_present[number] = true;
+        }
+    }
+
+    DISKIIboard(unsigned char diskII_rom[256], char *floppy0_name, char *floppy1_name)
+    {
+        std::copy(diskII_rom, diskII_rom + 0x100, rom_C600.memory.begin());
+        set_floppy(0, floppy0_name);
+        set_floppy(1, floppy1_name);
+    }
+
+    virtual bool write(int addr, unsigned char data) { return false; }
+    virtual bool read(int addr, unsigned char &data)
+    {
+        if(rom_C600.read(addr, data)) {
+            if(debug & DEBUG_RW) printf("DiskII read 0x%04X -> 0x%02X\n", addr, data);
+            return true;
+        }
+        return false;
+    }
+    virtual void reset(void) {}
+};
+
 struct MAINboard : board_base
 {
     system_clock& clk;
+
+    vector<board_base*> boards;
 
     vector<SoftSwitch*> switches;
     SoftSwitch* switches_by_address[256];
@@ -165,61 +232,61 @@ struct MAINboard : board_base
     vector<backed_region*> regions;
     vector<backed_region*> regions_by_page[256];
 
-    backed_region szp = {"szp", 0x0000, 0x0200, RAM, regions, [&](){return !ALTZP;}}; // stack and zero page
-    backed_region aszp = {"aszp", 0x0000, 0x0200, RAM, regions, [&](){return ALTZP;}}; // alternate stack and zero page
+    backed_region szp = {"szp", 0x0000, 0x0200, RAM, &regions, [&](){return !ALTZP;}}; // stack and zero page
+    backed_region aszp = {"aszp", 0x0000, 0x0200, RAM, &regions, [&](){return ALTZP;}}; // alternate stack and zero page
 
-    backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, regions, [&]{return true;}};
-    backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, regions, [&]{return true;}};
+    backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, &regions, [&]{return true;}};
+    backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, &regions, [&]{return true;}};
 
     bool internal_C800_ROM_selected;
-    backed_region rom_C100 = {"rom_C100", 0xC100, 0x0200, ROM, regions, [&]{return CXROM;}};
-    backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, regions, [&]{return CXROM || (!CXROM && !C3ROM);}};
-    backed_region rom_C400 = {"rom_C400", 0xC300, 0x0400, ROM, regions, [&]{return CXROM;}};
-    backed_region rom_C800 = {"rom_C800", 0xC800, 0x0800, ROM, regions, [&]{return CXROM || (!CXROM && !C3ROM && internal_C800_ROM_selected);}};
-    backed_region rom_CXXX_default = {"rom_CXXX_default", 0xC100, 0x0F00, ROM, regions, [&]{return true;}};
+    backed_region rom_C100 = {"rom_C100", 0xC100, 0x0200, ROM, &regions, [&]{return CXROM;}};
+    backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, &regions, [&]{return CXROM || (!CXROM && !C3ROM);}};
+    backed_region rom_C400 = {"rom_C400", 0xC300, 0x0400, ROM, &regions, [&]{return CXROM;}};
+    backed_region rom_C800 = {"rom_C800", 0xC800, 0x0800, ROM, &regions, [&]{return CXROM || (!CXROM && !C3ROM && internal_C800_ROM_selected);}};
+    backed_region rom_CXXX_default = {"rom_CXXX_default", 0xC100, 0x0F00, ROM, &regions, [&]{return true;}};
 
     enabled_func read_from_aux_ram = [&]{return RAMRD;};
     enabled_func write_to_aux_ram = [&]{return RAMWRT;};
     enabled_func read_from_main_ram = [&]{return !read_from_aux_ram();};
     enabled_func write_to_main_ram = [&]{return !write_to_aux_ram();};
 
-    backed_region ram_0200 = {"ram_0200", 0x0200, 0x0200, RAM, regions, read_from_main_ram, write_to_main_ram};
-    backed_region ram_0200_x = {"ram_0200_x", 0x0200, 0x0200, RAM, regions, read_from_aux_ram, write_to_aux_ram};
-    backed_region ram_0C00 = {"ram_0C00", 0x0C00, 0x1400, RAM, regions, read_from_main_ram, write_to_main_ram};
-    backed_region ram_0C00_x = {"ram_0C00_x", 0x0C00, 0x1400, RAM, regions, read_from_aux_ram, write_to_aux_ram};
-    backed_region ram_6000 = {"ram_6000", 0x6000, 0x6000, RAM, regions, read_from_main_ram, write_to_main_ram};
-    backed_region ram_6000_x = {"ram_6000_x", 0x6000, 0x6000, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+    backed_region ram_0200 = {"ram_0200", 0x0200, 0x0200, RAM, &regions, read_from_main_ram, write_to_main_ram};
+    backed_region ram_0200_x = {"ram_0200_x", 0x0200, 0x0200, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
+    backed_region ram_0C00 = {"ram_0C00", 0x0C00, 0x1400, RAM, &regions, read_from_main_ram, write_to_main_ram};
+    backed_region ram_0C00_x = {"ram_0C00_x", 0x0C00, 0x1400, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
+    backed_region ram_6000 = {"ram_6000", 0x6000, 0x6000, RAM, &regions, read_from_main_ram, write_to_main_ram};
+    backed_region ram_6000_x = {"ram_6000_x", 0x6000, 0x6000, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
 
     enabled_func read_from_aux_text1 = [&]{return RAMRD && ((!STORE80) || (STORE80 && PAGE2));};
     enabled_func write_to_aux_text1 = [&]{return RAMWRT && ((!STORE80) || (STORE80 && PAGE2));};
     enabled_func read_from_main_text1 = [&]{return !read_from_aux_text1();};
     enabled_func write_to_main_text1 = [&]{return !write_to_aux_text1();};
 
-    backed_region text_page1 = {"text_page1", 0x0400, 0x0400, RAM, regions, read_from_main_text1, write_to_main_text1};
-    backed_region text_page1x = {"text_page1x", 0x0400, 0x0400, RAM, regions, read_from_aux_text1, write_to_aux_text1};
-    backed_region text_page2 = {"text_page2", 0x0800, 0x0400, RAM, regions, read_from_main_ram, write_to_main_ram};
-    backed_region text_page2x = {"text_page2x", 0x0800, 0x0400, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+    backed_region text_page1 = {"text_page1", 0x0400, 0x0400, RAM, &regions, read_from_main_text1, write_to_main_text1};
+    backed_region text_page1x = {"text_page1x", 0x0400, 0x0400, RAM, &regions, read_from_aux_text1, write_to_aux_text1};
+    backed_region text_page2 = {"text_page2", 0x0800, 0x0400, RAM, &regions, read_from_main_ram, write_to_main_ram};
+    backed_region text_page2x = {"text_page2x", 0x0800, 0x0400, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
 
     enabled_func read_from_aux_hires1 = [&]{return HIRES && RAMRD && ((!STORE80) || (STORE80 && PAGE2));};
     enabled_func write_to_aux_hires1 = [&]{return HIRES && RAMWRT && ((!STORE80) || (STORE80 && PAGE2));};
     enabled_func read_from_main_hires1 = [&]{return !read_from_aux_hires1();};
     enabled_func write_to_main_hires1 = [&]{return !write_to_aux_hires1();};
 
-    backed_region hires_page1 = {"hires_page1", 0x2000, 0x2000, RAM, regions, read_from_main_hires1, write_to_main_hires1};
-    backed_region hires_page1x = {"hires_page1x", 0x2000, 0x2000, RAM, regions, read_from_aux_hires1, write_to_aux_hires1};
-    backed_region hires_page2 = {"hires_page2", 0x4000, 0x2000, RAM, regions, read_from_main_ram, write_to_main_ram};
-    backed_region hires_page2x = {"hires_page2x", 0x4000, 0x2000, RAM, regions, read_from_aux_ram, write_to_aux_ram};
+    backed_region hires_page1 = {"hires_page1", 0x2000, 0x2000, RAM, &regions, read_from_main_hires1, write_to_main_hires1};
+    backed_region hires_page1x = {"hires_page1x", 0x2000, 0x2000, RAM, &regions, read_from_aux_hires1, write_to_aux_hires1};
+    backed_region hires_page2 = {"hires_page2", 0x4000, 0x2000, RAM, &regions, read_from_main_ram, write_to_main_ram};
+    backed_region hires_page2x = {"hires_page2x", 0x4000, 0x2000, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
 
     enum {BANK1, BANK2} C08X_bank;
     bool C08X_read_RAM;
     bool C08X_write_RAM;
 
-    backed_region ram1_main_D000 = {"ram1_main_D000", 0xD000, 0x1000, RAM, regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
-    backed_region ram2_main_D000 = {"ram2_main_D000", 0xD000, 0x1000, RAM, regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
-    backed_region ram_main_E000 = {"ram1_main_E000", 0xE000, 0x2000, RAM, regions, [&]{return C08X_read_RAM;}, [&]{return !ALTZP && C08X_write_RAM;}};
-    backed_region ram1_main_D000_x = {"ram1_main_D000_x", 0xD000, 0x1000, RAM, regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
-    backed_region ram2_main_D000_x = {"ram2_main_D000_x", 0xD000, 0x1000, RAM, regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
-    backed_region ram_main_E000_x = {"ram1_main_E000_x", 0xE000, 0x2000, RAM, regions, [&]{return C08X_read_RAM;}, [&]{return ALTZP && C08X_write_RAM;}};
+    backed_region ram1_main_D000 = {"ram1_main_D000", 0xD000, 0x1000, RAM, &regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
+    backed_region ram2_main_D000 = {"ram2_main_D000", 0xD000, 0x1000, RAM, &regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
+    backed_region ram_main_E000 = {"ram1_main_E000", 0xE000, 0x2000, RAM, &regions, [&]{return C08X_read_RAM;}, [&]{return !ALTZP && C08X_write_RAM;}};
+    backed_region ram1_main_D000_x = {"ram1_main_D000_x", 0xD000, 0x1000, RAM, &regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
+    backed_region ram2_main_D000_x = {"ram2_main_D000_x", 0xD000, 0x1000, RAM, &regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
+    backed_region ram_main_E000_x = {"ram1_main_E000_x", 0xE000, 0x2000, RAM, &regions, [&]{return C08X_read_RAM;}, [&]{return ALTZP && C08X_write_RAM;}};
 
     set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
     set<int> banking_read_switches = {
@@ -306,7 +373,7 @@ struct MAINboard : board_base
     {
     }
 
-    void reset()
+    virtual void reset()
     {
         // Partially from Apple //e Technical Reference
         // XXX need to double-check these against the actual hardware
@@ -324,6 +391,12 @@ struct MAINboard : board_base
     virtual bool read(int addr, unsigned char &data)
     {
         if(debug & DEBUG_RW) printf("MAIN board read\n");
+        for(auto it = boards.begin(); it != boards.end(); it++) {
+            board_base* b = *it;
+            if(b->read(addr, data)) {
+                return true;
+            }
+        }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_read_switches.find(addr) != banking_read_switches.end())) {
                 printf("bank switch control %04X, aborting\n", addr);
@@ -444,6 +517,12 @@ struct MAINboard : board_base
         {
             display_write(addr, data);
         }
+        for(auto it = boards.begin(); it != boards.end(); it++) {
+            board_base* b = *it;
+            if(b->write(addr, data)) {
+                return true;
+            }
+        }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
                 printf("bank switch control %04X, exiting\n", addr);
@@ -497,20 +576,19 @@ struct MAINboard : board_base
     }
 };
 
-struct bus_controller
+struct bus_frontend
 {
-    vector<board_base*> boards;
+    board_base* board;
     map<int, vector<unsigned char> > writes;
     map<int, vector<unsigned char> > reads;
+
     unsigned char read(int addr)
     {
-        for(auto b = boards.begin(); b != boards.end(); b++) {
-            unsigned char data = 0xaa;
-            if((*b)->read(addr, data)) {
-                if(debug & DEBUG_BUS) printf("read %04X returned %02X\n", addr, data);
-                // reads[addr].push_back(data);
-                return data;
-            }
+        unsigned char data = 0xaa;
+        if(board->read(addr, data)) {
+            if(debug & DEBUG_BUS) printf("read %04X returned %02X\n", addr, data);
+            // reads[addr].push_back(data);
+            return data;
         }
         if(debug & DEBUG_ERROR)
             fprintf(stderr, "no ownership of read at %04X\n", addr);
@@ -518,12 +596,10 @@ struct bus_controller
     }
     void write(int addr, unsigned char data)
     {
-        for(auto b = boards.begin(); b != boards.end(); b++) {
-            if((*b)->write(addr, data)) {
-                if(debug & DEBUG_BUS) printf("write %04X %02X\n", addr, data);
-                // writes[addr].push_back(data);
-                return;
-            }
+        if(board->write(addr, data)) {
+            if(debug & DEBUG_BUS) printf("write %04X %02X\n", addr, data);
+            // writes[addr].push_back(data);
+            return;
         }
         if(debug & DEBUG_ERROR)
             fprintf(stderr, "no ownership of write %02X at %04X\n", data, addr);
@@ -531,13 +607,11 @@ struct bus_controller
 
     void reset()
     {
-        for(auto b = boards.begin(); b != boards.end(); b++) {
-            (*b)->reset();
-        }
+        board->reset();
     }
 };
 
-bus_controller bus;
+bus_frontend bus;
 
 extern "C" {
 
@@ -595,15 +669,15 @@ struct CPU6502
         exception(RESET)
     {
     }
-    void stack_push(bus_controller& bus, unsigned char d)
+    void stack_push(bus_frontend& bus, unsigned char d)
     {
         bus.write(0x100 + s--, d);
     }
-    unsigned char stack_pull(bus_controller& bus)
+    unsigned char stack_pull(bus_frontend& bus)
     {
         return bus.read(0x100 + ++s);
     }
-    unsigned char read_pc_inc(bus_controller& bus)
+    unsigned char read_pc_inc(bus_frontend& bus)
     {
         return bus.read(pc++);
     }
@@ -622,13 +696,13 @@ struct CPU6502
     {
         p &= ~flag;
     }
-    void reset(bus_controller& bus)
+    void reset(bus_frontend& bus)
     {
         s = 0xFD;
         pc = bus.read(0xFFFC) + bus.read(0xFFFD) * 256;
         exception = NONE;
     }
-    void irq(bus_controller& bus)
+    void irq(bus_frontend& bus)
     {
         stack_push(bus, (pc + 0) >> 8);
         stack_push(bus, (pc + 0) & 0xFF);
@@ -636,7 +710,7 @@ struct CPU6502
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
-    void brk(bus_controller& bus)
+    void brk(bus_frontend& bus)
     {
         stack_push(bus, (pc - 1) >> 8);
         stack_push(bus, (pc - 1) & 0xFF);
@@ -644,7 +718,7 @@ struct CPU6502
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
-    void nmi(bus_controller& bus)
+    void nmi(bus_frontend& bus)
     {
         stack_push(bus, (pc + 0) >> 8);
         stack_push(bus, (pc + 0) & 0xFF);
@@ -696,7 +770,7 @@ struct CPU6502
         return (p & flag) != 0;
     }
 #if 0
-    int get_operand(bus_controller& bus, Operand oper)
+    int get_operand(bus_frontend& bus, Operand oper)
     {
         switch(oper)
         {
@@ -721,7 +795,7 @@ struct CPU6502
         if(flags & N)
             flag_change(N, v & 0x80);
     }
-    void cycle(bus_controller& bus)
+    void cycle(bus_frontend& bus)
     {
         if(exception == RESET) {
             if(debug & DEBUG_STATE) printf("RESET\n");
@@ -1582,7 +1656,7 @@ void cleanup(void)
 
 bool use_fake6502 = false;
 
-string read_bus_and_disassemble(bus_controller &bus, int pc)
+string read_bus_and_disassemble(bus_frontend &bus, int pc)
 {
     int bytes;
     string dis;
@@ -1657,7 +1731,7 @@ map<int, key_to_ascii> interface_key_to_apple2e =
     {' ', {' ', ' ', 0, 0}},
 };
 
-enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_controller& bus, CPU6502& cpu)
+enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& bus, CPU6502& cpu)
 {
     static bool shift_down = false;
     static bool control_down = false;
@@ -1753,23 +1827,39 @@ ao_device *open_ao()
     return device;
 }
 
+
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
     argc -= 1;
     argv += 1;
+    char *diskII_rom_name = NULL, *floppy1_name, *floppy2_name;
 
     while((argc > 0) && (argv[0][0] == '-')) {
 	if(strcmp(argv[0], "-debugger") == 0) {
             debugging = true;
             argv++;
             argc--;
+	} else if(strcmp(argv[0], "-diskII") == 0) {
+            if(argc < 4) {
+                fprintf(stderr, "-diskII option requires a ROM image filename and two floppy image names (or \"-\") for no floppy image.\n");
+                exit(EXIT_FAILURE);
+            }
+            diskII_rom_name = argv[1];
+            floppy1_name = argv[2];
+            floppy2_name = argv[3];
+            argv += 4;
+            argc -= 4;
 	} else if(strcmp(argv[0], "-fast") == 0) {
             run_fast = true;
             argv += 1;
             argc -= 1;
 	} else if(strcmp(argv[0], "-d") == 0) {
             debug = atoi(argv[1]);
+            if(argc < 2) {
+                fprintf(stderr, "-d option requires a debugger mask value.\n");
+                exit(EXIT_FAILURE);
+            }
             argv += 2;
             argc -= 2;
         } else if(
@@ -1794,17 +1884,14 @@ int main(int argc, char **argv)
     char *romname = argv[0];
     unsigned char b[32768];
 
-    FILE *fp = fopen(romname, "rb");
-    if(fp == NULL) {
-        fprintf(stderr, "failed to open %s for reading\n", romname);
+    if(!read_blob(romname, b, sizeof(b)))
         exit(EXIT_FAILURE);
+
+    unsigned char diskII_rom[256];
+    if(diskII_rom_name != NULL) {
+        if(!read_blob(diskII_rom_name, diskII_rom, sizeof(diskII_rom)))
+            exit(EXIT_FAILURE);
     }
-    size_t length = fread(b, 1, sizeof(b), fp);
-    if(length < rom_image_size) {
-        fprintf(stderr, "ROM read from %s was unexpectedly short (%zd bytes)\n", romname, length);
-        exit(EXIT_FAILURE);
-    }
-    fclose(fp);
 
     system_clock clk;
 
@@ -1816,8 +1903,19 @@ int main(int argc, char **argv)
 
     MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
     MAINboard::audio_flush_func audio = [aodev](char *buf, size_t sz){ao_play(aodev, buf, sz);};
-    bus.boards.push_back(mainboard = new MAINboard(clk, b, display, audio));
+    mainboard = new MAINboard(clk, b, display, audio);
+    bus.board = mainboard;
     bus.reset();
+
+    if(diskII_rom_name != NULL) {
+        try {
+            DISKIIboard *diskII = new DISKIIboard(diskII_rom, floppy1_name, floppy2_name);
+            mainboard->boards.push_back(diskII);
+        } catch(const char *msg) {
+            cerr << msg << endl;
+            exit(EXIT_FAILURE);
+        }
+    }
 
     CPU6502 cpu(clk);
 
