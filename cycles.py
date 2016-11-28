@@ -156,7 +156,49 @@ cycles = [-1] * 256
 for (opcode, count) in opcodes:
     cycles[opcode] = count
 
-print "{"
+print "    int cycles[256] = "
+print "    {"
 for count in cycles:
-    print "    %d," % count
-print "};"
+    print "        %d," % count
+print "    };"
+
+print "    int cycles[256] = "
+print "    {"
+for count in cycles:
+    print "        %d," % count
+print "    };"
+
+"""
+page_check = { 7D
+79
+71
+3D
+39
+31
+DD
+D9
+D1
+5D
+59
+51
+BD
+B9
+B1
+BE
+BC
+1D
+19
+11
+FD
+F9
+F1
+
+90
+B0    2     2**
+F0    2     2**
+30    2     2**
+D0    2     2**
+10    2     2**
+50    2     2**
+70    2     2**
+"""
