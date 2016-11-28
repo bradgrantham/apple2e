@@ -2286,7 +2286,15 @@ int main(int argc, char **argv)
     MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
     MAINboard::audio_flush_func audio;
     if(have_audio)
-        audio = [aodev](char *buf, size_t sz){ao_play(aodev, buf, sz);};
+        audio = [aodev](char *buf, size_t sz){
+            static char prev_sample;
+            for(int i = 0; i < sz; i++)
+                if(buf[i] != prev_sample) {
+                    ao_play(aodev, buf, sz);
+                    break;
+                }
+            prev_sample = buf[sz - 1];
+        };
     else
         audio = [](char *buf, size_t sz){};
     mainboard = new MAINboard(clk, b, display, audio);
