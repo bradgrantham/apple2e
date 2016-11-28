@@ -801,7 +801,9 @@ struct MAINboard : board_base
             }
             if(addr == 0xC030) {
                 if(debug & DEBUG_RW) printf("write SPKR\n");
-                // click
+                fill_flush_audio();
+                data = 0x00;
+                speaker_energized = !speaker_energized;
                 return true;
             }
             printf("unhandled MMIO Write at %04X\n", addr);
@@ -1141,6 +1143,13 @@ struct CPU6502
                 break;
             }
 
+            case 0xDE: { // DEC abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                set_flags(N | Z, m = bus.read(addr) - 1);
+                bus.write(addr, m);
+                break;
+            }
+
             case 0xCE: { // DEC abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, m = bus.read(addr) - 1);
@@ -1150,6 +1159,15 @@ struct CPU6502
 
             case 0xCA: { // DEX
                 set_flags(N | Z, x = x - 1);
+                break;
+            }
+
+            case 0xFE: { // INC abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                if((addr - x) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, m = bus.read(addr) + 1);
+                bus.write(addr, m);
                 break;
             }
 
@@ -1619,6 +1637,23 @@ struct CPU6502
                 break;
             }
 
+            case 0x31: { // AND (ind), y
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, a = a & bus.read(addr));
+                break;
+            }
+
+            case 0x3D: { // AND abs, x
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                set_flags(N | Z, a = a & bus.read(addr + x));
+                if((addr + x) / 256 != addr / 256)
+                    clk++;
+                break;
+            }
+
             case 0x39: { // AND abs, y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = a & bus.read(addr + y));
@@ -1661,6 +1696,16 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, a & 0x01);
                 set_flags(N | Z, a = (c ? 0x80 : 0x00) | (a >> 1));
+                break;
+            }
+
+            case 0x6E: { // ROR abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr);
+                bool c = isset(C);
+                flag_change(C, m & 0x01);
+                set_flags(N | Z, m = (c ? 0x80 : 0x00) | (m >> 1));
+                bus.write(addr, m);
                 break;
             }
 
@@ -2157,7 +2202,7 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
 {
     static bool shift_down = false;
     static bool control_down = false;
-    // skip CAPS for now
+    static bool caps_down = false;
 
     while(APPLE2Einterface::event_waiting()) {
         APPLE2Einterface::event e = APPLE2Einterface::dequeue_event();
@@ -2173,7 +2218,9 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
                 shift_down = true;
             else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = true;
-            else if(e.value == APPLE2Einterface::ENTER) {
+            else if(e.value == APPLE2Einterface::CAPS_LOCK) {
+                caps_down = true;
+            } else if(e.value == APPLE2Einterface::ENTER) {
                 board->enqueue_key(141 - 128);
             } else if(e.value == APPLE2Einterface::TAB) {
                 board->enqueue_key('	');
@@ -2193,14 +2240,20 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
                 auto it = interface_key_to_apple2e.find(e.value);
                 if(it != interface_key_to_apple2e.end()) {
                     const key_to_ascii& k = (*it).second;
-                    if(!shift_down && !control_down)
-                        board->enqueue_key(k.no_shift_no_control);
-                    else if(shift_down && !control_down)
-                        board->enqueue_key(k.yes_shift_no_control);
-                    else if(!shift_down && control_down)
-                        board->enqueue_key(k.no_shift_yes_control);
-                    else if(shift_down && control_down)
-                        board->enqueue_key(k.yes_shift_yes_control);
+                    if(!shift_down) {
+                        if(!control_down) {
+                            if(caps_down && (e.value >= 'A') && (e.value <= 'Z'))
+                                board->enqueue_key(k.yes_shift_no_control);
+                            else
+                                board->enqueue_key(k.no_shift_no_control);
+                        } else  
+                            board->enqueue_key(k.no_shift_yes_control);
+                    } else {
+                        if(!control_down)
+                            board->enqueue_key(k.yes_shift_no_control);
+                        else
+                            board->enqueue_key(k.yes_shift_yes_control);
+                    }
                 }
             }
         } else if(e.type == APPLE2Einterface::KEYUP) {
@@ -2208,6 +2261,9 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
                 shift_down = false;
             else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = false;
+            else if(e.value == APPLE2Einterface::CAPS_LOCK) {
+                caps_down = false;
+            }
         } if(e.type == APPLE2Einterface::RESET) {
             bus.reset();
             cpu.reset(bus);
@@ -2381,6 +2437,8 @@ int main(int argc, char **argv)
 
     APPLE2Einterface::start();
 
+    chrono::time_point<chrono::system_clock> then;
+
     while(1) {
         if(!debugging) {
             poll_keyboard();
@@ -2405,13 +2463,12 @@ int main(int argc, char **argv)
                 }
             }
 
-            chrono::time_point<chrono::system_clock> then;
             int clocks_per_slice;
             if(pause_cpu)
                 clocks_per_slice = 0;
             else {
                 if(run_fast)
-                    clocks_per_slice = machine_clock_rate; 
+                    clocks_per_slice = machine_clock_rate / 5; 
                 else
                     clocks_per_slice = millis_per_slice * machine_clock_rate / 1000;
             }
@@ -2439,6 +2496,8 @@ int main(int argc, char **argv)
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
             if(!run_fast || pause_cpu)
                 this_thread::sleep_for(chrono::milliseconds(millis_per_slice) - elapsed_millis);
+
+            then = now;
             
         } else {
 

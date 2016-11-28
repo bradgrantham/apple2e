@@ -47,7 +47,7 @@ static int gButtonPressed = -1;
 
 deque<event> event_queue;
 
-bool force_caps_on = false; // XXX implement!
+bool force_caps_on = true;
 bool draw_using_color = false; // XXX implement!
 
 bool event_waiting()
@@ -694,14 +694,19 @@ struct toggle : public text_widget
     std::function<void()> action_on;
     std::function<void()> action_off;
 
-    toggle(const string& content_, std::function<void()> action_on_, std::function<void()> action_off_) :
+    toggle(const string& content_, bool initial_state, std::function<void()> action_on_, std::function<void()> action_off_) :
         text_widget(content_),
-        on(false),
+        on(initial_state),
         action_on(action_on_),
         action_off(action_off_)
     {
-        set(bg, 0, 0, 0, 1);
-        set(fg, 1, 1, 1, 1);
+        if(initial_state) {
+            set(fg, 0, 0, 0, 1);
+            set(bg, 1, 1, 1, 1);
+        } else {
+            set(fg, 1, 1, 1, 1);
+            set(bg, 0, 0, 0, 1);
+        }
     }
 
     virtual tuple<float, float> get_min_dimensions() const
@@ -776,6 +781,7 @@ struct toggle : public text_widget
 };
 
 vbox *ui;
+toggle *caps_toggle;
 
 void initialize_gl(void)
 {
@@ -818,10 +824,10 @@ void initialize_gl(void)
 
     momentary *reset_momentary = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
     momentary *reboot_momentary = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
-    toggle *fast_toggle = new toggle("FAST", [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
-    toggle *caps_toggle = new toggle("CAPS", [](){force_caps_on = true;}, [](){force_caps_on = false;});
-    toggle *color_toggle = new toggle("COLOR", [](){draw_using_color = true;}, [](){draw_using_color = false;});
-    toggle *pause_toggle = new toggle("PAUSE", [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
+    toggle *fast_toggle = new toggle("FAST", false, [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
+    caps_toggle = new toggle("CAPS", true, [](){force_caps_on = true;}, [](){force_caps_on = false;});
+    toggle *color_toggle = new toggle("COLOR", false, [](){draw_using_color = true;}, [](){draw_using_color = false;});
+    toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
     vector<widget*> widgets = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle};
     ui = new vbox(widgets);
     CheckOpenGL(__FILE__, __LINE__);
@@ -888,6 +894,16 @@ static void error_callback(int error, const char* description)
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     static bool super_down = false;
+    static bool caps_lock_down = false;
+
+    // XXX not ideal, can be enqueued out of turn
+    if(caps_lock_down && !force_caps_on) {
+        caps_lock_down = false;
+        event_queue.push_back({KEYUP, CAPS_LOCK});
+    } else if(!caps_lock_down && force_caps_on) {
+        caps_lock_down = true;
+        event_queue.push_back({KEYDOWN, CAPS_LOCK});
+    }
 
     if(action == GLFW_PRESS) {
         if(key == GLFW_KEY_RIGHT_SUPER || key == GLFW_KEY_LEFT_SUPER)
@@ -896,11 +912,20 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             const char* text = glfwGetClipboardString(window);
             if (text)
                 event_queue.push_back({PASTE, 0, strdup(text)});
-        } else
+        } else {
+            if(key == GLFW_KEY_CAPS_LOCK) {
+                force_caps_on = true;
+                caps_toggle->on = true;
+            }
             event_queue.push_back({KEYDOWN, key});
+        }
     } else if(action == GLFW_RELEASE) {
         if(key == GLFW_KEY_RIGHT_SUPER || key == GLFW_KEY_LEFT_SUPER)
             super_down = false;
+        if(key == GLFW_KEY_CAPS_LOCK) {
+            force_caps_on = false;
+            caps_toggle->on = false;
+        }
         event_queue.push_back({KEYUP, key});
     }
 }
