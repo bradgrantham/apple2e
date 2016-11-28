@@ -568,6 +568,7 @@ struct MAINboard : board_base
     {
         keyboard_buffer.push_back(k);
     }
+
     typedef std::function<bool (int addr, unsigned char data)> display_write_func;
     display_write_func display_write;
     typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
@@ -781,6 +782,15 @@ struct MAINboard : board_base
                     return true;
                 }
             }
+            if((addr & 0xFFF0) == 0xC080) {
+                C08X_bank = ((addr >> 3) & 1) ? BANK1 : BANK2;
+                C08X_write_RAM = addr & 1;
+                int read_ROM = ((addr >> 1) & 1) ^ C08X_write_RAM;
+                C08X_read_RAM = !read_ROM;
+                if(debug & DEBUG_SWITCH) printf("write %04X switch, %s, %d write_RAM, %d read_RAM\n", addr, (C08X_bank == BANK1) ? "BANK1" : "BANK2", C08X_write_RAM, C08X_read_RAM);
+                data = 0x00;
+                return true;
+            }
             if(addr == 0xC010) {
                 if(debug & DEBUG_RW) printf("write KBDSTRB\n");
                 if(!keyboard_buffer.empty()) {
@@ -902,6 +912,10 @@ struct CPU6502
     } exception;
     CPU6502(system_clock& clk_) :
         clk(clk_),
+        a(0),
+        x(0),
+        y(0),
+        s(0),
         p(0x20),
         exception(RESET)
     {
@@ -1408,8 +1422,21 @@ struct CPU6502
                 break;
             }
 
+            case 0x71: { // ADC (ind), Y
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
+                m = bus.read(addr);
+                int carry = isset(C) ? 1 : 0;
+                flag_change(C, (int)(a + m + carry) > 0xFF);
+                flag_change(V, adc_overflow(a, m, carry));
+                set_flags(N | Z, a = a + m + carry);
+                break;
+            }
+
             case 0x6D: { // ADC abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
                 flag_change(C, (int)(a + m + carry) > 0xFF);
@@ -1421,6 +1448,18 @@ struct CPU6502
             case 0x65: { // ADC
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
+                int carry = isset(C) ? 1 : 0;
+                flag_change(C, (int)(a + m + carry) > 0xFF);
+                flag_change(V, adc_overflow(a, m, carry));
+                set_flags(N | Z, a = a + m + carry);
+                break;
+            }
+
+            case 0x7D: { // ADC abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                if((addr - x) / 256 != addr / 256)
+                    clk++;
+                m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
                 flag_change(C, (int)(a + m + carry) > 0xFF);
                 flag_change(V, adc_overflow(a, m, carry));
@@ -1531,6 +1570,13 @@ struct CPU6502
 
             case 0x48: { // PHA
                 stack_push(bus, a);
+                break;
+            }
+
+            case 0x15: { // ORA zpg, X
+                int zpg = (read_pc_inc(bus) + x) & 0xFF;
+                m = bus.read(zpg);
+                set_flags(N | Z, a = a | m);
                 break;
             }
 
@@ -2030,7 +2076,7 @@ void cleanup(void)
     fflush(stderr);
 }
 
-bool use_fake6502 = true;
+bool use_fake6502 = false;
 
 string read_bus_and_disassemble(bus_frontend &bus, int pc)
 {
