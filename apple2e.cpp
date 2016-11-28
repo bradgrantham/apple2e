@@ -28,6 +28,8 @@ const unsigned int DEBUG_DECODE = 0x04;
 const unsigned int DEBUG_STATE = 0x08;
 const unsigned int DEBUG_RW = 0x10;
 const unsigned int DEBUG_BUS = 0x20;
+const unsigned int DEBUG_FLOPPY = 0x40;
+const unsigned int DEBUG_SWITCH = 0x80;
 volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN ; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
 
 volatile bool exit_on_banking = false;
@@ -162,21 +164,156 @@ struct backed_region : region
 
 const region io_region = {"io", 0xC000, 0x100};
 
+unsigned char floppy_header[21] = {
+	0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0xDE, 0xAA, 0xFF,	0xFF, 0xFF,
+	0xFF, 0xFF, 0xD5, 0xAA, 0xAD };
+unsigned char floppy_doSector[16] = {
+	0x0, 0x7, 0xE, 0x6, 0xD, 0x5, 0xC, 0x4, 0xB, 0x3, 0xA, 0x2, 0x9, 0x1, 0x8, 0xF };
+unsigned char floppy_poSector[16] = {
+	0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF };
+
+void floppy_NybblizeImage(unsigned char *image, unsigned char *nybblized)
+{
+	// Format of a sector is header (23) + nybbles (343) + footer (30) = 396
+	// (short by 20 bytes of 416 [413 if 48 byte header is one time only])
+	// hdr (21) + nybbles (343) + footer (48) = 412 bytes per sector
+	// (not incl. 64 byte track marker)
+
+	static unsigned char footer[48] = {
+		0xDE, 0xAA, 0xEB, 0xFF, 0xEB, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+
+	static unsigned char diskbyte[0x40] = {
+		0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
+		0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
+		0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC,
+		0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
+		0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
+		0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
+		0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
+		0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF };
+
+	memset(nybblized, 0xFF, 232960);					// Doesn't matter if 00s or FFs...
+
+        unsigned char *p = nybblized;
+
+	for(unsigned char trk=0; trk<35; trk++)
+	{
+		memset(p, 0xFF, 64);					// Write gap 1, 64 bytes (self-sync)
+		p += 64;
+
+		for(unsigned char sector=0; sector<16; sector++)
+		{
+			memcpy(p, floppy_header, 21);			// Set up the sector header
+
+			p[5] = ((trk >> 1) & 0x55) | 0xAA;
+			p[6] =  (trk       & 0x55) | 0xAA;
+			p[7] = ((sector >> 1) & 0x55) | 0xAA;
+			p[8] =  (sector       & 0x55) | 0xAA;
+			p[9] = (((trk ^ sector ^ 0xFE) >> 1) & 0x55) | 0xAA;
+			p[10] = ((trk ^ sector ^ 0xFE)       & 0x55) | 0xAA;
+
+			p += 21;
+			unsigned char * bytes = image;
+
+			// if (diskType[driveNum] == DT_DOS33)
+				bytes += (floppy_doSector[sector] * 256) + (trk * 256 * 16);
+			// else if (diskType[driveNum] == DT_PRODOS)
+				// bytes += (poSector[sector] * 256) + (trk * 256 * 16);
+			// else
+				// bytes += (sector * 256) + (trk * 256 * 16);
+
+			// Convert the 256 8-bit bytes into 342 6-bit bytes.
+
+			for(int i=0; i<0x56; i++)
+			{
+				p[i] = ((bytes[(i + 0xAC) & 0xFF] & 0x01) << 7)
+					| ((bytes[(i + 0xAC) & 0xFF] & 0x02) << 5)
+					| ((bytes[(i + 0x56) & 0xFF] & 0x01) << 5)
+					| ((bytes[(i + 0x56) & 0xFF] & 0x02) << 3)
+					| ((bytes[(i + 0x00) & 0xFF] & 0x01) << 3)
+					| ((bytes[(i + 0x00) & 0xFF] & 0x02) << 1);
+			}
+
+			p[0x54] &= 0x3F;
+			p[0x55] &= 0x3F;
+			memcpy(p + 0x56, bytes, 256);
+
+			// XOR the data block with itself, offset by one byte,
+			// creating a 343rd byte which is used as a cheksum.
+
+			p[342] = 0x00;
+
+			for(int i=342; i>0; i--)
+				p[i] = p[i] ^ p[i - 1];
+
+			// Using a lookup table, convert the 6-bit bytes into disk bytes.
+
+			for(int i=0; i<343; i++)
+                            p[i] = diskbyte[p[i] >> 2];
+			p += 343;
+
+			// Done with the nybblization, now for the epilogue...
+
+			memcpy(p, footer, 48);
+			p += 48;
+		}
+	}
+}
+
+
 struct DISKIIboard : board_base
 {
-    // CA0     EQU $C0E0       ;stepper phase 0 / control line 0
-    // CA1     EQU $C0E2       ;stepper phase 1 / control line 1
-    // CA2     EQU $C0E4       ;stepper phase 2 / control line 2
-    // LSTRB   EQU $C0E6       ;stepper phase 3 / control strobe
-    // ENABLE  EQU $C0E8       ;disk drive off/on
-    // SELECT  EQU $C0EA       ;select drive 1/2
-    // Q6      EQU $C0EC
-    // Q7      EQU $C0EE
+    const unsigned int CA0 = 0xC0E0; // stepper phase 0 / control line 0
+    const unsigned int CA1 = 0xC0E2; // stepper phase 1 / control line 1
+    const unsigned int CA2 = 0xC0E4; // stepper phase 2 / control line 2
+    const unsigned int CA3 = 0xC0E6; // stepper phase 3 / control strobe
+    const unsigned int ENABLE = 0xC0E8; // disk drive off/on
+    const unsigned int SELECT = 0xC0EA; // select drive 1/2
+    const unsigned int Q6L = 0xC0EC; // IO strobe for read
+    const unsigned int Q6H = 0xC0ED; // IO strobe for write
+    const unsigned int Q7L = 0xC0EE; // IO strobe for clear
+    const unsigned int Q7H = 0xC0EF; // IO strobe for shift
+
+    map<unsigned int, string> io = {
+        {0xC0E0, "CA0OFF"},
+        {0xC0E1, "CA0ON"},
+        {0xC0E2, "CA1OFF"},
+        {0xC0E3, "CA1ON"},
+        {0xC0E4, "CA2OFF"},
+        {0xC0E5, "CA2ON"},
+        {0xC0E6, "CA3OFF"},
+        {0xC0E7, "CA3ON"},
+        {0xC0E8, "DISABLE"},
+        {0xC0E9, "ENABLE"},
+        {0xC0EA, "SELECT0"},
+        {0xC0EB, "SELECT1"},
+        {0xC0EC, "Q6L"},
+        {0xC0ED, "Q6H"},
+        {0xC0EE, "Q7L"},
+        {0xC0EF, "Q7H"},
+    };
 
     backed_region rom_C600 = {"rom_C600", 0xC600, 0x0100, ROM, nullptr, [&]{return true;}};
 
     unsigned char floppy_image[2][143360];
+    unsigned char floppy_nybblized[2][232960];
+    const unsigned int bytes_per_nybblized_track = 6656;
     bool floppy_present[2];
+
+    int drive_selected = 0;
+    bool drive_motor_enabled[2];
+    enum {READ, WRITE} head_mode = READ;
+    unsigned char data_latch = 0x00;
+    int head_stepper_phase[4] = {0, 0, 0, 0};
+    int head_stepper_most_recent_phase = 0;
+    int track_number = 0; // physical track number - DOS and ProDOS only use even tracks
+    unsigned int track_byte = 0;
 
     void set_floppy(int number, char *name) // number 0 or 1; name = NULL to eject
     {
@@ -186,6 +323,7 @@ struct DISKIIboard : board_base
                 throw "Couldn't read floppy";
             
             floppy_present[number] = true;
+            floppy_NybblizeImage(floppy_image[number], floppy_nybblized[number]);
         }
     }
 
@@ -196,14 +334,109 @@ struct DISKIIboard : board_base
         set_floppy(1, floppy1_name);
     }
 
-    virtual bool write(int addr, unsigned char data) { return false; }
+    unsigned char read_next_nybblized_byte()
+    {
+        if(head_mode != READ || !drive_motor_enabled[drive_selected] || !floppy_present[drive_selected])
+            return 0x00;
+        int i = track_byte;
+        track_byte = (track_byte + 1) % bytes_per_nybblized_track;
+        return floppy_nybblized[drive_selected][(track_number / 2) * bytes_per_nybblized_track + i];
+    }
+
+    void control_track_motor(unsigned int addr)
+    {
+        int phase = (addr & 0x7) >> 1;
+        int state = addr & 0x1;
+        head_stepper_phase[phase] = state;
+        if(debug & DEBUG_FLOPPY) printf("stepper %04X, phase %d, state %d, so stepper motor state now: %d, %d, %d, %d\n",
+            addr, phase, state,
+            head_stepper_phase[0], head_stepper_phase[1],
+            head_stepper_phase[2], head_stepper_phase[3]);
+        if(state == 1) { // turn stepper motor phase on
+            if(head_stepper_most_recent_phase == (((phase - 1) + 4) % 4)) { // stepping up
+                track_number = min(track_number + 1, 70);
+                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", track_number);
+            } else if(head_stepper_most_recent_phase == ((phase + 1) % 4)) { // stepping down
+                track_number = max(0, track_number - 1);
+                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", track_number);
+            } else if(head_stepper_most_recent_phase == phase) { // unexpected condition
+                if(debug & DEBUG_FLOPPY) printf("track head stepper no change\n");
+            } else { // unexpected condition
+                if(debug & DEBUG_WARN) fprintf(stderr, "unexpected track stepper motor state: %d, %d, %d, %d\n",
+                    head_stepper_phase[0], head_stepper_phase[1],
+                    head_stepper_phase[2], head_stepper_phase[3]);
+                if(debug & DEBUG_WARN) fprintf(stderr, "most recent phase: %d\n", head_stepper_most_recent_phase);
+            }
+            head_stepper_most_recent_phase = phase;
+        }
+    }
+
+    virtual bool write(int addr, unsigned char data)
+    {
+        if(addr < 0xC0E0 || addr > 0xC0EF)
+            return false;
+        if(debug & DEBUG_RW) printf("DISK II unhandled write of %02X to %04X (%s)\n", data, addr, io[addr].c_str());
+        return false;
+    }
     virtual bool read(int addr, unsigned char &data)
     {
         if(rom_C600.read(addr, data)) {
-            if(debug & DEBUG_RW) printf("DiskII read 0x%04X -> 0x%02X\n", addr, data);
+            if(debug & DEBUG_RW) printf("DiskII read 0x%04X -> %02X\n", addr, data);
             return true;
         }
-        return false;
+
+        if(addr < 0xC0E0 || addr > 0xC0EF) {
+            return false;
+        }
+
+        if(addr >= CA0 && addr <= (CA3 + 1)) {
+            if(debug & DEBUG_FLOPPY) printf("floppy control track motor\n");
+            control_track_motor(addr);
+            data = 0;
+            return true;
+        } else if(addr == Q6L) { // 0xC0EC
+            data = read_next_nybblized_byte();
+            if(debug & DEBUG_FLOPPY) printf("floppy read byte : %02X\n", data);
+            return true;
+        } else if(addr == Q6H) { // 0xC0ED
+            if(debug & DEBUG_FLOPPY) printf("floppy read latch\n");
+            data = data_latch; // XXX do something with the latch - e.g. set write-protect bit
+            data = 0;
+            return true;
+        } else if(addr == Q7L) { // 0xC0EE
+            if(debug & DEBUG_FLOPPY) printf("floppy set read\n");
+            head_mode = READ;
+            data = 0;
+            return true;
+        } else if(addr == Q7H) { // 0xC0EF
+            if(debug & DEBUG_FLOPPY) printf("floppy set write\n");
+            head_mode = WRITE;
+            data = 0;
+            return true;
+        } else if(addr == SELECT) {
+            if(debug & DEBUG_FLOPPY) printf("floppy select first drive\n");
+            drive_selected = 0;
+            return true;
+        } else if(addr == SELECT + 1) {
+            if(debug & DEBUG_FLOPPY) printf("floppy select second drive\n");
+            drive_selected = 1;
+            return true;
+        } else if(addr == ENABLE) {
+            if(debug & DEBUG_FLOPPY) printf("floppy switch off\n");
+            drive_motor_enabled[drive_selected] = false;
+            // go disable reading
+            // disable other drive?
+            return true;
+        } else if(addr == ENABLE + 1) {
+            if(debug & DEBUG_FLOPPY) printf("floppy switch on\n");
+            drive_motor_enabled[drive_selected] = true;
+            // go enable reading
+            // disable other drive?
+            return true;
+        }
+        printf("DISK II unhandled read from %04X (%s)\n", addr, io[addr].c_str());
+        data = 0;
+        return true;
     }
     virtual void reset(void) {}
 };
@@ -218,9 +451,9 @@ struct MAINboard : board_base
     SoftSwitch* switches_by_address[256];
     SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches, true};
     SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches, true};
-    SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches};
-    SoftSwitch RAMWRT {"RAMWRT", 0xC004, 0xC005, 0xC014, false, switches};
-    SoftSwitch ALTZP {"ALTZP", 0xC008, 0xC009, 0xC016, false, switches};
+    SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches, true};
+    SoftSwitch RAMWRT {"RAMWRT", 0xC004, 0xC005, 0xC014, false, switches, true};
+    SoftSwitch ALTZP {"ALTZP", 0xC008, 0xC009, 0xC016, false, switches, true};
     SoftSwitch C3ROM {"C3ROM", 0xC00A, 0xC00B, 0xC017, false, switches, true};
     SoftSwitch ALTCHAR {"ALTCHAR", 0xC00E, 0xC00F, 0xC01E, false, switches};
     SoftSwitch VID80 {"VID80", 0xC00C, 0xC00D, 0xC01F, false, switches};
@@ -234,9 +467,6 @@ struct MAINboard : board_base
 
     backed_region szp = {"szp", 0x0000, 0x0200, RAM, &regions, [&](){return !ALTZP;}}; // stack and zero page
     backed_region aszp = {"aszp", 0x0000, 0x0200, RAM, &regions, [&](){return ALTZP;}}; // alternate stack and zero page
-
-    backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, &regions, [&]{return true;}};
-    backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, &regions, [&]{return true;}};
 
     bool internal_C800_ROM_selected;
     backed_region rom_C100 = {"rom_C100", 0xC100, 0x0200, ROM, &regions, [&]{return CXROM;}};
@@ -281,12 +511,15 @@ struct MAINboard : board_base
     bool C08X_read_RAM;
     bool C08X_write_RAM;
 
+    backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, &regions, [&]{return !C08X_read_RAM;}};
+    backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, &regions, [&]{return !C08X_read_RAM;}};
+
     backed_region ram1_main_D000 = {"ram1_main_D000", 0xD000, 0x1000, RAM, &regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
     backed_region ram2_main_D000 = {"ram2_main_D000", 0xD000, 0x1000, RAM, &regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
     backed_region ram_main_E000 = {"ram1_main_E000", 0xE000, 0x2000, RAM, &regions, [&]{return C08X_read_RAM;}, [&]{return !ALTZP && C08X_write_RAM;}};
     backed_region ram1_main_D000_x = {"ram1_main_D000_x", 0xD000, 0x1000, RAM, &regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
     backed_region ram2_main_D000_x = {"ram2_main_D000_x", 0xD000, 0x1000, RAM, &regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
-    backed_region ram_main_E000_x = {"ram1_main_E000_x", 0xE000, 0x2000, RAM, &regions, [&]{return C08X_read_RAM;}, [&]{return ALTZP && C08X_write_RAM;}};
+    backed_region ram_main_E000_x = {"ram1_main_E000_x", 0xE000, 0x2000, RAM, &regions, [&]{return ALTZP && C08X_read_RAM;}, [&]{return ALTZP && C08X_write_RAM;}};
 
     set<int> ignore_mmio = {0xC058, 0xC05A, 0xC05D, 0xC05F, 0xC061, 0xC062};
     set<int> banking_read_switches = {
@@ -318,6 +551,7 @@ struct MAINboard : board_base
             audio_buffer[i % audio_buffer_size] = speaker_energized ? 128 - 32 : 128 + 32;
             if(i - audio_buffer_start_sample == audio_buffer_size - 1) {
                 audio_flush(audio_buffer, audio_buffer_size);
+
                 audio_buffer_start_sample = i + 1;
             }
         }
@@ -406,19 +640,19 @@ struct MAINboard : board_base
             if(sw != NULL) {
                 if(addr == sw->read_address) {
                     data = sw->enabled ? 0x80 : 0x00;
-                    if(debug & DEBUG_RW) printf("Read status of %s = %02X\n", sw->name.c_str(), data);
+                    if(debug & DEBUG_SWITCH) printf("Read status of %s = %02X\n", sw->name.c_str(), data);
                     return true;
                 } else if(sw->read_also_changes && addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->enabled = true;
-                    if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
+                    if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(sw->read_also_changes && addr == sw->clear_address) {
                     if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->enabled = false;
-                    if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
+                    if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
                     return true;
                 }
             }
@@ -429,19 +663,22 @@ struct MAINboard : board_base
             }
             if((addr & 0xFFF0) == 0xC080) {
                 C08X_bank = ((addr >> 3) & 1) ? BANK1 : BANK2;
-                C08X_write_RAM = (addr >> 2) & 1;
-                C08X_read_RAM = ((addr >> 1) & 1) ^ C08X_write_RAM; // RAM flag is inverted by ROM!
-                if(debug & DEBUG_RW) printf("write C08X switch, return 0x%02X\n", data);
+                C08X_write_RAM = addr & 1;
+                int read_ROM = ((addr >> 1) & 1) ^ C08X_write_RAM;
+                C08X_read_RAM = !read_ROM;
+                if(debug & DEBUG_SWITCH) printf("write %04X switch, %s, %d write_RAM, %d read_RAM\n", addr, (C08X_bank == BANK1) ? "BANK1" : "BANK2", C08X_write_RAM, C08X_read_RAM);
+                data = 0x00;
                 return true;
             }
             if(addr == 0xC011) {
                 data = (C08X_bank == BANK2) ? 0x80 : 0x0;
-                if(debug & DEBUG_RW) printf("read BSRBANK2, return 0x%02X\n", data);
+                data = 0x00;
+                if(debug & DEBUG_SWITCH) printf("read BSRBANK2, return 0x%02X\n", data);
                 return true;
             }
             if(addr == 0xC012) {
                 data = C08X_read_RAM ? 0x80 : 0x0;
-                if(debug & DEBUG_RW) printf("read BSRREADRAM, return 0x%02X\n", data);
+                if(debug & DEBUG_SWITCH) printf("read BSRREADRAM, return 0x%02X\n", data);
                 return true;
             }
             if(addr == 0xC000) {
@@ -481,11 +718,11 @@ struct MAINboard : board_base
             }
         }
         if((addr & 0xFF00) == 0xC300) {
-            if(debug & DEBUG_RW) printf("read 0x%04X, enabling internal C800 ROM\n", addr);
+            if(debug & DEBUG_SWITCH) printf("read 0x%04X, enabling internal C800 ROM\n", addr);
             internal_C800_ROM_selected = true;
         }
         if(addr == 0xCFFF) {
-            if(debug & DEBUG_RW) printf("read 0xCFFF, disabling internal C800 ROM\n");
+            if(debug & DEBUG_SWITCH) printf("read 0xCFFF, disabling internal C800 ROM\n");
             internal_C800_ROM_selected = false;
         }
         if(debug & DEBUG_WARN) printf("unhandled memory read at %04X\n", addr);
@@ -534,13 +771,13 @@ struct MAINboard : board_base
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->enabled = true;
-                    if(debug & DEBUG_RW) printf("Set %s\n", sw->name.c_str());
+                    if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
                     return true;
                 } else if(addr == sw->clear_address) {
                     // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->enabled = false;
-                    if(debug & DEBUG_RW) printf("Clear %s\n", sw->name.c_str());
+                    if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
                     return true;
                 }
             }
@@ -902,6 +1139,13 @@ struct CPU6502
                 break;
             }
 
+            case 0xEE: { // INC abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                set_flags(N | Z, m = bus.read(addr) + 1);
+                bus.write(addr, m);
+                break;
+            }
+
             case 0xE6: { // INC zpg
                 int zpg = read_pc_inc(bus);
                 set_flags(N | Z, m = bus.read(zpg) + 1);
@@ -1072,6 +1316,14 @@ struct CPU6502
                 break;
             }
 
+            case 0xBC: { // LDY abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                set_flags(N | Z, y = bus.read(addr + x));
+                if((addr + x) / 256 != addr / 256)
+                    clk++;
+                break;
+            }
+
             case 0xBD: { // LDA abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = bus.read(addr + x));
@@ -1113,6 +1365,18 @@ struct CPU6502
                 break;
             }
 
+            case 0xF9: { // SBC abs, Y
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
+                unsigned char m = bus.read(addr);
+                int borrow = isset(C) ? 0 : 1;
+                flag_change(C, !(a < (m + borrow)));
+                flag_change(V, sbc_overflow(a, m, borrow));
+                set_flags(N | Z, a = a - (m + borrow));
+                break;
+            }
+
             case 0xFD: { // SBC abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
                 if((addr - x) / 256 != addr / 256)
@@ -1141,6 +1405,16 @@ struct CPU6502
                 flag_change(C, !(a < (m + borrow)));
                 flag_change(V, sbc_overflow(a, m, borrow));
                 set_flags(N | Z, a = a - (m + borrow));
+                break;
+            }
+
+            case 0x6D: { // ADC abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                m = bus.read(addr);
+                int carry = isset(C) ? 1 : 0;
+                flag_change(C, (int)(a + m + carry) > 0xFF);
+                flag_change(V, adc_overflow(a, m, carry));
+                set_flags(N | Z, a = a + m + carry);
                 break;
             }
 
@@ -1175,6 +1449,15 @@ struct CPU6502
                 break;
             }
 
+            case 0x0E: { // ASL abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr);
+                flag_change(C, m & 0x80);
+                set_flags(N | Z, m = m << 1);
+                bus.write(addr, m);
+                break;
+            }
+
             case 0x06: { // ASL
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
@@ -1196,6 +1479,15 @@ struct CPU6502
             case 0x0A: { // ASL
                 flag_change(C, a & 0x80);
                 set_flags(N | Z, a = a << 1);
+                break;
+            }
+
+            case 0x5E: { // LSR abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr + x);
+                flag_change(C, m & 0x01);
+                set_flags(N | Z, m = m >> 1);
+                bus.write(addr + x, m);
                 break;
             }
 
@@ -1242,6 +1534,22 @@ struct CPU6502
                 break;
             }
 
+            case 0x0D: { // ORA abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr);
+                set_flags(N | Z, a = a | m);
+                break;
+            }
+
+            case 0x1D: { // ORA abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr + x);
+                if((addr + x) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, a = a | m);
+                break;
+            }
+
             case 0x11: { // ORA (ind), Y
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
@@ -1252,32 +1560,40 @@ struct CPU6502
                 break;
             }
 
-            case 0x05: { // ORA
+            case 0x05: { // ORA zpg
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
                 set_flags(N | Z, a = a | m);
                 break;
             }
 
-            case 0x09: { // ORA
+            case 0x09: { // ORA imm
                 unsigned char imm = read_pc_inc(bus);
                 set_flags(N | Z, a = a | imm);
                 break;
             }
 
-            case 0x2D: { // AND
+            case 0x39: { // AND abs, y
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                set_flags(N | Z, a = a & bus.read(addr + y));
+                if((addr + y) / 256 != addr / 256)
+                    clk++;
+                break;
+            }
+
+            case 0x2D: { // AND abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = a & bus.read(addr));
                 break;
             }
 
-            case 0x25: { // AND
+            case 0x25: { // AND zpg
                 unsigned char zpg = read_pc_inc(bus);
                 set_flags(N | Z, a = a & bus.read(zpg));
                 break;
             }
 
-            case 0x29: { // AND
+            case 0x29: { // AND imm
                 unsigned char imm = read_pc_inc(bus);
                 set_flags(N | Z, a = a & imm);
                 break;
@@ -1347,7 +1663,7 @@ struct CPU6502
                 break;
             }
 
-            case 0x9D: { // STA
+            case 0x9D: { // STA abs, x
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 bus.write(addr + x, a);
                 break;
@@ -1362,6 +1678,13 @@ struct CPU6502
             case 0x91: { // STA
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                bus.write(addr, a);
+                break;
+            }
+
+            case 0x81: { // STA (ind, X)
+                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 bus.write(addr, a);
                 break;
             }
@@ -1403,6 +1726,12 @@ struct CPU6502
             case 0xB4: { // LDY
                 unsigned char zpg = read_pc_inc(bus);
                 set_flags(N | Z, y = bus.read((zpg + x) & 0xFF));
+                break;
+            }
+
+            case 0xAE: { // LDX abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                set_flags(N | Z, x = bus.read(addr));
                 break;
             }
 
@@ -1456,11 +1785,19 @@ struct CPU6502
                 break;
             }
 
-            case 0xCC: { // CPY
+            case 0xCC: { // CPY abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= y);
                 set_flags(N | Z, m = y - m);
+                break;
+            }
+
+            case 0xEC: { // CPX abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr);
+                flag_change(C, m <= x);
+                set_flags(N | Z, m = x - m);
                 break;
             }
 
@@ -1475,6 +1812,39 @@ struct CPU6502
                 unsigned char imm = read_pc_inc(bus);
                 flag_change(C, imm <= y);
                 set_flags(N | Z, imm = y - imm);
+                break;
+            }
+
+            case 0x41: { // EOR (ind, X)
+                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                m = bus.read(addr);
+                set_flags(N | Z, a = a ^ m);
+                break;
+            }
+
+            case 0x4D: { // EOR abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr);
+                set_flags(N | Z, a = a ^ m);
+                break;
+            }
+
+            case 0x5D: { // EOR abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr + x);
+                if((addr + x) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, a = a ^ m);
+                break;
+            }
+
+            case 0x59: { // EOR abs, Y
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr + y);
+                if((addr + y) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, a = a ^ m);
                 break;
             }
 
@@ -1583,6 +1953,12 @@ struct CPU6502
                 break;
             }
 
+            case 0x8E: { // STX abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                bus.write(addr, x);
+                break;
+            }
+
             case 0x86: { // STX
                 unsigned char zpg = read_pc_inc(bus);
                 bus.write(zpg, x);
@@ -1654,7 +2030,7 @@ void cleanup(void)
     fflush(stderr);
 }
 
-bool use_fake6502 = false;
+bool use_fake6502 = true;
 
 string read_bus_and_disassemble(bus_frontend &bus, int pc)
 {
@@ -1833,7 +2209,9 @@ int main(int argc, char **argv)
     char *progname = argv[0];
     argc -= 1;
     argv += 1;
-    char *diskII_rom_name = NULL, *floppy1_name, *floppy2_name;
+    char *diskII_rom_name = NULL, *floppy1_name = NULL, *floppy2_name = NULL;
+
+    bool have_audio = true;
 
     while((argc > 0) && (argv[0][0] == '-')) {
 	if(strcmp(argv[0], "-debugger") == 0) {
@@ -1850,6 +2228,10 @@ int main(int argc, char **argv)
             floppy2_name = argv[3];
             argv += 4;
             argc -= 4;
+	} else if(strcmp(argv[0], "-noaudio") == 0) {
+            have_audio = false;
+            argv += 1;
+            argc -= 1;
 	} else if(strcmp(argv[0], "-fast") == 0) {
             run_fast = true;
             argv += 1;
@@ -1902,12 +2284,27 @@ int main(int argc, char **argv)
     MAINboard* mainboard;
 
     MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
-    MAINboard::audio_flush_func audio = [aodev](char *buf, size_t sz){ao_play(aodev, buf, sz);};
+    MAINboard::audio_flush_func audio;
+    if(have_audio)
+        audio = [aodev](char *buf, size_t sz){ao_play(aodev, buf, sz);};
+    else
+        audio = [](char *buf, size_t sz){};
     mainboard = new MAINboard(clk, b, display, audio);
     bus.board = mainboard;
     bus.reset();
 
     if(diskII_rom_name != NULL) {
+
+        if((strcmp(floppy1_name, "-") == 0) || 
+           (strcmp(floppy1_name, "none") == 0) || 
+           (strcmp(floppy1_name, "") == 0) )
+            floppy1_name = NULL;
+
+        if((strcmp(floppy2_name, "-") == 0) || 
+           (strcmp(floppy2_name, "none") == 0) || 
+           (strcmp(floppy2_name, "") == 0) )
+            floppy2_name = NULL;
+
         try {
             DISKIIboard *diskII = new DISKIIboard(diskII_rom, floppy1_name, floppy2_name);
             mainboard->boards.push_back(diskII);
@@ -1955,24 +2352,28 @@ int main(int argc, char **argv)
             }
 
             chrono::time_point<chrono::system_clock> then;
-            int inst_per_slice;
+            int clocks_per_slice;
             if(pause_cpu)
-                inst_per_slice = 0;
+                clocks_per_slice = 0;
             else {
                 if(run_fast)
-                    inst_per_slice = 320000;
+                    clocks_per_slice = machine_clock_rate; 
                 else
-                    inst_per_slice = 255750 * millis_per_slice / 1000 * 2;
+                    clocks_per_slice = millis_per_slice * machine_clock_rate / 1000;
             }
-            for(int i = 0; i < inst_per_slice; i++) {
+            clk_t prev_clock = clk;
+            while(clk - prev_clock < clocks_per_slice) {
                 if(debug & DEBUG_DECODE) {
                     string dis = read_bus_and_disassemble(bus, cpu.pc);
                     printf("%s\n", dis.c_str());
                 }
-                if(use_fake6502)
+                if(use_fake6502) {
+                    clockticks6502 = 0;
                     step6502();
-                else
+                    clk += clockticks6502;
+                } else {
                     cpu.cycle(bus);
+                }
             }
             mainboard->sync();
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
@@ -2030,10 +2431,13 @@ int main(int argc, char **argv)
                 printf("%s\n", dis.c_str());
             }
             
-            if(use_fake6502)
+            if(use_fake6502) {
+                clockticks6502 = 0;
                 step6502();
-            else
+                clk += clockticks6502;
+            } else {
                 cpu.cycle(bus);
+            }
             mainboard->sync();
 
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);

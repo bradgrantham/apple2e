@@ -863,14 +863,14 @@ static void redraw(GLFWwindow *window)
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    set_shader(to_screen_transform, display_mode, false, (elapsed_millis / 1870) % 2, 0, 0);
+    set_shader(to_screen_transform, display_mode, false, (elapsed_millis / 300) % 2, 0, 0);
 
     glBindVertexArray(upper_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     CheckOpenGL(__FILE__, __LINE__);
 
-    set_shader(to_screen_transform, display_mode, mixed_mode, (elapsed_millis / 1870) % 2, 0, 0);
+    set_shader(to_screen_transform, display_mode, mixed_mode, (elapsed_millis / 300) % 2, 0, 0);
 
     glBindVertexArray(lower_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
