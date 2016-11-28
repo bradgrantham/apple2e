@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
     int main(int argc, char **argv) {
 
@@ -109,14 +110,14 @@
             printf("%02X ", currentbyte);                               //Display the current byte in HEX
             if (paramcount == 0) {
                 printf(" %s %s %s", pad, opcode, pre);                  //Pad text, display instruction name and pre-operand chars
-                if (pad == "   ") {                                     //Check if single operand instruction
+                if (strcmp(pad, "   ") == 0) {                                     //Check if single operand instruction
                     if (addrmode != 8) {                                //If not using relative addressing ...
                         printf("$%02X", currentbyte);                   //...display operand
                     } else {                                            //Addressing mode is relative...
                         printf("$%02X", (address + ((currentbyte < 128) ? currentbyte : currentbyte - 256))); //...display relative address.
                     }
                 }
-                if (pad == "")                                          //Check if two operand instruction and if so...
+                if (strcmp(pad, "") == 0)                                           //Check if two operand instruction and if so...
                     printf("$%02X%02X", currentbyte, previousbyte);     //...display operand
                 printf("%s\n", post);                                   //Display post-operand chars
             }

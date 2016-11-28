@@ -23,9 +23,11 @@ soft switch with W 2 addresses, read high bit
     C00C 49164 CLR80VID      ECG W    40 Columns
     C00D 49165 SET80VID      ECG W    80 Columns
     C01F 49183 RD80VID       ECG  R7  Status of 40/80 Columns
+
 ???
     C011 49169 RDLCBNK2      ECG  R7  Status of Selected $Dx Bank
     C012 49170 RDLCRAM       ECG  R7  Status of $Dx ROM / $Dx RAM
+
 soft switch with R/W 2 addresses, read high bit
     C050 49232 TXTCLR       OECG WR   Display Graphics
     C051 49233 TXTSET       OECG WR   Display Text

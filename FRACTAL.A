@@ -1,0 +1,21 @@
+10  HGR : POKE  - 16302,0
+11 MX = 280
+12 MY = 192
+20  FOR X = 0 TO MX - 1
+30 CX = X / MX * 3 - 2
+40  FOR Y = 0 TO MY / 2 - 1
+50 CY = Y / MY * 3 - 1.5
+60 C = 0
+70 XX = 0:YY = 0
+80  IF XX * XX + YY * YY > 4 OR C > 15 THEN 200
+90 OX = XX
+100 XX = XX * XX - YY * YY + CX
+110 YY = 2 * OX * YY + CY
+120 C = C + 1
+130  GOTO 80
+200  IF C > 7 THEN C = C - 8: GOTO 200
+205  HCOLOR= C
+210  HPLOT X,Y
+215  HPLOT X,MY - 1 - Y
+220  NEXT Y
+230  NEXT X

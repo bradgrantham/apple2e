@@ -2,6 +2,8 @@
 
 extern "C" {
 
+extern uint32_t clockticks6502;
+
 void reset6502();
 void nmi6502();
 void irq6502();

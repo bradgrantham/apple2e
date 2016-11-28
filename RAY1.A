@@ -1,0 +1,28 @@
+10  DIM SPH(25,4)
+15  HCOLOR= 3
+20 S = 0
+21 S = 1 + 1: READ SPH(S,1),SPH(S,2),SPH(S,3),SPH(S,4): IF SPH(S,4) <  > 0 THEN 21
+25 S = S - 1: INPUT "XSKIP,YSKIP:";ZS,YS
+30  INPUT "YAW,PITCH,ROLL:";Y,P,R
+35  INPUT "VIEW ANGLE:";AN
+40  INPUT "VIEWPOINT:";VX,VY,VZ
+45  INPUT "START>";A$
+50  HGR2 :PI = 3.141598
+55 Y = Y * PI / 180:P = P * PI / 180:R = R * PI / 180
+56 AN = AN * PI / 180
+60 ZN = ZS * AN / 279:YN = YS * AN / 191
+65 V2 = AN / 2
+70  FOR YL = 0 TO  INT (191 / YS): FOR ZL = 0 TO  INT (279 / ZS)
+72  HCOLOR= 3: HPLOT ZL * ZS,YL * YS
+75 RY = V2 - ZL * ZN:RP = V2 - YL * YN
+80 YA = Y + RY *  COS (R) + RP *  SIN (R):PA = P + RP *  COS (R) + RY * SIN (R)
+90 TX = VX +  COS (PA) *  COS (YA):TY = VY +  SIN (PA):TZ = VZ +  COS (PA) *  SIN (YA)
+95 I = 0:M = TX - VX:N = TY - VY:P = TZ - VZ:B2 = M ^ 2 + N ^ 2 + P ^ 2
+100  FOR S2 = 1 TO S:X = VX - SP(S2,1):Y = VY - SP(S2,2):Z = VZ - SP(S2, 3)
+105 B1 = X * M + Y * N + Z * P:BS = B1 ^ 2 / B2:C = X ^ 2 + Y ^ 2 + Z ^ 2 + SP(S2,4) ^ 2
+110  IF BS > C THEN I = 1
+115  NEXT
+120  IF  NOT I THEN  HCOLOR= 0: HPLOT ZS * ZL,YS * YL
+125  NEXT : NEXT
+10000  DATA  20,10,0,5,20,15,10,5,0,0,0,0
+
