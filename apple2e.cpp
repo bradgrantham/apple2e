@@ -876,6 +876,24 @@ void write6502(uint16_t address, uint8_t value)
 
 };
 
+bool sbc_overflow_d(unsigned char a, unsigned char b, int borrow)
+{ 
+    // ??
+    signed char a_ = a; 
+    signed char b_ = b;
+    signed short c = a_ - (b_ + borrow);
+    return (c < 0) || (c > 99);
+}
+
+bool adc_overflow_d(unsigned char a, unsigned char b, int carry)
+{ 
+    // ??
+    signed char a_ = a;
+    signed char b_ = b;
+    signed short c = a_ + b_ + carry;
+    return (c < 0) || (c > 99);
+}
+
 bool sbc_overflow(unsigned char a, unsigned char b, int borrow)
 {
     signed char a_ = a;
@@ -1113,6 +1131,11 @@ struct CPU6502
 
             case 0x38: { // SEC
                 flag_set(C);
+                break;
+            }
+
+            case 0xF8: { // SED
+                flag_set(D);
                 break;
             }
 
@@ -1368,9 +1391,17 @@ struct CPU6502
                 unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1378,9 +1409,17 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1391,9 +1430,17 @@ struct CPU6502
                     clk++;
                 m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1403,9 +1450,17 @@ struct CPU6502
                     clk++;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1415,9 +1470,17 @@ struct CPU6502
                     clk++;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1425,18 +1488,34 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
             case 0xE9: { // SBC imm
                 unsigned char m = read_pc_inc(bus);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1447,9 +1526,17 @@ struct CPU6502
                     clk++;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1457,9 +1544,17 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1467,9 +1562,17 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1479,9 +1582,17 @@ struct CPU6502
                     clk++;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1491,18 +1602,34 @@ struct CPU6502
                     clk++;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
             case 0x69: { // ADC
                 m = read_pc_inc(bus);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1634,6 +1761,12 @@ struct CPU6502
             case 0x09: { // ORA imm
                 unsigned char imm = read_pc_inc(bus);
                 set_flags(N | Z, a = a | imm);
+                break;
+            }
+
+            case 0x35: { // AND zpg, X
+                int zpg = (read_pc_inc(bus) + x) & 0xFF;
+                set_flags(N | Z, a = a & bus.read(zpg));
                 break;
             }
 
@@ -2389,13 +2522,13 @@ int main(int argc, char **argv)
     MAINboard::audio_flush_func audio;
     if(have_audio)
         audio = [aodev](char *buf, size_t sz){
-            static char prev_sample;
-            for(int i = 0; i < sz; i++)
-                if(buf[i] != prev_sample) {
+            // static char prev_sample;
+            // for(int i = 0; i < sz; i++)
+                // if(buf[i] != prev_sample) {
                     ao_play(aodev, buf, sz);
-                    break;
-                }
-            prev_sample = buf[sz - 1];
+                    // break;
+                // }
+            // prev_sample = buf[sz - 1];
         };
     else
         audio = [](char *buf, size_t sz){};
