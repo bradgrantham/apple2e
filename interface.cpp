@@ -485,6 +485,23 @@ struct widget
     virtual void release(double now, float x, float y) = 0;
 };
 
+struct spacer : public widget
+{
+    float w, h;
+    spacer(float w_, float h_) :
+        w(w_),
+        h(h_)
+    {}
+    virtual tuple<float, float> get_min_dimensions() const 
+    {
+        return make_tuple(w, h);
+    }
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) {}
+    virtual bool click(double now, float x, float y) { return false; }
+    virtual void drag(double now, float x, float y) {}
+    virtual void release(double now, float x, float y) {}
+};
+
 struct placed_widget
 {
     widget *widg;
@@ -526,13 +543,15 @@ struct centering : public widget
     }
 };
 
-struct vbox : public widget
+struct widgetbox : public widget
 {
+    enum Direction {VERTICAL, HORIZONTAL} dir;
     float w, h;
     vector<placed_widget> children;
     placed_widget focus;
 
-    vbox(vector<widget*> children_) :
+    widgetbox(Direction dir_, vector<widget*> children_) :
+        dir(dir_),
         w(0),
         h(0),
         focus({nullptr, 0, 0, 0, 0})
@@ -541,16 +560,27 @@ struct vbox : public widget
             widget *child = *it;
             float cw, ch;
             tie(cw, ch) = child->get_min_dimensions();
-            h += ch;
-            w = std::max(w, cw);
+            if(dir == HORIZONTAL) {
+                w += cw;
+                h = std::max(h, ch);
+            } else {
+                w = std::max(w, cw);
+                h += ch;
+            }
         }
+        float x = 0;
         float y = 0;
         for(auto it = children_.begin(); it != children_.end(); it++) {
             widget *child = *it;
             float cw, ch;
             tie(cw, ch) = child->get_min_dimensions();
-            children.push_back({child, 0, y, w, ch});
-            y += ch;
+            if(dir == HORIZONTAL) {
+                children.push_back({child, x, y, cw, h});
+                x += cw;
+            } else {
+                children.push_back({child, x, y, w, ch});
+                y += ch;
+            }
         }
     }
     virtual tuple<float, float> get_min_dimensions() const
@@ -593,6 +623,48 @@ void set(float v[4], float x, float y, float z, float w)
     v[2] = z;
     v[3] = w;
 }
+
+struct apple2screen : public widget
+{
+    apple2screen() { }
+
+    virtual tuple<float, float> get_min_dimensions() const
+    {
+        return make_tuple(280, 192);
+    }
+
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
+    {
+        long long elapsed_millis = now * 1000;
+        set_shader(to_screen, display_mode, false, (elapsed_millis / 300) % 2, x, y);
+
+        glBindVertexArray(upper_screen_area);
+        CheckOpenGL(__FILE__, __LINE__);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        CheckOpenGL(__FILE__, __LINE__);
+
+        set_shader(to_screen, display_mode, mixed_mode, (elapsed_millis / 300) % 2, x, y);
+
+        glBindVertexArray(lower_screen_area);
+        CheckOpenGL(__FILE__, __LINE__);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        CheckOpenGL(__FILE__, __LINE__);
+    }
+
+    virtual bool click(double now, float x, float y)
+    {
+        float w, h;
+        tie(w, h) = get_min_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            return true;
+        }
+        return false;
+    }
+
+    virtual void drag(double now, float x, float y) { }
+
+    virtual void release(double now, float x, float y) { }
+};
 
 struct text_widget : public widget
 {
@@ -868,7 +940,12 @@ void initialize_gl(void)
     for(auto b : buttons)
         buttons_centered.push_back(new centering(b));
 
-    ui = new centering(new vbox(buttons_centered));
+    widget *screen = new apple2screen();
+    widget *padding = new spacer(20, 0);
+    widget *buttonpanel = new centering(new widgetbox(widgetbox::VERTICAL, buttons_centered));
+    vector<widget*> panels_centered = {new centering(screen), padding, new centering(buttonpanel)};
+
+    ui = new centering(new widgetbox(widgetbox::HORIZONTAL, panels_centered));
 }
 
 const float widget_scale = 4;
@@ -901,27 +978,13 @@ static void redraw(GLFWwindow *window)
     chrono::time_point<chrono::system_clock> now;
     now = std::chrono::system_clock::now();
 
-    auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - start_time).count();
-
-    CheckOpenGL(__FILE__, __LINE__);
-
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    set_shader(to_screen_transform, display_mode, false, (elapsed_millis / 300) % 2, 0, 0);
+    chrono::duration<double> elapsed = now - start_time;
 
-    glBindVertexArray(upper_screen_area);
-    CheckOpenGL(__FILE__, __LINE__);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    CheckOpenGL(__FILE__, __LINE__);
+    ui->draw(elapsed.count(), to_screen_transform, 0, 0, gWindowWidth / widget_scale, gWindowHeight / widget_scale);
 
-    set_shader(to_screen_transform, display_mode, mixed_mode, (elapsed_millis / 300) % 2, 0, 0);
-
-    glBindVertexArray(lower_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    ui->draw(0.0, to_screen_transform, 280, 0, 80, 192);
 }
 
 static void error_callback(int error, const char* description)
@@ -989,7 +1052,7 @@ static void button(GLFWwindow *window, int b, int action, int mods)
 
         float wx, wy;
         tie(wx, wy) = window_to_widget(x, y);
-        if(ui->click(0.0, wx - 280, wy - 0)) {
+        if(ui->click(0.0, wx, wy)) {
             widget_clicked = ui;
         }
     } else {
@@ -997,7 +1060,7 @@ static void button(GLFWwindow *window, int b, int action, int mods)
         if(widget_clicked) {
             float wx, wy;
             tie(wx, wy) = window_to_widget(x, y);
-            widget_clicked->release(0.0, wx - 280, wy - 0);
+            widget_clicked->release(0.0, wx, wy);
         }
         widget_clicked = nullptr;
     }
@@ -1027,7 +1090,7 @@ static void motion(GLFWwindow *window, double x, double y)
         if(widget_clicked) {
             float wx, wy;
             tie(wx, wy) = window_to_widget(x, y);
-            widget_clicked->drag(0.0, wx - 280, wy - 0);
+            widget_clicked->drag(0.0, wx, wy);
         }
     }
     redraw(window);
