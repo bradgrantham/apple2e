@@ -905,7 +905,7 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
         event_queue.push_back({KEYDOWN, CAPS_LOCK});
     }
 
-    if(action == GLFW_PRESS) {
+    if(action == GLFW_PRESS || action == GLFW_REPEAT ) {
         if(key == GLFW_KEY_RIGHT_SUPER || key == GLFW_KEY_LEFT_SUPER)
             super_down = true;
         else if(super_down && key == GLFW_KEY_V) {
