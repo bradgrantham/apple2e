@@ -32,6 +32,10 @@ int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
 bool mixed_mode = false;
 
 bool use_joystick = false;
+int joystick_axis0 = 0;
+int joystick_axis1 = 1;
+int joystick_button0 = 0;
+int joystick_button1 = 1;
 
 extern int font_offset;
 extern unsigned char font_bytes[96 * 7 * 8];
@@ -1159,14 +1163,27 @@ static void scroll(GLFWwindow *window, double dx, double dy)
 
 const int pixel_scale = 3;
 
-void joystick(int num, int event)
+void load_joystick_setup()
 {
-    if(event == GLFW_CONNECTED)
-        printf("joystick %d connected\n", num);
+    FILE *fp = fopen("joystick.ini", "r");
+    if(fp == NULL) {
+        fprintf(stderr,"no joystick.ini file found, assuming defaults\n");
+        fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
+        fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
+        return;
+    }
+    if(fscanf(fp, "%d %d %d %d", &joystick_axis0, &joystick_axis1, &joystick_button0, &joystick_button1) != 4) {
+        fprintf(stderr,"couldn't parse joystick.ini\n");
+        fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
+        fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
+    }
+    fclose(fp);
 }
 
 void start()
 {
+    load_joystick_setup();
+
     glfwSetErrorCallback(error_callback);
     start_time = std::chrono::system_clock::now();
 
@@ -1202,7 +1219,6 @@ void start()
     glfwSetScrollCallback(my_window, scroll);
     glfwSetFramebufferSizeCallback(my_window, resize);
     glfwSetWindowRefreshCallback(my_window, redraw);
-    glfwSetJoystickCallback(joystick);
     CheckOpenGL(__FILE__, __LINE__);
 }
 
@@ -1221,22 +1237,38 @@ void iterate()
 
     if(glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         if(false) printf("joystick 1 present\n");
-        use_joystick = true;
-        int count;
-        const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
-        if(false) for(int i = 0; i < count; i++)
+
+        int axis_count, button_count;
+        const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &axis_count);
+        const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
+
+        if(false) for(int i = 0; i < axis_count; i++)
             printf("Axis %d: %f\n", i, axes[i]);
-        if(count >= 4) {
-            paddle_values[0] = (axes[3] + 1) / 2;
-            paddle_values[1] = (axes[4] + 1) / 2;
-        }
-        const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &count);
-        if(false)for(int i = 0; i < count; i++)
+        if(false)for(int i = 0; i < button_count; i++)
             printf("Button %d: %s\n", i, (buttons[i] == GLFW_PRESS) ? "pressed" : "not pressed");
-        if(count >= 12) {
-            paddle_buttons[0] = buttons[12] == GLFW_PRESS;
-            paddle_buttons[1] = buttons[11] == GLFW_PRESS;
+
+        if(axis_count <= joystick_axis0 || axis_count <= joystick_axis1) {
+
+            fprintf(stderr, "couldn't map joystick/gamepad axes\n");
+            fprintf(stderr, "mapped joystick axes are %d and %d, but maximum axis is %d\n", joystick_axis0, joystick_axis1, axis_count);
+            use_joystick = false;
+
+        } else if(button_count <= joystick_button0 && button_count <= joystick_button1) {
+
+            fprintf(stderr, "couldn't map joystick/gamepad buttons\n");
+            fprintf(stderr, "mapped buttons are %d and %d, but maximum button is %d\n", joystick_button0, joystick_button1, button_count);
+            use_joystick = false;
+
+        } else  {
+
+            paddle_values[0] = (axes[joystick_axis0] + 1) / 2;
+            paddle_values[1] = (axes[joystick_axis1] + 1) / 2;
+
+            paddle_buttons[0] = buttons[joystick_button0] == GLFW_PRESS;
+            paddle_buttons[1] = buttons[joystick_button1] == GLFW_PRESS;
+            use_joystick = true;
         }
+
     } else {
         use_joystick = false;
     }
