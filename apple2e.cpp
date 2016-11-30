@@ -1119,6 +1119,11 @@ struct CPU6502
                 break;
             }
 
+            case 0x80: { // NOP imm (Choplifter?)
+                read_pc_inc(bus);
+                break;
+            }
+
             case 0x8A: { // TXA
                 set_flags(N | Z, a = x);
                 break;
@@ -1135,7 +1140,7 @@ struct CPU6502
             }
 
             case 0x9A: { // TXS
-                set_flags(N | Z, s = x);
+                s = x;
                 break;
             }
 
@@ -1247,15 +1252,6 @@ struct CPU6502
 
             case 0xC8: { // INY
                 set_flags(N | Z, y = y + 1);
-                break;
-            }
-
-            case 0x80: { // BRA - 65C02! (Choplifter)
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
-                clk++;
-                if((pc + rel) / 256 != pc / 256)
-                    clk++;
-                pc += rel;
                 break;
             }
 
@@ -1752,6 +1748,14 @@ struct CPU6502
                 break;
             }
 
+            case 0x01: { // ORA (ind, X)
+                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                m = bus.read(addr);
+                set_flags(N | Z, a = a | m);
+                break;
+            }
+
             case 0x15: { // ORA zpg, X
                 int zpg = (read_pc_inc(bus) + x) & 0xFF;
                 m = bus.read(zpg);
@@ -1849,6 +1853,16 @@ struct CPU6502
 
             case 0x88: { // DEY
                 set_flags(N | Z, y = y - 1);
+                break;
+            }
+
+            case 0x3E: { // ROL abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr + x);
+                bool c = isset(C);
+                flag_change(C, m & 0x80);
+                set_flags(N | Z, m = (c ? 0x01 : 0x00) | (m << 1));
+                bus.write(addr + x, m);
                 break;
             }
 
@@ -2290,6 +2304,37 @@ void cleanup(void)
 
 bool use_fake6502 = false;
 
+struct saved_inst {
+    int pc;
+    unsigned char bytes[4];
+};
+
+void disassemble_previous_instructions(deque<saved_inst>& previous_instructions)
+{
+    for(auto it : previous_instructions) {
+        int bytes;
+        string dis;
+        tie(bytes, dis) = disassemble_6502(it.pc, it.bytes);
+        printf("%s\n", dis.c_str());
+    }
+}
+
+const int max_previous_instructions = 100;
+
+void read_instruction_and_save(bus_frontend &bus, int pc, deque<saved_inst>& previous_instructions)
+{
+    saved_inst inst;
+
+    inst.pc = pc;
+    inst.bytes[0] = bus.read(pc + 0);
+    inst.bytes[1] = bus.read(pc + 1);
+    inst.bytes[2] = bus.read(pc + 2);
+    inst.bytes[3] = bus.read(pc + 3);
+    if(previous_instructions.size() > max_previous_instructions)
+        previous_instructions.pop_front();
+    previous_instructions.push_back(inst);
+}
+
 string read_bus_and_disassemble(bus_frontend &bus, int pc)
 {
     int bytes;
@@ -2602,6 +2647,8 @@ int main(int argc, char **argv)
 
     if(use_fake6502)
         reset6502();
+
+    deque<saved_inst> previous_instructions;
 
     APPLE2Einterface::start();
 
