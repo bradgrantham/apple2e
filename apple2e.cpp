@@ -1770,6 +1770,15 @@ struct CPU6502
                 break;
             }
 
+            case 0x19: { // ORA abs, Y
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr + y);
+                if((addr + y) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, a = a | m);
+                break;
+            }
+
             case 0x1D: { // ORA abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + x);
@@ -1853,6 +1862,16 @@ struct CPU6502
 
             case 0x88: { // DEY
                 set_flags(N | Z, y = y - 1);
+                break;
+            }
+
+            case 0x7E: { // ROR abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr + x);
+                bool c = isset(C);
+                flag_change(C, m & 0x80);
+                set_flags(N | Z, m = (c ? 0x80 : 0x00) | (m >> 1));
+                bus.write(addr + x, m);
                 break;
             }
 
