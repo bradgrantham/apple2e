@@ -37,6 +37,8 @@ volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
+const float paddle_max_pulse_seconds = .00282;
+
 typedef unsigned long long clk_t;
 struct system_clock
 {
@@ -573,11 +575,15 @@ struct MAINboard : board_base
     display_write_func display_write;
     typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
     audio_flush_func audio_flush;
-    MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_) :
+    typedef std::function<tuple<float, bool> (int num)> get_paddle_func;
+    get_paddle_func get_paddle;
+    clk_t paddles_clock_out[4];
+    MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_, get_paddle_func get_paddle_) :
         clk(clk_),
         internal_C800_ROM_selected(true),
         display_write(display_write_),
-        audio_flush(audio_flush_)
+        audio_flush(audio_flush_),
+        get_paddle(get_paddle_)
     {
         std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
         std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
@@ -657,11 +663,6 @@ struct MAINboard : board_base
                     return true;
                 }
             }
-            if(ignore_mmio.find(addr) != ignore_mmio.end()) {
-                if(debug & DEBUG_RW) printf("read %04X, ignored, return 0x00\n", addr);
-                data = 0x00;
-                return true;
-            }
             if((addr & 0xFFF0) == 0xC080) {
                 C08X_bank = ((addr >> 3) & 1) ? BANK1 : BANK2;
                 C08X_write_RAM = addr & 1;
@@ -670,19 +671,16 @@ struct MAINboard : board_base
                 if(debug & DEBUG_SWITCH) printf("write %04X switch, %s, %d write_RAM, %d read_RAM\n", addr, (C08X_bank == BANK1) ? "BANK1" : "BANK2", C08X_write_RAM, C08X_read_RAM);
                 data = 0x00;
                 return true;
-            }
-            if(addr == 0xC011) {
+            } else if(addr == 0xC011) {
                 data = (C08X_bank == BANK2) ? 0x80 : 0x0;
                 data = 0x00;
                 if(debug & DEBUG_SWITCH) printf("read BSRBANK2, return 0x%02X\n", data);
                 return true;
-            }
-            if(addr == 0xC012) {
+            } else if(addr == 0xC012) {
                 data = C08X_read_RAM ? 0x80 : 0x0;
                 if(debug & DEBUG_SWITCH) printf("read BSRREADRAM, return 0x%02X\n", data);
                 return true;
-            }
-            if(addr == 0xC000) {
+            } else if(addr == 0xC000) {
                 if(!keyboard_buffer.empty()) {
                     data = 0x80 | keyboard_buffer[0];
                 } else {
@@ -690,22 +688,49 @@ struct MAINboard : board_base
                 }
                 if(debug & DEBUG_RW) printf("read KBD, return 0x%02X\n", data);
                 return true;
-            }
-            if(addr == 0xC030) {
+            } else if(addr == 0xC020) {
+                if(debug & DEBUG_RW) printf("read TAPE, force 0x00\n");
+                data = 0x00;
+                return true;
+            } else if(addr == 0xC030) {
                 if(debug & DEBUG_RW) printf("read SPKR, force 0x00\n");
 
                 fill_flush_audio();
                 data = 0x00;
                 speaker_energized = !speaker_energized;
                 return true;
-            }
-            if(addr == 0xC010) {
+            } else if(addr == 0xC010) {
                 // reset keyboard latch
                 if(!keyboard_buffer.empty()) {
                     keyboard_buffer.pop_front();
                 }
                 data = 0x0;
                 if(debug & DEBUG_RW) printf("read KBDSTRB, return 0x%02X\n", data);
+                return true;
+            } else if(addr == 0xC070) {
+                for(int i = 0; i < 4; i++) {
+                    float value;
+                    bool button;
+                    tie(value, button) = get_paddle(i);
+                    paddles_clock_out[i] = clk + value * paddle_max_pulse_seconds * machine_clock_rate;
+                }
+                data = 0x0;
+                return true;
+            } else if(addr >= 0xC064 && addr <= 0xC067) {
+                int num = addr - 0xC064;
+                data = (clk < paddles_clock_out[num]) ? 0xff : 0x00; 
+                return true;
+            } else if(addr >= 0xC061 && addr <= 0xC063) {
+                int num = addr - 0xC061;
+                float value;
+                bool button;
+                tie(value, button) = get_paddle(num);
+                data = button ? 0xff : 0x0;
+                return true;
+            }
+            if(ignore_mmio.find(addr) != ignore_mmio.end()) {
+                if(debug & DEBUG_RW) printf("read %04X, ignored, return 0x00\n", addr);
+                data = 0x00;
                 return true;
             }
             printf("unhandled MMIO Read at %04X\n", addr);
@@ -1007,7 +1032,7 @@ struct CPU6502
         2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
         6, 6, -1, -1, -1, 3, 5, -1, 4, 2, 2, -1, 5, 4, 6, -1,
         2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
-        -1, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
+        2, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
         2, 6, -1, -1, 4, 4, 4, -1, 2, 5, 2, -1, -1, 5, -1, -1,
         2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, -1,
         2, 5, -1, -1, 4, 4, 4, -1, 2, 4, 2, -1, 4, 4, 4, -1,
@@ -1222,6 +1247,15 @@ struct CPU6502
 
             case 0xC8: { // INY
                 set_flags(N | Z, y = y + 1);
+                break;
+            }
+
+            case 0x80: { // BRA - 65C02! (Choplifter)
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                clk++;
+                if((pc + rel) / 256 != pc / 256)
+                    clk++;
+                pc += rel;
                 break;
             }
 
@@ -2520,19 +2554,20 @@ int main(int argc, char **argv)
 
     MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
     MAINboard::audio_flush_func audio;
+    MAINboard::get_paddle_func paddle = [](int num)->tuple<float, bool>{return APPLE2Einterface::get_paddle(num);};
     if(have_audio)
         audio = [aodev](char *buf, size_t sz){
             // static char prev_sample;
             // for(int i = 0; i < sz; i++)
                 // if(buf[i] != prev_sample) {
-                    ao_play(aodev, buf, sz);
+                    if(!run_fast) ao_play(aodev, buf, sz);
                     // break;
                 // }
             // prev_sample = buf[sz - 1];
         };
     else
         audio = [](char *buf, size_t sz){};
-    mainboard = new MAINboard(clk, b, display, audio);
+    mainboard = new MAINboard(clk, b, display, audio, paddle);
     bus.board = mainboard;
     bus.reset();
 
@@ -2570,7 +2605,7 @@ int main(int argc, char **argv)
 
     APPLE2Einterface::start();
 
-    chrono::time_point<chrono::system_clock> then;
+    chrono::time_point<chrono::system_clock> then = std::chrono::system_clock::now();
 
     while(1) {
         if(!debugging) {
@@ -2603,7 +2638,7 @@ int main(int argc, char **argv)
                 if(run_fast)
                     clocks_per_slice = machine_clock_rate / 5; 
                 else
-                    clocks_per_slice = millis_per_slice * machine_clock_rate / 1000;
+                    clocks_per_slice = millis_per_slice * machine_clock_rate / 1000 * 1.05;
             }
             clk_t prev_clock = clk;
             while(clk - prev_clock < clocks_per_slice) {
@@ -2624,7 +2659,7 @@ int main(int argc, char **argv)
             int page = mainboard->PAGE2 ? 1 : 0;
             APPLE2Einterface::set_switches(mode, mainboard->MIXED, page);
             APPLE2Einterface::iterate();
-            chrono::time_point<chrono::system_clock> now;
+            chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
             if(!run_fast || pause_cpu)

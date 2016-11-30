@@ -97,6 +97,16 @@ GLuint hires_to_screen_location;
 GLuint hires_x_offset_location;
 GLuint hires_y_offset_location;
 
+float paddle_values[4] = {0, 0, 0, 0};
+bool paddle_buttons[4] = {false, false, false, false};
+
+tuple<float,bool> get_paddle(int num)
+{
+    if(num < 0 || num > 3)
+        make_tuple(-1, false);
+    return make_tuple(paddle_values[num], paddle_buttons[num]);
+}
+
 static void CheckOpenGL(const char *filename, int line)
 {
     int glerr;
@@ -481,6 +491,7 @@ struct widget
     virtual tuple<float, float> get_min_dimensions() const = 0;
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) = 0;
     virtual bool click(double now, float x, float y) = 0;
+    virtual void hover(double now, float x, float y) = 0;
     virtual void drag(double now, float x, float y) = 0;
     virtual void release(double now, float x, float y) = 0;
 };
@@ -498,6 +509,7 @@ struct spacer : public widget
     }
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) {}
     virtual bool click(double now, float x, float y) { return false; }
+    virtual void hover(double now, float x, float y) {}
     virtual void drag(double now, float x, float y) {}
     virtual void release(double now, float x, float y) {}
 };
@@ -533,9 +545,13 @@ struct centering : public widget
     {
         return child->click(now, x - (w - cw) / 2, y - (h - ch) / 2); // XXX should limit to cw,ch too
     }
+    virtual void hover(double now, float x, float y)
+    {
+        child->hover(now, x - (w - cw) / 2, y - (h - ch) / 2);
+    }
     virtual void drag(double now, float x, float y)
     {
-        child->click(now, x - (w - cw) / 2, y - (h - ch) / 2);
+        child->drag(now, x - (w - cw) / 2, y - (h - ch) / 2);
     }
     virtual void release(double now, float x, float y)
     {
@@ -605,6 +621,14 @@ struct widgetbox : public widget
         }
         return false;
     }
+    virtual void hover(double now, float x, float y)
+    {
+        for(auto it = children.begin(); it != children.end(); it++) {
+            placed_widget& child = *it;
+            if(x >= child.x && x < child.x + child.w && y >= child.y && y < child.y + child.h)
+                child.widg->hover(now, x - child.x, y - child.y);
+        }
+    }
     virtual void drag(double now, float x, float y)
     {
         focus.widg->click(now, x - focus.x, y - focus.y);
@@ -626,6 +650,8 @@ void set(float v[4], float x, float y, float z, float w)
 
 struct apple2screen : public widget
 {
+    float w, h;
+    float x, y;
     apple2screen() { }
 
     virtual tuple<float, float> get_min_dimensions() const
@@ -633,8 +659,12 @@ struct apple2screen : public widget
         return make_tuple(280, 192);
     }
 
-    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
+    virtual void draw(double now, float to_screen[9], float x_, float y_, float w_, float h_)
     {
+        x = x_;
+        y = y_;
+        w = w_;
+        h = h_;
         long long elapsed_millis = now * 1000;
         set_shader(to_screen, display_mode, false, (elapsed_millis / 300) % 2, x, y);
 
@@ -656,14 +686,25 @@ struct apple2screen : public widget
         float w, h;
         tie(w, h) = get_min_dimensions();
         if(x >= 0 && y >= 0 & x < w && y < h) {
+            paddle_buttons[0] = true;
             return true;
+            // XXX paddle button 1
         }
         return false;
     }
 
     virtual void drag(double now, float x, float y) { }
 
-    virtual void release(double now, float x, float y) { }
+    virtual void hover(double now, float x_, float y_)
+    {
+        paddle_values[0] = max(0.0f, min(1.0f, x_ / w));
+        paddle_values[1] = max(0.0f, min(1.0f, y_ / h));
+    }
+
+    virtual void release(double now, float x, float y)
+    {
+        paddle_buttons[0] = false;
+    }
 };
 
 struct text_widget : public widget
@@ -725,6 +766,8 @@ struct text_widget : public widget
 
     virtual void drag(double now, float x, float y) { }
 
+    virtual void hover(double now, float x, float y) { }
+
     virtual void release(double now, float x, float y) { }
 };
 
@@ -770,6 +813,8 @@ struct momentary : public text_widget
         }
         return false;
     }
+
+    virtual void hover(double now, float x, float y) {}
 
     virtual void drag(double now, float x, float y)
     {
@@ -847,6 +892,8 @@ struct toggle : public text_widget
         }
         return false;
     }
+
+    virtual void hover(double now, float x, float y) { }
 
     virtual void drag(double now, float x, float y)
     {
@@ -1086,12 +1133,15 @@ static void motion(GLFWwindow *window, double x, double y)
     gOldMouseX = x;
     gOldMouseY = y;
 
+    float wx, wy;
+    tie(wx, wy) = window_to_widget(x, y);
+
     if(gButtonPressed == 1) {
         if(widget_clicked) {
-            float wx, wy;
-            tie(wx, wy) = window_to_widget(x, y);
             widget_clicked->drag(0.0, wx, wy);
         }
+    } else {
+        ui->hover(0.0, wx, wy);
     }
     redraw(window);
 }
