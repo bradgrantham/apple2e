@@ -31,6 +31,8 @@ DisplayMode display_mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
 bool mixed_mode = false;
 
+bool use_joystick = false;
+
 extern int font_offset;
 extern unsigned char font_bytes[96 * 7 * 8];
 
@@ -686,7 +688,8 @@ struct apple2screen : public widget
         float w, h;
         tie(w, h) = get_min_dimensions();
         if(x >= 0 && y >= 0 & x < w && y < h) {
-            paddle_buttons[0] = true;
+            if(!use_joystick)
+                paddle_buttons[0] = true;
             return true;
             // XXX paddle button 1
         }
@@ -697,13 +700,17 @@ struct apple2screen : public widget
 
     virtual void hover(double now, float x_, float y_)
     {
-        paddle_values[0] = max(0.0f, min(1.0f, x_ / w));
-        paddle_values[1] = max(0.0f, min(1.0f, y_ / h));
+        if(!use_joystick) {
+            paddle_values[0] = max(0.0f, min(1.0f, x_ / w));
+            paddle_values[1] = max(0.0f, min(1.0f, y_ / h));
+        }
     }
 
     virtual void release(double now, float x, float y)
     {
-        paddle_buttons[0] = false;
+        if(!use_joystick) {
+            paddle_buttons[0] = false;
+        }
     }
 };
 
@@ -1152,6 +1159,12 @@ static void scroll(GLFWwindow *window, double dx, double dy)
 
 const int pixel_scale = 3;
 
+void joystick(int num, int event)
+{
+    if(event == GLFW_CONNECTED)
+        printf("joystick %d connected\n", num);
+}
+
 void start()
 {
     glfwSetErrorCallback(error_callback);
@@ -1189,6 +1202,7 @@ void start()
     glfwSetScrollCallback(my_window, scroll);
     glfwSetFramebufferSizeCallback(my_window, resize);
     glfwSetWindowRefreshCallback(my_window, redraw);
+    glfwSetJoystickCallback(joystick);
     CheckOpenGL(__FILE__, __LINE__);
 }
 
@@ -1204,6 +1218,29 @@ void iterate()
     CheckOpenGL(__FILE__, __LINE__);
     glfwSwapBuffers(my_window);
     CheckOpenGL(__FILE__, __LINE__);
+
+    if(glfwJoystickPresent(GLFW_JOYSTICK_1)) {
+        if(false) printf("joystick 1 present\n");
+        use_joystick = true;
+        int count;
+        const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &count);
+        if(false) for(int i = 0; i < count; i++)
+            printf("Axis %d: %f\n", i, axes[i]);
+        if(count >= 4) {
+            paddle_values[0] = (axes[3] + 1) / 2;
+            paddle_values[1] = (axes[4] + 1) / 2;
+        }
+        const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &count);
+        if(false)for(int i = 0; i < count; i++)
+            printf("Button %d: %s\n", i, (buttons[i] == GLFW_PRESS) ? "pressed" : "not pressed");
+        if(count >= 12) {
+            paddle_buttons[0] = buttons[12] == GLFW_PRESS;
+            paddle_buttons[1] = buttons[11] == GLFW_PRESS;
+        }
+    } else {
+        use_joystick = false;
+    }
+
 
     glfwPollEvents();
 }
