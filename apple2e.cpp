@@ -37,6 +37,8 @@ volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
+const float paddle_max_pulse_seconds = .00282;
+
 typedef unsigned long long clk_t;
 struct system_clock
 {
@@ -573,11 +575,15 @@ struct MAINboard : board_base
     display_write_func display_write;
     typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
     audio_flush_func audio_flush;
-    MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_) :
+    typedef std::function<tuple<float, bool> (int num)> get_paddle_func;
+    get_paddle_func get_paddle;
+    clk_t paddles_clock_out[4];
+    MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_, get_paddle_func get_paddle_) :
         clk(clk_),
         internal_C800_ROM_selected(true),
         display_write(display_write_),
-        audio_flush(audio_flush_)
+        audio_flush(audio_flush_),
+        get_paddle(get_paddle_)
     {
         std::copy(rom_image + rom_D000.base - 0x8000, rom_image + rom_D000.base - 0x8000 + rom_D000.size, rom_D000.memory.begin());
         std::copy(rom_image + rom_E000.base - 0x8000, rom_image + rom_E000.base - 0x8000 + rom_E000.size, rom_E000.memory.begin());
@@ -657,11 +663,6 @@ struct MAINboard : board_base
                     return true;
                 }
             }
-            if(ignore_mmio.find(addr) != ignore_mmio.end()) {
-                if(debug & DEBUG_RW) printf("read %04X, ignored, return 0x00\n", addr);
-                data = 0x00;
-                return true;
-            }
             if((addr & 0xFFF0) == 0xC080) {
                 C08X_bank = ((addr >> 3) & 1) ? BANK1 : BANK2;
                 C08X_write_RAM = addr & 1;
@@ -670,19 +671,16 @@ struct MAINboard : board_base
                 if(debug & DEBUG_SWITCH) printf("write %04X switch, %s, %d write_RAM, %d read_RAM\n", addr, (C08X_bank == BANK1) ? "BANK1" : "BANK2", C08X_write_RAM, C08X_read_RAM);
                 data = 0x00;
                 return true;
-            }
-            if(addr == 0xC011) {
+            } else if(addr == 0xC011) {
                 data = (C08X_bank == BANK2) ? 0x80 : 0x0;
                 data = 0x00;
                 if(debug & DEBUG_SWITCH) printf("read BSRBANK2, return 0x%02X\n", data);
                 return true;
-            }
-            if(addr == 0xC012) {
+            } else if(addr == 0xC012) {
                 data = C08X_read_RAM ? 0x80 : 0x0;
                 if(debug & DEBUG_SWITCH) printf("read BSRREADRAM, return 0x%02X\n", data);
                 return true;
-            }
-            if(addr == 0xC000) {
+            } else if(addr == 0xC000) {
                 if(!keyboard_buffer.empty()) {
                     data = 0x80 | keyboard_buffer[0];
                 } else {
@@ -690,22 +688,49 @@ struct MAINboard : board_base
                 }
                 if(debug & DEBUG_RW) printf("read KBD, return 0x%02X\n", data);
                 return true;
-            }
-            if(addr == 0xC030) {
+            } else if(addr == 0xC020) {
+                if(debug & DEBUG_RW) printf("read TAPE, force 0x00\n");
+                data = 0x00;
+                return true;
+            } else if(addr == 0xC030) {
                 if(debug & DEBUG_RW) printf("read SPKR, force 0x00\n");
 
                 fill_flush_audio();
                 data = 0x00;
                 speaker_energized = !speaker_energized;
                 return true;
-            }
-            if(addr == 0xC010) {
+            } else if(addr == 0xC010) {
                 // reset keyboard latch
                 if(!keyboard_buffer.empty()) {
                     keyboard_buffer.pop_front();
                 }
                 data = 0x0;
                 if(debug & DEBUG_RW) printf("read KBDSTRB, return 0x%02X\n", data);
+                return true;
+            } else if(addr == 0xC070) {
+                for(int i = 0; i < 4; i++) {
+                    float value;
+                    bool button;
+                    tie(value, button) = get_paddle(i);
+                    paddles_clock_out[i] = clk + value * paddle_max_pulse_seconds * machine_clock_rate;
+                }
+                data = 0x0;
+                return true;
+            } else if(addr >= 0xC064 && addr <= 0xC067) {
+                int num = addr - 0xC064;
+                data = (clk < paddles_clock_out[num]) ? 0xff : 0x00; 
+                return true;
+            } else if(addr >= 0xC061 && addr <= 0xC063) {
+                int num = addr - 0xC061;
+                float value;
+                bool button;
+                tie(value, button) = get_paddle(num);
+                data = button ? 0xff : 0x0;
+                return true;
+            }
+            if(ignore_mmio.find(addr) != ignore_mmio.end()) {
+                if(debug & DEBUG_RW) printf("read %04X, ignored, return 0x00\n", addr);
+                data = 0x00;
                 return true;
             }
             printf("unhandled MMIO Read at %04X\n", addr);
@@ -782,6 +807,15 @@ struct MAINboard : board_base
                     return true;
                 }
             }
+            if((addr & 0xFFF0) == 0xC080) {
+                C08X_bank = ((addr >> 3) & 1) ? BANK1 : BANK2;
+                C08X_write_RAM = addr & 1;
+                int read_ROM = ((addr >> 1) & 1) ^ C08X_write_RAM;
+                C08X_read_RAM = !read_ROM;
+                if(debug & DEBUG_SWITCH) printf("write %04X switch, %s, %d write_RAM, %d read_RAM\n", addr, (C08X_bank == BANK1) ? "BANK1" : "BANK2", C08X_write_RAM, C08X_read_RAM);
+                data = 0x00;
+                return true;
+            }
             if(addr == 0xC010) {
                 if(debug & DEBUG_RW) printf("write KBDSTRB\n");
                 if(!keyboard_buffer.empty()) {
@@ -792,7 +826,9 @@ struct MAINboard : board_base
             }
             if(addr == 0xC030) {
                 if(debug & DEBUG_RW) printf("write SPKR\n");
-                // click
+                fill_flush_audio();
+                data = 0x00;
+                speaker_energized = !speaker_energized;
                 return true;
             }
             printf("unhandled MMIO Write at %04X\n", addr);
@@ -865,6 +901,24 @@ void write6502(uint16_t address, uint8_t value)
 }
 
 };
+
+bool sbc_overflow_d(unsigned char a, unsigned char b, int borrow)
+{ 
+    // ??
+    signed char a_ = a; 
+    signed char b_ = b;
+    signed short c = a_ - (b_ + borrow);
+    return (c < 0) || (c > 99);
+}
+
+bool adc_overflow_d(unsigned char a, unsigned char b, int carry)
+{ 
+    // ??
+    signed char a_ = a;
+    signed char b_ = b;
+    signed short c = a_ + b_ + carry;
+    return (c < 0) || (c > 99);
+}
 
 bool sbc_overflow(unsigned char a, unsigned char b, int borrow)
 {
@@ -979,7 +1033,7 @@ struct CPU6502
         2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
         6, 6, -1, -1, -1, 3, 5, -1, 4, 2, 2, -1, 5, 4, 6, -1,
         2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
-        -1, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
+        2, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
         2, 6, -1, -1, 4, 4, 4, -1, 2, 5, 2, -1, -1, 5, -1, -1,
         2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, -1,
         2, 5, -1, -1, 4, 4, 4, -1, 2, 4, 2, -1, 4, 4, 4, -1,
@@ -1066,6 +1120,11 @@ struct CPU6502
                 break;
             }
 
+            case 0x80: { // NOP imm (Choplifter?)
+                read_pc_inc(bus);
+                break;
+            }
+
             case 0x8A: { // TXA
                 set_flags(N | Z, a = x);
                 break;
@@ -1082,7 +1141,7 @@ struct CPU6502
             }
 
             case 0x9A: { // TXS
-                set_flags(N | Z, s = x);
+                s = x;
                 break;
             }
 
@@ -1103,6 +1162,11 @@ struct CPU6502
 
             case 0x38: { // SEC
                 flag_set(C);
+                break;
+            }
+
+            case 0xF8: { // SED
+                flag_set(D);
                 break;
             }
 
@@ -1133,6 +1197,13 @@ struct CPU6502
                 break;
             }
 
+            case 0xDE: { // DEC abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                set_flags(N | Z, m = bus.read(addr) - 1);
+                bus.write(addr, m);
+                break;
+            }
+
             case 0xCE: { // DEC abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, m = bus.read(addr) - 1);
@@ -1142,6 +1213,15 @@ struct CPU6502
 
             case 0xCA: { // DEX
                 set_flags(N | Z, x = x - 1);
+                break;
+            }
+
+            case 0xFE: { // INC abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                if((addr - x) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, m = bus.read(addr) + 1);
+                bus.write(addr, m);
                 break;
             }
 
@@ -1342,9 +1422,17 @@ struct CPU6502
                 unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1352,9 +1440,17 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1365,9 +1461,17 @@ struct CPU6502
                     clk++;
                 m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1377,9 +1481,17 @@ struct CPU6502
                     clk++;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1389,9 +1501,17 @@ struct CPU6502
                     clk++;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
@@ -1399,18 +1519,55 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
                 break;
             }
 
             case 0xE9: { // SBC imm
                 unsigned char m = read_pc_inc(bus);
                 int borrow = isset(C) ? 0 : 1;
-                flag_change(C, !(a < (m + borrow)));
-                flag_change(V, sbc_overflow(a, m, borrow));
-                set_flags(N | Z, a = a - (m + borrow));
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, !(bcd <  m + borrow));
+                    flag_change(V, sbc_overflow_d(bcd, m, borrow));
+                    set_flags(N | Z, bcd = bcd - (m + borrow));
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, !(a < (m + borrow)));
+                    flag_change(V, sbc_overflow(a, m, borrow));
+                    set_flags(N | Z, a = a - (m + borrow));
+                }
+                break;
+            }
+
+            case 0x71: { // ADC (ind), Y
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
+                m = bus.read(addr);
+                int carry = isset(C) ? 1 : 0;
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1418,9 +1575,17 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1428,9 +1593,37 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
+                break;
+            }
+
+            case 0x7D: { // ADC abs, X
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                if((addr - x) / 256 != addr / 256)
+                    clk++;
+                m = bus.read(addr);
+                int carry = isset(C) ? 1 : 0;
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1440,18 +1633,34 @@ struct CPU6502
                     clk++;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
             case 0x69: { // ADC
                 m = read_pc_inc(bus);
                 int carry = isset(C) ? 1 : 0;
-                flag_change(C, (int)(a + m + carry) > 0xFF);
-                flag_change(V, adc_overflow(a, m, carry));
-                set_flags(N | Z, a = a + m + carry);
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
                 break;
             }
 
@@ -1586,6 +1795,29 @@ struct CPU6502
                 break;
             }
 
+            case 0x35: { // AND zpg, X
+                int zpg = (read_pc_inc(bus) + x) & 0xFF;
+                set_flags(N | Z, a = a & bus.read(zpg));
+                break;
+            }
+
+            case 0x31: { // AND (ind), y
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                if((addr - y) / 256 != addr / 256)
+                    clk++;
+                set_flags(N | Z, a = a & bus.read(addr));
+                break;
+            }
+
+            case 0x3D: { // AND abs, x
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                set_flags(N | Z, a = a & bus.read(addr + x));
+                if((addr + x) / 256 != addr / 256)
+                    clk++;
+                break;
+            }
+
             case 0x39: { // AND abs, y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = a & bus.read(addr + y));
@@ -1628,6 +1860,16 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, a & 0x01);
                 set_flags(N | Z, a = (c ? 0x80 : 0x00) | (a >> 1));
+                break;
+            }
+
+            case 0x6E: { // ROR abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr);
+                bool c = isset(C);
+                flag_change(C, m & 0x01);
+                set_flags(N | Z, m = (c ? 0x80 : 0x00) | (m >> 1));
+                bus.write(addr, m);
                 break;
             }
 
@@ -2043,19 +2285,37 @@ void cleanup(void)
     fflush(stderr);
 }
 
-bool use_fake6502 = true;
+bool use_fake6502 = false;
 
-string read_bus_and_disassemble(bus_frontend &bus, int pc)
+struct saved_inst {
+    int pc;
+    unsigned char bytes[4];
+};
+
+void disassemble_previous_instructions(deque<saved_inst>& previous_instructions)
 {
-    int bytes;
-    string dis;
-    unsigned char buf[4];
-    buf[0] = bus.read(pc + 0);
-    buf[1] = bus.read(pc + 1);
-    buf[2] = bus.read(pc + 2);
-    buf[3] = bus.read(pc + 3);
-    tie(bytes, dis) = disassemble_6502(pc - 1, buf);
-    return dis;
+    for(auto it : previous_instructions) {
+        int bytes;
+        string dis;
+        tie(bytes, dis) = disassemble_6502(it.pc, it.bytes);
+        printf("%s\n", dis.c_str());
+    }
+}
+
+const int max_previous_instructions = 100;
+
+void read_instruction_and_save(bus_frontend &bus, int pc, deque<saved_inst>& previous_instructions)
+{
+    saved_inst inst;
+
+    inst.pc = pc;
+    inst.bytes[0] = bus.read(pc + 0);
+    inst.bytes[1] = bus.read(pc + 1);
+    inst.bytes[2] = bus.read(pc + 2);
+    inst.bytes[3] = bus.read(pc + 3);
+    if(previous_instructions.size() > max_previous_instructions)
+        previous_instructions.pop_front();
+    previous_instructions.push_back(inst);
 }
 
 void print_bus_accesses(const map<int, vector<unsigned char> >& accesses)
@@ -2069,7 +2329,7 @@ void print_bus_accesses(const map<int, vector<unsigned char> >& accesses)
     }
 }
 
-void check_cpus(CPU6502& cpu, bus_frontend &bus1, bus_frontend &bus2, deque<string> previous_instructions)
+void check_cpus(CPU6502& cpu, bus_frontend &bus1, bus_frontend &bus2, deque<saved_inst> previous_instructions)
 {
     uint16_t registers[6];
     get_registers(registers);
@@ -2091,8 +2351,12 @@ void check_cpus(CPU6502& cpu, bus_frontend &bus1, bus_frontend &bus2, deque<stri
 
     stop_keyboard();
 
-    for(auto it = previous_instructions.begin(); it != previous_instructions.end(); it++)
-        cout << *it << endl;
+    for(auto it : previous_instructions) {
+        int bytes;
+        string dis;
+        tie(bytes, dis) = disassemble_6502(it.pc, it.bytes);
+        cout << dis << endl;
+    }
 
     cout << "bus1 reads" << endl;
     print_bus_accesses(bus1.reads);
@@ -2210,7 +2474,7 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, MAINboard *boa
 {
     static bool shift_down = false;
     static bool control_down = false;
-    // skip CAPS for now
+    static bool caps_down = false;
 
     while(APPLE2Einterface::event_waiting()) {
         APPLE2Einterface::event e = APPLE2Einterface::dequeue_event();
@@ -2229,7 +2493,9 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, MAINboard *boa
                 shift_down = true;
             else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = true;
-            else if(e.value == APPLE2Einterface::ENTER) {
+            else if(e.value == APPLE2Einterface::CAPS_LOCK) {
+                caps_down = true;
+            } else if(e.value == APPLE2Einterface::ENTER) {
                 board->enqueue_key(141 - 128);
                 board2->enqueue_key(141 - 128);
             } else if(e.value == APPLE2Einterface::TAB) {
@@ -2257,18 +2523,27 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, MAINboard *boa
                 auto it = interface_key_to_apple2e.find(e.value);
                 if(it != interface_key_to_apple2e.end()) {
                     const key_to_ascii& k = (*it).second;
-                    if(!shift_down && !control_down) {
-                        board->enqueue_key(k.no_shift_no_control);
-                        board2->enqueue_key(k.no_shift_no_control);
-                    } else if(shift_down && !control_down) {
-                        board->enqueue_key(k.yes_shift_no_control);
-                        board2->enqueue_key(k.yes_shift_no_control);
-                    } else if(!shift_down && control_down) {
-                        board->enqueue_key(k.no_shift_yes_control);
-                        board2->enqueue_key(k.no_shift_yes_control);
-                    } else if(shift_down && control_down) {
-                        board->enqueue_key(k.yes_shift_yes_control);
-                        board2->enqueue_key(k.yes_shift_yes_control);
+                    if(!shift_down) {
+                        if(!control_down) {
+                            if(caps_down && (e.value >= 'A') && (e.value <= 'Z')) {
+                                board->enqueue_key(k.yes_shift_no_control);
+                                board2->enqueue_key(k.yes_shift_no_control);
+                            } else {
+                                board->enqueue_key(k.no_shift_no_control);
+                                board2->enqueue_key(k.no_shift_no_control);
+                            }
+                        } else {
+                            board->enqueue_key(k.no_shift_yes_control);
+                            board2->enqueue_key(k.no_shift_yes_control);
+                        }
+                    } else {
+                        if(!control_down) {
+                            board->enqueue_key(k.yes_shift_no_control);
+                            board2->enqueue_key(k.yes_shift_no_control);
+                        } else {
+                            board->enqueue_key(k.yes_shift_yes_control);
+                            board2->enqueue_key(k.yes_shift_yes_control);
+                        }
                     }
                 }
             }
@@ -2277,6 +2552,9 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, MAINboard *boa
                 shift_down = false;
             else if((e.value == APPLE2Einterface::LEFT_CONTROL) || (e.value == APPLE2Einterface::RIGHT_CONTROL))
                 control_down = false;
+            else if(e.value == APPLE2Einterface::CAPS_LOCK) {
+                caps_down = false;
+            }
         } if(e.type == APPLE2Einterface::RESET) {
             bus.reset();
             cpu.reset(bus);
@@ -2405,23 +2683,23 @@ int main(int argc, char **argv)
 
     MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
     MAINboard::audio_flush_func audio;
+    MAINboard::get_paddle_func paddle = [](int num)->tuple<float, bool>{return APPLE2Einterface::get_paddle(num);};
     if(have_audio)
         audio = [aodev](char *buf, size_t sz){
-            static char prev_sample;
-            for(int i = 0; i < sz; i++)
-                if(buf[i] != prev_sample) {
-                    ao_play(aodev, buf, sz);
-                    break;
-                }
-            prev_sample = buf[sz - 1];
+            // static char prev_sample;
+            // for(int i = 0; i < sz; i++)
+                // if(buf[i] != prev_sample) {
+                    if(!run_fast) ao_play(aodev, buf, sz);
+                    // break;
+                // }
+            // prev_sample = buf[sz - 1];
         };
     else
         audio = [](char *buf, size_t sz){};
-
-    mainboard = new MAINboard(clk, b, display, audio);
+    mainboard = new MAINboard(clk, b, display, audio, paddle);
     bus.board = mainboard;
 
-    mainboard_check = new MAINboard(clk, b, [](int addr, unsigned char data)->bool{return true;}, [](char *buf, size_t sz){});
+    mainboard_check = new MAINboard(clk, b, [](int addr, unsigned char data)->bool{return true;}, [](char *buf, size_t sz){}, paddle);
     bus_check.board = mainboard_check;
 
     if(diskII_rom_name != NULL) {
@@ -2460,9 +2738,12 @@ int main(int argc, char **argv)
 
     reset6502();
 
-    deque<string> previous_instructions;
+    deque<saved_inst> previous_instructions;
+    deque<saved_inst> previous_instructions2;
 
     APPLE2Einterface::start();
+
+    chrono::time_point<chrono::system_clock> then = std::chrono::system_clock::now();
 
     while(1) {
         if(!debugging) {
@@ -2489,25 +2770,26 @@ int main(int argc, char **argv)
                 }
             }
 
-            chrono::time_point<chrono::system_clock> then;
             int clocks_per_slice;
             if(pause_cpu)
                 clocks_per_slice = 0;
             else {
                 if(run_fast)
-                    clocks_per_slice = machine_clock_rate; 
+                    clocks_per_slice = machine_clock_rate / 5; 
                 else
-                    clocks_per_slice = millis_per_slice * machine_clock_rate / 1000;
+                    clocks_per_slice = millis_per_slice * machine_clock_rate / 1000 * 1.05;
             }
             clk_t prev_clock = clk;
             while(clk - prev_clock < clocks_per_slice) {
-                string dis = read_bus_and_disassemble(bus, cpu.pc);
-                read_bus_and_disassemble(bus_check, cpu.pc);
-                previous_instructions.push_back(dis);
-                if(previous_instructions.size() > 100)
-                    previous_instructions.pop_front();
-                if(debug & DEBUG_DECODE)
+                read_instruction_and_save(bus, cpu.pc, previous_instructions);
+                read_instruction_and_save(bus_check, cpu.pc, previous_instructions2);
+                if(debug & DEBUG_DECODE) {
+                    int bytes;
+                    string dis;
+                    saved_inst& inst = previous_instructions.back();
+                    tie(bytes, dis) = disassemble_6502(inst.pc, inst.bytes);
                     printf("%s\n", dis.c_str());
+                }
                 step6502();
                 cpu.cycle(bus);
                 check_cpus(cpu, bus, bus_check, previous_instructions);
@@ -2517,11 +2799,13 @@ int main(int argc, char **argv)
             int page = mainboard->PAGE2 ? 1 : 0;
             APPLE2Einterface::set_switches(mode, mainboard->MIXED, page);
             APPLE2Einterface::iterate();
-            chrono::time_point<chrono::system_clock> now;
+            chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
             if(!run_fast || pause_cpu)
                 this_thread::sleep_for(chrono::milliseconds(millis_per_slice) - elapsed_millis);
+
+            then = now;
             
         } else {
 
@@ -2564,13 +2848,15 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            string dis = read_bus_and_disassemble(bus, cpu.pc);
-            read_bus_and_disassemble(bus_check, cpu.pc);
-            previous_instructions.push_back(dis);
-            if(previous_instructions.size() > 100)
-                previous_instructions.pop_front();
-            if(debug & DEBUG_DECODE)
+            read_instruction_and_save(bus, cpu.pc, previous_instructions);
+            read_instruction_and_save(bus_check, cpu.pc, previous_instructions2);
+            if(debug & DEBUG_DECODE) {
+                int bytes;
+                string dis;
+                saved_inst& inst = previous_instructions.back();
+                tie(bytes, dis) = disassemble_6502(inst.pc, inst.bytes);
                 printf("%s\n", dis.c_str());
+            }
             
             step6502();
             cpu.cycle(bus);

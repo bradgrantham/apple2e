@@ -47,7 +47,7 @@ static int gButtonPressed = -1;
 
 deque<event> event_queue;
 
-bool force_caps_on = false; // XXX implement!
+bool force_caps_on = true;
 bool draw_using_color = false; // XXX implement!
 
 bool event_waiting()
@@ -96,6 +96,16 @@ const int hires_h = 192;
 GLuint hires_to_screen_location;
 GLuint hires_x_offset_location;
 GLuint hires_y_offset_location;
+
+float paddle_values[4] = {0, 0, 0, 0};
+bool paddle_buttons[4] = {false, false, false, false};
+
+tuple<float,bool> get_paddle(int num)
+{
+    if(num < 0 || num > 3)
+        make_tuple(-1, false);
+    return make_tuple(paddle_values[num], paddle_buttons[num]);
+}
 
 static void CheckOpenGL(const char *filename, int line)
 {
@@ -479,75 +489,153 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
 struct widget
 {
     virtual tuple<float, float> get_min_dimensions() const = 0;
-    virtual void draw(double now, float to_screen[9], float x, float y) = 0;
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) = 0;
     virtual bool click(double now, float x, float y) = 0;
+    virtual void hover(double now, float x, float y) = 0;
     virtual void drag(double now, float x, float y) = 0;
     virtual void release(double now, float x, float y) = 0;
 };
 
-struct placed_widget
+struct spacer : public widget
 {
-    widget *w;
-    float x, y;
+    float w, h;
+    spacer(float w_, float h_) :
+        w(w_),
+        h(h_)
+    {}
+    virtual tuple<float, float> get_min_dimensions() const 
+    {
+        return make_tuple(w, h);
+    }
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) {}
+    virtual bool click(double now, float x, float y) { return false; }
+    virtual void hover(double now, float x, float y) {}
+    virtual void drag(double now, float x, float y) {}
+    virtual void release(double now, float x, float y) {}
 };
 
-struct vbox : public widget
+struct placed_widget
 {
+    widget *widg;
+    float x, y, w, h;
+};
+
+struct centering : public widget
+{
+    float w, h;
+    float cw, ch;
+    widget* child;
+
+    centering(widget* child_) : child(child_)
+    {
+        tie(cw, ch) = child->get_min_dimensions();
+    }
+
+    virtual tuple<float, float> get_min_dimensions() const
+    {
+        return make_tuple(cw, ch);
+    }
+    virtual void draw(double now, float to_screen[9], float x, float y, float w_, float h_)
+    {
+        w = w_;
+        h = h_;
+        child->draw(now, to_screen, x + (w - cw) / 2, y + (h - ch) / 2, cw, ch);
+    }
+    virtual bool click(double now, float x, float y)
+    {
+        return child->click(now, x - (w - cw) / 2, y - (h - ch) / 2); // XXX should limit to cw,ch too
+    }
+    virtual void hover(double now, float x, float y)
+    {
+        child->hover(now, x - (w - cw) / 2, y - (h - ch) / 2);
+    }
+    virtual void drag(double now, float x, float y)
+    {
+        child->drag(now, x - (w - cw) / 2, y - (h - ch) / 2);
+    }
+    virtual void release(double now, float x, float y)
+    {
+        child->release(now, x - (w - cw) / 2, y - (h - ch) / 2);
+    }
+};
+
+struct widgetbox : public widget
+{
+    enum Direction {VERTICAL, HORIZONTAL} dir;
     float w, h;
     vector<placed_widget> children;
     placed_widget focus;
 
-    vbox(vector<widget*> children_) :
+    widgetbox(Direction dir_, vector<widget*> children_) :
+        dir(dir_),
         w(0),
         h(0),
-        focus({nullptr, 0, 0})
+        focus({nullptr, 0, 0, 0, 0})
     {
         for(auto it = children_.begin(); it != children_.end(); it++) {
             widget *child = *it;
             float cw, ch;
             tie(cw, ch) = child->get_min_dimensions();
-            h += ch;
-            w = std::max(w, cw);
+            if(dir == HORIZONTAL) {
+                w += cw;
+                h = std::max(h, ch);
+            } else {
+                w = std::max(w, cw);
+                h += ch;
+            }
         }
+        float x = 0;
         float y = 0;
         for(auto it = children_.begin(); it != children_.end(); it++) {
             widget *child = *it;
             float cw, ch;
             tie(cw, ch) = child->get_min_dimensions();
-            float x = (w - cw) / 2;
-            children.push_back({child, x, y});
-            y += ch;
+            if(dir == HORIZONTAL) {
+                children.push_back({child, x, y, cw, h});
+                x += cw;
+            } else {
+                children.push_back({child, x, y, w, ch});
+                y += ch;
+            }
         }
     }
     virtual tuple<float, float> get_min_dimensions() const
     {
         return make_tuple(w, h);
     }
-    virtual void draw(double now, float to_screen[9], float x, float y)
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
         for(auto it = children.begin(); it != children.end(); it++) {
             placed_widget& child = *it;
-            child.w->draw(now, to_screen, x + child.x, y + child.y);
+            child.widg->draw(now, to_screen, x + child.x, y + child.y, child.w, child.h);
         }
     }
     virtual bool click(double now, float x, float y)
     {
         for(auto it = children.begin(); it != children.end(); it++) {
             placed_widget& child = *it;
-            if(child.w->click(now, x - child.x, y - child.y)) {
+            if(child.widg->click(now, x - child.x, y - child.y)) {
                 focus = child;
                 return true;
             }
         }
         return false;
     }
+    virtual void hover(double now, float x, float y)
+    {
+        for(auto it = children.begin(); it != children.end(); it++) {
+            placed_widget& child = *it;
+            if(x >= child.x && x < child.x + child.w && y >= child.y && y < child.y + child.h)
+                child.widg->hover(now, x - child.x, y - child.y);
+        }
+    }
     virtual void drag(double now, float x, float y)
     {
-        focus.w->click(now, x - focus.x, y - focus.y);
+        focus.widg->click(now, x - focus.x, y - focus.y);
     }
     virtual void release(double now, float x, float y)
     {
-        focus.w->release(now, x - focus.x, y - focus.y);
+        focus.widg->release(now, x - focus.x, y - focus.y);
         focus = {nullptr, 0, 0};
     }
 };
@@ -559,6 +647,65 @@ void set(float v[4], float x, float y, float z, float w)
     v[2] = z;
     v[3] = w;
 }
+
+struct apple2screen : public widget
+{
+    float w, h;
+    float x, y;
+    apple2screen() { }
+
+    virtual tuple<float, float> get_min_dimensions() const
+    {
+        return make_tuple(280, 192);
+    }
+
+    virtual void draw(double now, float to_screen[9], float x_, float y_, float w_, float h_)
+    {
+        x = x_;
+        y = y_;
+        w = w_;
+        h = h_;
+        long long elapsed_millis = now * 1000;
+        set_shader(to_screen, display_mode, false, (elapsed_millis / 300) % 2, x, y);
+
+        glBindVertexArray(upper_screen_area);
+        CheckOpenGL(__FILE__, __LINE__);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        CheckOpenGL(__FILE__, __LINE__);
+
+        set_shader(to_screen, display_mode, mixed_mode, (elapsed_millis / 300) % 2, x, y);
+
+        glBindVertexArray(lower_screen_area);
+        CheckOpenGL(__FILE__, __LINE__);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        CheckOpenGL(__FILE__, __LINE__);
+    }
+
+    virtual bool click(double now, float x, float y)
+    {
+        float w, h;
+        tie(w, h) = get_min_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            paddle_buttons[0] = true;
+            return true;
+            // XXX paddle button 1
+        }
+        return false;
+    }
+
+    virtual void drag(double now, float x, float y) { }
+
+    virtual void hover(double now, float x_, float y_)
+    {
+        paddle_values[0] = max(0.0f, min(1.0f, x_ / w));
+        paddle_values[1] = max(0.0f, min(1.0f, y_ / h));
+    }
+
+    virtual void release(double now, float x, float y)
+    {
+        paddle_buttons[0] = false;
+    }
+};
 
 struct text_widget : public widget
 {
@@ -598,9 +745,9 @@ struct text_widget : public widget
         return make_tuple(content.size() * 7, 8);
     }
 
-    virtual void draw(double now, float to_screen[9], float x, float y)
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
-        set_textport_shader(to_screen, string_texture, 0, x + 3, y + 3, fg, bg);
+        set_textport_shader(to_screen, string_texture, 0, x, y, fg, bg);
 
         glBindVertexArray(rectangle);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -618,6 +765,8 @@ struct text_widget : public widget
     }
 
     virtual void drag(double now, float x, float y) { }
+
+    virtual void hover(double now, float x, float y) { }
 
     virtual void release(double now, float x, float y) { }
 };
@@ -643,13 +792,13 @@ struct momentary : public text_widget
         return make_tuple(w + 3 * 2, h + 3 * 2);
     }
 
-    virtual void draw(double now, float to_screen[9], float x, float y)
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
         // draw lines 2 pixels around
         // draw lines 1 pixels around
         // blank area 0 pixels around
 
-        text_widget::draw(now, to_screen, x, y);
+        text_widget::draw(now, to_screen, x + 3, y + 3, w - 6, h - 6);
     }
 
     virtual bool click(double now, float x, float y)
@@ -664,6 +813,8 @@ struct momentary : public text_widget
         }
         return false;
     }
+
+    virtual void hover(double now, float x, float y) {}
 
     virtual void drag(double now, float x, float y)
     {
@@ -694,14 +845,19 @@ struct toggle : public text_widget
     std::function<void()> action_on;
     std::function<void()> action_off;
 
-    toggle(const string& content_, std::function<void()> action_on_, std::function<void()> action_off_) :
+    toggle(const string& content_, bool initial_state, std::function<void()> action_on_, std::function<void()> action_off_) :
         text_widget(content_),
-        on(false),
+        on(initial_state),
         action_on(action_on_),
         action_off(action_off_)
     {
-        set(bg, 0, 0, 0, 1);
-        set(fg, 1, 1, 1, 1);
+        if(initial_state) {
+            set(fg, 0, 0, 0, 1);
+            set(bg, 1, 1, 1, 1);
+        } else {
+            set(fg, 1, 1, 1, 1);
+            set(bg, 0, 0, 0, 1);
+        }
     }
 
     virtual tuple<float, float> get_min_dimensions() const
@@ -711,13 +867,13 @@ struct toggle : public text_widget
         return make_tuple(w + 3 * 2, h + 3 * 2);
     }
 
-    virtual void draw(double now, float to_screen[9], float x, float y)
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
         // draw lines 2 pixels around
         // draw lines 1 pixels around
         // blank area 0 pixels around
 
-        text_widget::draw(now, to_screen, x, y);
+        text_widget::draw(now, to_screen, x + 3, y + 3, w - 6, h - 6);
     }
 
     virtual bool click(double now, float x, float y)
@@ -736,6 +892,8 @@ struct toggle : public text_widget
         }
         return false;
     }
+
+    virtual void hover(double now, float x, float y) { }
 
     virtual void drag(double now, float x, float y)
     {
@@ -775,7 +933,8 @@ struct toggle : public text_widget
     }
 };
 
-vbox *ui;
+widget *ui;
+toggle *caps_toggle;
 
 void initialize_gl(void)
 {
@@ -818,13 +977,22 @@ void initialize_gl(void)
 
     momentary *reset_momentary = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
     momentary *reboot_momentary = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
-    toggle *fast_toggle = new toggle("FAST", [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
-    toggle *caps_toggle = new toggle("CAPS", [](){force_caps_on = true;}, [](){force_caps_on = false;});
-    toggle *color_toggle = new toggle("COLOR", [](){draw_using_color = true;}, [](){draw_using_color = false;});
-    toggle *pause_toggle = new toggle("PAUSE", [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
-    vector<widget*> widgets = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle};
-    ui = new vbox(widgets);
-    CheckOpenGL(__FILE__, __LINE__);
+    toggle *fast_toggle = new toggle("FAST", false, [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
+    caps_toggle = new toggle("CAPS", true, [](){force_caps_on = true;}, [](){force_caps_on = false;});
+    toggle *color_toggle = new toggle("COLOR", false, [](){draw_using_color = true;}, [](){draw_using_color = false;});
+    toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
+
+    vector<widget*> buttons = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle};
+    vector<widget*> buttons_centered;
+    for(auto b : buttons)
+        buttons_centered.push_back(new centering(b));
+
+    widget *screen = new apple2screen();
+    widget *padding = new spacer(20, 0);
+    widget *buttonpanel = new centering(new widgetbox(widgetbox::VERTICAL, buttons_centered));
+    vector<widget*> panels_centered = {new centering(screen), padding, new centering(buttonpanel)};
+
+    ui = new centering(new widgetbox(widgetbox::HORIZONTAL, panels_centered));
 }
 
 const float widget_scale = 4;
@@ -857,27 +1025,13 @@ static void redraw(GLFWwindow *window)
     chrono::time_point<chrono::system_clock> now;
     now = std::chrono::system_clock::now();
 
-    auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - start_time).count();
-
-    CheckOpenGL(__FILE__, __LINE__);
-
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    set_shader(to_screen_transform, display_mode, false, (elapsed_millis / 300) % 2, 0, 0);
+    chrono::duration<double> elapsed = now - start_time;
 
-    glBindVertexArray(upper_screen_area);
-    CheckOpenGL(__FILE__, __LINE__);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    CheckOpenGL(__FILE__, __LINE__);
+    ui->draw(elapsed.count(), to_screen_transform, 0, 0, gWindowWidth / widget_scale, gWindowHeight / widget_scale);
 
-    set_shader(to_screen_transform, display_mode, mixed_mode, (elapsed_millis / 300) % 2, 0, 0);
-
-    glBindVertexArray(lower_screen_area);
     CheckOpenGL(__FILE__, __LINE__);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    ui->draw(0.0, to_screen_transform, 280, 0);
 }
 
 static void error_callback(int error, const char* description)
@@ -888,19 +1042,38 @@ static void error_callback(int error, const char* description)
 static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     static bool super_down = false;
+    static bool caps_lock_down = false;
 
-    if(action == GLFW_PRESS) {
+    // XXX not ideal, can be enqueued out of turn
+    if(caps_lock_down && !force_caps_on) {
+        caps_lock_down = false;
+        event_queue.push_back({KEYUP, CAPS_LOCK});
+    } else if(!caps_lock_down && force_caps_on) {
+        caps_lock_down = true;
+        event_queue.push_back({KEYDOWN, CAPS_LOCK});
+    }
+
+    if(action == GLFW_PRESS || action == GLFW_REPEAT ) {
         if(key == GLFW_KEY_RIGHT_SUPER || key == GLFW_KEY_LEFT_SUPER)
             super_down = true;
         else if(super_down && key == GLFW_KEY_V) {
             const char* text = glfwGetClipboardString(window);
             if (text)
                 event_queue.push_back({PASTE, 0, strdup(text)});
-        } else
+        } else {
+            if(key == GLFW_KEY_CAPS_LOCK) {
+                force_caps_on = true;
+                caps_toggle->on = true;
+            }
             event_queue.push_back({KEYDOWN, key});
+        }
     } else if(action == GLFW_RELEASE) {
         if(key == GLFW_KEY_RIGHT_SUPER || key == GLFW_KEY_LEFT_SUPER)
             super_down = false;
+        if(key == GLFW_KEY_CAPS_LOCK) {
+            force_caps_on = false;
+            caps_toggle->on = false;
+        }
         event_queue.push_back({KEYUP, key});
     }
 }
@@ -926,7 +1099,7 @@ static void button(GLFWwindow *window, int b, int action, int mods)
 
         float wx, wy;
         tie(wx, wy) = window_to_widget(x, y);
-        if(ui->click(0.0, wx - 280, wy - 0)) {
+        if(ui->click(0.0, wx, wy)) {
             widget_clicked = ui;
         }
     } else {
@@ -934,7 +1107,7 @@ static void button(GLFWwindow *window, int b, int action, int mods)
         if(widget_clicked) {
             float wx, wy;
             tie(wx, wy) = window_to_widget(x, y);
-            widget_clicked->release(0.0, wx - 280, wy - 0);
+            widget_clicked->release(0.0, wx, wy);
         }
         widget_clicked = nullptr;
     }
@@ -960,12 +1133,15 @@ static void motion(GLFWwindow *window, double x, double y)
     gOldMouseX = x;
     gOldMouseY = y;
 
+    float wx, wy;
+    tie(wx, wy) = window_to_widget(x, y);
+
     if(gButtonPressed == 1) {
         if(widget_clicked) {
-            float wx, wy;
-            tie(wx, wy) = window_to_widget(x, y);
-            widget_clicked->drag(0.0, wx - 280, wy - 0);
+            widget_clicked->drag(0.0, wx, wy);
         }
+    } else {
+        ui->hover(0.0, wx, wy);
     }
     redraw(window);
 }
