@@ -495,11 +495,60 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
 struct widget
 {
     virtual tuple<float, float> get_min_dimensions() const = 0;
-    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) = 0;
-    virtual bool click(double now, float x, float y) = 0;
-    virtual void hover(double now, float x, float y) = 0;
-    virtual void drag(double now, float x, float y) = 0;
-    virtual void release(double now, float x, float y) = 0;
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) {};
+    virtual bool click(double now, float x, float y) { return false; };
+    virtual void hover(double now, float x, float y) {};
+    virtual void drag(double now, float x, float y) {};
+    virtual void release(double now, float x, float y) {};
+    virtual bool drop(double now, float x, float y, int count, const char** paths) { return false; };
+};
+
+struct switcher
+{
+    float w, h;
+    int which;
+    vector<widget*> children;
+    switcher(vector<widget*> children_) :
+        w(0),
+        h(0),
+        which(0),
+        children(children_)
+    {
+        for(auto it : children) {
+            float cw, ch;
+            tie(cw, ch) = it->get_min_dimensions();
+            w = max(w, cw);
+            h = max(h, ch);
+        }
+    }
+    virtual tuple<float, float> get_min_dimensions() const 
+    {
+        return make_tuple(w, h);
+    }
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
+    {
+        children[which]->draw(now, to_screen, x, y, w, h);
+    }
+    virtual bool click(double now, float x, float y)
+    {
+        return children[which]->click(now, x, y);
+    }
+    virtual void hover(double now, float x, float y)
+    {
+        children[which]->hover(now, x, y);
+    }
+    virtual void drag(double now, float x, float y)
+    {
+        children[which]->drag(now, x, y);
+    }
+    virtual void release(double now, float x, float y)
+    {
+        children[which]->release(now, x, y);
+    }
+    virtual bool drop(double now, float x, float y, int count, const char** paths)
+    {
+        return children[which]->drop(now, x, y, count, paths);
+    }
 };
 
 struct spacer : public widget
@@ -513,11 +562,6 @@ struct spacer : public widget
     {
         return make_tuple(w, h);
     }
-    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) {}
-    virtual bool click(double now, float x, float y) { return false; }
-    virtual void hover(double now, float x, float y) {}
-    virtual void drag(double now, float x, float y) {}
-    virtual void release(double now, float x, float y) {}
 };
 
 struct placed_widget
@@ -546,6 +590,10 @@ struct centering : public widget
         w = w_;
         h = h_;
         child->draw(now, to_screen, x + (w - cw) / 2, y + (h - ch) / 2, cw, ch);
+    }
+    virtual bool drop(double now, float x, float y, int count, const char **paths)
+    {
+        return child->drop(now, x - (w - cw) / 2, y - (h - ch) / 2, count, paths);
     }
     virtual bool click(double now, float x, float y)
     {
@@ -578,8 +626,8 @@ struct widgetbox : public widget
         h(0),
         focus({nullptr, 0, 0, 0, 0})
     {
-        for(auto it = children_.begin(); it != children_.end(); it++) {
-            widget *child = *it;
+        for(auto it : children_) {
+            widget *child = it;
             float cw, ch;
             tie(cw, ch) = child->get_min_dimensions();
             if(dir == HORIZONTAL) {
@@ -592,8 +640,8 @@ struct widgetbox : public widget
         }
         float x = 0;
         float y = 0;
-        for(auto it = children_.begin(); it != children_.end(); it++) {
-            widget *child = *it;
+        for(auto it : children_) {
+            widget *child = it;
             float cw, ch;
             tie(cw, ch) = child->get_min_dimensions();
             if(dir == HORIZONTAL) {
@@ -611,15 +659,22 @@ struct widgetbox : public widget
     }
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
-        for(auto it = children.begin(); it != children.end(); it++) {
-            placed_widget& child = *it;
+        for(auto child : children) {
             child.widg->draw(now, to_screen, x + child.x, y + child.y, child.w, child.h);
         }
     }
+    virtual bool drop(double now, float x, float y, int count, const char **paths)
+    {
+        for(auto child : children) {
+            if(child.widg->drop(now, x - child.x, y - child.y, count, paths)) {
+                return true;
+            }
+        }
+        return false;
+    }
     virtual bool click(double now, float x, float y)
     {
-        for(auto it = children.begin(); it != children.end(); it++) {
-            placed_widget& child = *it;
+        for(auto child : children) {
             if(child.widg->click(now, x - child.x, y - child.y)) {
                 focus = child;
                 return true;
@@ -629,8 +684,7 @@ struct widgetbox : public widget
     }
     virtual void hover(double now, float x, float y)
     {
-        for(auto it = children.begin(); it != children.end(); it++) {
-            placed_widget& child = *it;
+        for(auto child : children) {
             if(x >= child.x && x < child.x + child.w && y >= child.y && y < child.y + child.h)
                 child.widg->hover(now, x - child.x, y - child.y);
         }
@@ -657,7 +711,6 @@ void set(float v[4], float x, float y, float z, float w)
 struct apple2screen : public widget
 {
     float w, h;
-    float x, y;
     apple2screen() { }
 
     virtual tuple<float, float> get_min_dimensions() const
@@ -665,10 +718,8 @@ struct apple2screen : public widget
         return make_tuple(280, 192);
     }
 
-    virtual void draw(double now, float to_screen[9], float x_, float y_, float w_, float h_)
+    virtual void draw(double now, float to_screen[9], float x, float y, float w_, float h_)
     {
-        x = x_;
-        y = y_;
         w = w_;
         h = h_;
         long long elapsed_millis = now * 1000;
@@ -700,13 +751,19 @@ struct apple2screen : public widget
         return false;
     }
 
-    virtual void drag(double now, float x, float y) { }
-
-    virtual void hover(double now, float x_, float y_)
+    virtual void drag(double now, float x, float y)
     {
         if(!use_joystick) {
-            paddle_values[0] = max(0.0f, min(1.0f, x_ / w));
-            paddle_values[1] = max(0.0f, min(1.0f, y_ / h));
+            paddle_values[0] = max(0.0f, min(1.0f, x / w));
+            paddle_values[1] = max(0.0f, min(1.0f, y / h));
+        }
+    }
+
+    virtual void hover(double now, float x, float y)
+    {
+        if(!use_joystick) {
+            paddle_values[0] = max(0.0f, min(1.0f, x / w));
+            paddle_values[1] = max(0.0f, min(1.0f, y / h));
         }
     }
 
@@ -764,22 +821,6 @@ struct text_widget : public widget
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
     }
-
-    virtual bool click(double now, float x, float y)
-    {
-        float w, h;
-        tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h) {
-            return true;
-        }
-        return false;
-    }
-
-    virtual void drag(double now, float x, float y) { }
-
-    virtual void hover(double now, float x, float y) { }
-
-    virtual void release(double now, float x, float y) { }
 };
 
 struct momentary : public text_widget
@@ -824,8 +865,6 @@ struct momentary : public text_widget
         }
         return false;
     }
-
-    virtual void hover(double now, float x, float y) {}
 
     virtual void drag(double now, float x, float y)
     {
@@ -903,8 +942,6 @@ struct toggle : public text_widget
         }
         return false;
     }
-
-    virtual void hover(double now, float x, float y) { }
 
     virtual void drag(double now, float x, float y)
     {
@@ -985,10 +1022,13 @@ void initialize_gl(void)
 
     initialize_screen_areas();
     CheckOpenGL(__FILE__, __LINE__);
+}
 
+void initialize_widgets(bool run_fast, bool add_floppies)
+{
     momentary *reset_momentary = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
     momentary *reboot_momentary = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
-    toggle *fast_toggle = new toggle("FAST", false, [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
+    toggle *fast_toggle = new toggle("FAST", run_fast, [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
     caps_toggle = new toggle("CAPS", true, [](){force_caps_on = true;}, [](){force_caps_on = false;});
     toggle *color_toggle = new toggle("COLOR", false, [](){draw_using_color = true;}, [](){draw_using_color = false;});
     toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
@@ -1180,7 +1220,7 @@ void load_joystick_setup()
     fclose(fp);
 }
 
-void start()
+void start(bool run_fast, bool add_floppies)
 {
     load_joystick_setup();
 
@@ -1211,6 +1251,7 @@ void start()
     glViewport(0, 0, gWindowWidth, gWindowHeight);
     make_to_screen_transform();
     initialize_gl();
+    initialize_widgets(run_fast, add_floppies);
     CheckOpenGL(__FILE__, __LINE__);
 
     glfwSetKeyCallback(my_window, key);

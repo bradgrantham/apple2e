@@ -2669,7 +2669,7 @@ int main(int argc, char **argv)
 
     deque<saved_inst> previous_instructions;
 
-    APPLE2Einterface::start();
+    APPLE2Einterface::start(run_fast, diskII_rom_name != NULL);
 
     chrono::time_point<chrono::system_clock> then = std::chrono::system_clock::now();
 

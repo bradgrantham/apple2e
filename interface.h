@@ -39,7 +39,7 @@ struct event {
     {}
 };
 
-void start();
+void start(bool run_fast, bool add_floppies);
 void iterate(); // display
 void shutdown();
 
