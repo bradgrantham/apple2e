@@ -18,7 +18,7 @@ Requirements for building:
 * libao
 * OpenGL 3.2-compatible system
 * C++11
-* Currently the project only builds on MacOSX because of the linker line in `Makefile`, but the C++ code itself should be cross-platform.
+* Currently the project only builds on MacOSX because of the linker line in `Makefile`.  keyboard.cpp is UNIX-specific but could be stubbed on other platforms.
 
 On MacOSX with MacPorts, the GLFW and libao dependency can be satisfied with `glfw` and `libao` ports.  According to https://support.apple.com/en-us/HT202823, almost all modern Macs should have OpenGL 3.2 or later.  On my machine, I've been compiling with a g++ that outputs `Apple LLVM version 8.0.0 (clang-800.0.42.1)` for `g++ -v`.
 
@@ -30,6 +30,7 @@ Options:
 
     -debugger # start in the debugger
     -fast     # start with CPU running as fast as it can run
+    -noaudio  # stream no audio buffers
 
 Useful debugger commands:
 
@@ -40,4 +41,6 @@ Useful debugger commands:
     debug N # Set debug flags to N (decimal). See apple2e.cpp for flags
     go # Exit debugging, free-run.  Press CTRL-B to break back into the debugger
     # Enter a blank line to step one instruction
+
+If no joystick or gamepad is configured, the Apple 2 screen acts as a joystick.  To configure a joystick, store the GLFW numbers of the two axes and two buttons in "joystick.ini".
 
