@@ -2,7 +2,7 @@
 
 namespace APPLE2Einterface
 {
-enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT, PASTE, SPEED, QUIT, PAUSE};
+enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT, PASTE, SPEED, QUIT, PAUSE, EJECT_FLOPPY, INSERT_FLOPPY};
 
 const int LEFT_SHIFT = 340;
 const int LEFT_CONTROL = 341;
@@ -39,7 +39,7 @@ struct event {
     {}
 };
 
-void start(bool run_fast, bool add_floppies);
+void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted);
 void iterate(); // display
 void shutdown();
 
@@ -51,5 +51,7 @@ void set_switches(DisplayMode mode, bool mixed, int page);
 bool write(int addr, unsigned char data);
 
 std::tuple<float,bool> get_paddle(int num);
+
+void show_floppy_activity(int number, bool activity);
 
 };

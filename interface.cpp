@@ -188,22 +188,6 @@ static const char *hires_vertex_shader = "\n\
         gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
     }\n";
 
-static const char *text_vertex_shader = "\n\
-    uniform mat3 to_screen;\n\
-    in vec2 vertex_coords;\n\
-    uniform float x_offset;\n\
-    uniform float y_offset;\n\
-    out vec2 text_coords;\n\
-    out vec2 raster_coords;\n\
-    \n\
-    void main()\n\
-    {\n\
-        raster_coords = vertex_coords;\n\
-        text_coords = vec2(int(vertex_coords.x / 7), int(vertex_coords.y / 8));\n\
-        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);\n\
-        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
-    }\n";
-
 static const char *hires_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     uniform usampler2DRect hires_texture;\n\
@@ -221,6 +205,20 @@ static const char *hires_fragment_shader = "\n\
         color = vec4(value, value, value, value);\n\
     }\n";
 
+static const char *text_vertex_shader = "\n\
+    uniform mat3 to_screen;\n\
+    in vec2 vertex_coords;\n\
+    uniform float x_offset;\n\
+    uniform float y_offset;\n\
+    out vec2 raster_coords;\n\
+    \n\
+    void main()\n\
+    {\n\
+        raster_coords = vertex_coords;\n\
+        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);\n\
+        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
+    }\n";
+
 // 0-31 is inverse 32-63
 // 32-63 is inverse 0-31
 // 64-95 is blink 32-63
@@ -232,7 +230,6 @@ static const char *hires_fragment_shader = "\n\
 
 static const char *text_fragment_shader = "\n\
     in vec2 raster_coords;\n\
-    in vec2 text_coords;\n\
     uniform int blink;\n\
     uniform vec4 foreground;\n\
     uniform vec4 background;\n\
@@ -280,7 +277,6 @@ static const char *text_fragment_shader = "\n\
 
 static const char *lores_fragment_shader = "\n\
     in vec2 raster_coords;\n\
-    in vec2 text_coords;\n\
     uniform usampler2DRect font_texture;\n\
     uniform usampler2DRect lores_texture;\n\
     \n\
@@ -570,6 +566,55 @@ struct placed_widget
     float x, y, w, h;
 };
 
+struct padding : public widget
+{
+    widget* child;
+    float w, h;
+    float left_pad, right_pad, top_pad, bottom_pad;
+    float cw, ch;
+
+    padding(float left_pad_, float right_pad_, float top_pad_, float bottom_pad_, widget* child_) :
+        child(child_),
+        left_pad(left_pad_),
+        right_pad(right_pad_),
+        top_pad(top_pad_),
+        bottom_pad(bottom_pad_)
+    {
+        tie(cw, ch) = child->get_min_dimensions();
+        w = cw + left_pad_ + right_pad_;
+        h = ch + top_pad_ + bottom_pad_;
+    }
+
+    virtual tuple<float, float> get_min_dimensions() const
+    {
+        return make_tuple(w, h);
+    }
+    virtual void draw(double now, float to_screen[9], float x, float y, float w_, float h_)
+    {
+        child->draw(now, to_screen, x + left_pad, y + top_pad, w_ - left_pad - right_pad, h_ - top_pad - bottom_pad);
+    }
+    virtual bool drop(double now, float x, float y, int count, const char **paths)
+    {
+        return child->drop(now, x + left_pad, y + top_pad, count, paths);
+    }
+    virtual bool click(double now, float x, float y)
+    {
+        return child->click(now, x + left_pad, y + top_pad);
+    }
+    virtual void hover(double now, float x, float y)
+    {
+        child->hover(now, x + left_pad, y + top_pad);
+    }
+    virtual void drag(double now, float x, float y)
+    {
+        child->drag(now, x + left_pad, y + top_pad);
+    }
+    virtual void release(double now, float x, float y)
+    {
+        child->release(now, x + left_pad, y + top_pad);
+    }
+};
+
 struct centering : public widget
 {
     float w, h;
@@ -794,11 +839,11 @@ struct text_widget : public widget
         int i = 0;
         for(auto it = content.begin(); it != content.end(); it++) {
             unsigned char c = *it;
-            if(c > ' ' && c <= '?')
+            if(c >= ' ' && c <= '?')
                 bytes.get()[i] = c - ' ' + 160;
-            else if(c > '@' && c <= '_')
+            else if(c >= '@' && c <= '_')
                 bytes.get()[i] = c - '@' + 128;
-            else if(c > '`' && c <= '~')
+            else if(c >= '`' && c <= '~')
                 bytes.get()[i] = c - '`' + 224;
             else
                 bytes.get()[i] = 255;
@@ -1024,7 +1069,79 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 }
 
-void initialize_widgets(bool run_fast, bool add_floppies)
+struct floppy_icon : public widget
+{
+    int number;
+    bool inserted;
+    bool active;
+
+    switcher *switched;
+
+    floppy_icon(int number_, bool inserted_) :
+        number(number_),
+        inserted(inserted_),
+        active(false)
+    {
+        widget *disk_out = new padding(3, 3, 3, 3, new centering(new text_widget(" DROP DSK " + to_string(number + 1) + " HERE ")));
+        widget *disk_in = new padding(3, 3, 3, 3, new centering(new text_widget("DRIVE " + to_string(number + 1) + " OK ")));
+        widget *disk_in_active = new padding(3, 3, 3, 3, new centering(new text_widget("DRIVE " + to_string(number + 1) + " OK*")));
+        switched = new switcher({disk_out, disk_in, disk_in_active});
+        switched->which = inserted_ ? 1 : 0;
+    }
+    virtual tuple<float, float> get_min_dimensions() const
+    {
+        return switched->get_min_dimensions();
+    }
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
+    {
+        switched->draw(now, to_screen, x, y, w, h);
+    }
+    virtual bool click(double now, float x, float y)
+    {
+        float w, h;
+        tie(w, h) = get_min_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h)
+            return true;
+        return false;
+    }
+    virtual void hover(double now, float x, float y)
+    {
+    }
+    virtual void drag(double now, float x, float y) 
+    {
+    }
+    virtual void release(double now, float x, float y)
+    {
+        // eject
+        if(inserted)
+            event_queue.push_back({EJECT_FLOPPY, number});
+        switched->which = 0;
+    }
+    virtual bool drop(double now, float x, float y, int count, const char** paths)
+    {
+        // insert
+        float w, h;
+        tie(w, h) = get_min_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            event_queue.push_back({INSERT_FLOPPY, number, strdup(paths[0])});
+            switched->which = 1;
+            return true;
+        }
+        return false;
+    }
+    void change_state(double now, bool inserted_, bool active_)
+    {
+        switched->which = inserted_ ? (active_ ? 2 : 1) : 0;
+        active = active_;
+        inserted = inserted_;
+    }
+};
+
+
+floppy_icon *floppy0_icon;
+floppy_icon *floppy1_icon;
+
+void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted)
 {
     momentary *reset_momentary = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
     momentary *reboot_momentary = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
@@ -1033,17 +1150,34 @@ void initialize_widgets(bool run_fast, bool add_floppies)
     toggle *color_toggle = new toggle("COLOR", false, [](){draw_using_color = true;}, [](){draw_using_color = false;});
     toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
 
-    vector<widget*> buttons = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle};
-    vector<widget*> buttons_centered;
-    for(auto b : buttons)
-        buttons_centered.push_back(new centering(b));
+    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle};
+    if(add_floppies) {
+        floppy0_icon = new floppy_icon(0, floppy0_inserted);
+        floppy1_icon = new floppy_icon(1, floppy1_inserted);
+        controls.push_back(floppy0_icon);
+        controls.push_back(floppy1_icon);
+    }
+    vector<widget*> controls_centered;
+    for(auto b : controls)
+        controls_centered.push_back(new centering(b));
+
 
     widget *screen = new apple2screen();
-    widget *padding = new spacer(20, 0);
-    widget *buttonpanel = new centering(new widgetbox(widgetbox::VERTICAL, buttons_centered));
+    widget *padding = new spacer(10, 0);
+    widget *buttonpanel = new centering(new widgetbox(widgetbox::VERTICAL, controls_centered));
     vector<widget*> panels_centered = {new centering(screen), padding, new centering(buttonpanel)};
 
     ui = new centering(new widgetbox(widgetbox::HORIZONTAL, panels_centered));
+}
+
+void show_floppy_activity(int number, bool activity)
+{
+    chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
+    chrono::duration<double> elapsed = now - start_time;
+    if(number == 0)
+        floppy0_icon->change_state(elapsed.count(), 1, activity);
+    else if(number == 1)
+        floppy1_icon->change_state(elapsed.count(), 1, activity);
 }
 
 const float widget_scale = 4;
@@ -1073,12 +1207,11 @@ tuple<float, float> window_to_widget(float x, float y)
 
 static void redraw(GLFWwindow *window)
 {
-    chrono::time_point<chrono::system_clock> now;
-    now = std::chrono::system_clock::now();
+    chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
+    chrono::duration<double> elapsed = now - start_time;
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    chrono::duration<double> elapsed = now - start_time;
 
     ui->draw(elapsed.count(), to_screen_transform, 0, 0, gWindowWidth / widget_scale, gWindowHeight / widget_scale);
 
@@ -1142,6 +1275,8 @@ static void button(GLFWwindow *window, int b, int action, int mods)
 {
     double x, y;
     glfwGetCursorPos(window, &x, &y);
+    chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
+    chrono::duration<double> elapsed = now - start_time;
 
     if(b == GLFW_MOUSE_BUTTON_1 && action == GLFW_PRESS) {
         gButtonPressed = 1;
@@ -1150,7 +1285,7 @@ static void button(GLFWwindow *window, int b, int action, int mods)
 
         float wx, wy;
         tie(wx, wy) = window_to_widget(x, y);
-        if(ui->click(0.0, wx, wy)) {
+        if(ui->click(elapsed.count(), wx, wy)) {
             widget_clicked = ui;
         }
     } else {
@@ -1158,7 +1293,7 @@ static void button(GLFWwindow *window, int b, int action, int mods)
         if(widget_clicked) {
             float wx, wy;
             tie(wx, wy) = window_to_widget(x, y);
-            widget_clicked->release(0.0, wx, wy);
+            widget_clicked->release(elapsed.count(), wx, wy);
         }
         widget_clicked = nullptr;
     }
@@ -1175,6 +1310,8 @@ static void motion(GLFWwindow *window, double x, double y)
         gOldMouseX = x;
         gOldMouseY = y;
     }
+    chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
+    chrono::duration<double> elapsed = now - start_time;
 
     double dx, dy;
 
@@ -1189,10 +1326,10 @@ static void motion(GLFWwindow *window, double x, double y)
 
     if(gButtonPressed == 1) {
         if(widget_clicked) {
-            widget_clicked->drag(0.0, wx, wy);
+            widget_clicked->drag(elapsed.count(), wx, wy);
         }
     } else {
-        ui->hover(0.0, wx, wy);
+        ui->hover(elapsed.count(), wx, wy);
     }
     redraw(window);
 }
@@ -1220,7 +1357,18 @@ void load_joystick_setup()
     fclose(fp);
 }
 
-void start(bool run_fast, bool add_floppies)
+void drop_callback(GLFWwindow* window, int count, const char** paths)
+{
+    double x, y;
+    glfwGetCursorPos(window, &x, &y);
+    float wx, wy;
+    chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
+    chrono::duration<double> elapsed = now - start_time;
+    tie(wx, wy) = window_to_widget(x, y);
+    ui->drop(elapsed.count(), wx, wy, count, paths);
+}
+
+void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted)
 {
     load_joystick_setup();
 
@@ -1251,7 +1399,7 @@ void start(bool run_fast, bool add_floppies)
     glViewport(0, 0, gWindowWidth, gWindowHeight);
     make_to_screen_transform();
     initialize_gl();
-    initialize_widgets(run_fast, add_floppies);
+    initialize_widgets(run_fast, add_floppies, floppy0_inserted, floppy1_inserted);
     CheckOpenGL(__FILE__, __LINE__);
 
     glfwSetKeyCallback(my_window, key);
@@ -1260,6 +1408,7 @@ void start(bool run_fast, bool add_floppies)
     glfwSetScrollCallback(my_window, scroll);
     glfwSetFramebufferSizeCallback(my_window, resize);
     glfwSetWindowRefreshCallback(my_window, redraw);
+    glfwSetDropCallback(my_window, drop_callback);
     CheckOpenGL(__FILE__, __LINE__);
 }
 

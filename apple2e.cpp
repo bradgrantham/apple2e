@@ -329,7 +329,11 @@ struct DISKIIboard : board_base
         }
     }
 
-    DISKIIboard(unsigned char diskII_rom[256], char *floppy0_name, char *floppy1_name)
+    typedef std::function<void (int number, bool activity)> floppy_activity_func;
+    floppy_activity_func floppy_activity;
+
+    DISKIIboard(unsigned char diskII_rom[256], char *floppy0_name, char *floppy1_name, floppy_activity_func floppy_activity_) :
+        floppy_activity(floppy_activity_)
     {
         std::copy(diskII_rom, diskII_rom + 0x100, rom_C600.memory.begin());
         set_floppy(0, floppy0_name);
@@ -426,12 +430,14 @@ struct DISKIIboard : board_base
         } else if(addr == ENABLE) {
             if(debug & DEBUG_FLOPPY) printf("floppy switch off\n");
             drive_motor_enabled[drive_selected] = false;
+            floppy_activity(drive_selected, false);
             // go disable reading
             // disable other drive?
             return true;
         } else if(addr == ENABLE + 1) {
             if(debug & DEBUG_FLOPPY) printf("floppy switch on\n");
             drive_motor_enabled[drive_selected] = true;
+            floppy_activity(drive_selected, true);
             // go enable reading
             // disable other drive?
             return true;
@@ -558,6 +564,12 @@ struct MAINboard : board_base
             }
         }
         audio_buffer_next_sample = current_sample;
+    }
+
+    clk_t open_apple_down_ends = 0;
+    void momentary_open_apple(clk_t how_long)
+    {
+        open_apple_down_ends = clk + how_long;
     }
 
     // flush anything needing flushing
@@ -722,6 +734,10 @@ struct MAINboard : board_base
                 return true;
             } else if(addr >= 0xC061 && addr <= 0xC063) {
                 int num = addr - 0xC061;
+                if(num == 0 && (open_apple_down_ends > clk)) {
+                     data = 0xff;
+                     return true;
+                }
                 float value;
                 bool button;
                 tie(value, button) = get_paddle(num);
@@ -2429,6 +2445,8 @@ map<int, key_to_ascii> interface_key_to_apple2e =
     {' ', {' ', ' ', 0, 0}},
 };
 
+DISKIIboard *diskIIboard;
+
 enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& bus, CPU6502& cpu)
 {
     static bool shift_down = false;
@@ -2437,7 +2455,12 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
 
     while(APPLE2Einterface::event_waiting()) {
         APPLE2Einterface::event e = APPLE2Einterface::dequeue_event();
-        if(e.type == APPLE2Einterface::PASTE) {
+        if(e.type == APPLE2Einterface::EJECT_FLOPPY) {
+            diskIIboard->set_floppy(e.value, NULL);
+        } else if(e.type == APPLE2Einterface::INSERT_FLOPPY) {
+            diskIIboard->set_floppy(e.value, e.str);
+            free(e.str);
+        } else if(e.type == APPLE2Einterface::PASTE) {
             for(int i = 0; i < strlen(e.str); i++)
                 if(e.str[i] == '\n')
                     board->enqueue_key('\r');
@@ -2500,7 +2523,9 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
             cpu.reset(bus);
         } else if(e.type == APPLE2Einterface::REBOOT) {
             bus.reset();
-            cpu.nmi(bus);
+            board->momentary_open_apple(machine_clock_rate / 5);
+            cpu.reset(bus);
+            // cpu.nmi(bus);
         } else if(e.type == APPLE2Einterface::PAUSE) {
             pause_cpu = e.value;
         } else if(e.type == APPLE2Einterface::SPEED) {
@@ -2648,8 +2673,9 @@ int main(int argc, char **argv)
             floppy2_name = NULL;
 
         try {
-            DISKIIboard *diskII = new DISKIIboard(diskII_rom, floppy1_name, floppy2_name);
-            mainboard->boards.push_back(diskII);
+            DISKIIboard::floppy_activity_func activity = [](int num, bool activity){APPLE2Einterface::show_floppy_activity(num, activity);};
+            diskIIboard = new DISKIIboard(diskII_rom, floppy1_name, floppy2_name, activity);
+            mainboard->boards.push_back(diskIIboard);
         } catch(const char *msg) {
             cerr << msg << endl;
             exit(EXIT_FAILURE);
@@ -2669,7 +2695,7 @@ int main(int argc, char **argv)
 
     deque<saved_inst> previous_instructions;
 
-    APPLE2Einterface::start(run_fast, diskII_rom_name != NULL);
+    APPLE2Einterface::start(run_fast, diskII_rom_name != NULL, floppy1_name != NULL, floppy2_name != NULL);
 
     chrono::time_point<chrono::system_clock> then = std::chrono::system_clock::now();
 
