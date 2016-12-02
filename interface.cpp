@@ -818,6 +818,25 @@ struct apple2screen : public widget
             paddle_buttons[0] = false;
         }
     }
+
+    virtual bool drop(double now, float x, float y, int count, const char** paths)
+    {
+        // insert
+        float w, h;
+        tie(w, h) = get_min_dimensions();
+        if(x >= 0 && y >= 0 & x < w && y < h) {
+            FILE *fp = fopen(paths[0], "r");
+            fseek(fp, 0, SEEK_END);
+            long length = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            char *text = (char *)malloc(length);
+            fread(text, 1, length, fp);
+            event_queue.push_back({PASTE, 0, text});
+            fclose(fp);
+            return true;
+        }
+        return false;
+    }
 };
 
 struct text_widget : public widget
