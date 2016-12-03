@@ -175,7 +175,7 @@ unsigned char floppy_doSector[16] = {
 unsigned char floppy_poSector[16] = {
 	0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF };
 
-void floppy_NybblizeImage(unsigned char *image, unsigned char *nybblized)
+void floppy_NybblizeImage(unsigned char *image, unsigned char *nybblized, unsigned char *skew)
 {
 	// Format of a sector is header (23) + nybbles (343) + footer (30) = 396
 	// (short by 20 bytes of 416 [413 if 48 byte header is one time only])
@@ -223,12 +223,7 @@ void floppy_NybblizeImage(unsigned char *image, unsigned char *nybblized)
 			p += 21;
 			unsigned char * bytes = image;
 
-			// if (diskType[driveNum] == DT_DOS33)
-				bytes += (floppy_doSector[sector] * 256) + (trk * 256 * 16);
-			// else if (diskType[driveNum] == DT_PRODOS)
-				// bytes += (poSector[sector] * 256) + (trk * 256 * 16);
-			// else
-				// bytes += (sector * 256) + (trk * 256 * 16);
+                        bytes += (skew[sector] * 256) + (trk * 256 * 16);
 
 			// Convert the 256 8-bit bytes into 342 6-bit bytes.
 
@@ -325,7 +320,12 @@ struct DISKIIboard : board_base
                 throw "Couldn't read floppy";
             
             floppy_present[number] = true;
-            floppy_NybblizeImage(floppy_image[number], floppy_nybblized[number]);
+            unsigned char *skew;
+            if(strcmp(name + strlen(name) - 3, ".po"))
+                skew = floppy_poSector;
+            else
+                skew = floppy_doSector;
+            floppy_NybblizeImage(floppy_image[number], floppy_nybblized[number], skew);
         }
     }
 
@@ -381,7 +381,7 @@ struct DISKIIboard : board_base
     {
         if(addr < 0xC0E0 || addr > 0xC0EF)
             return false;
-        if(debug & DEBUG_RW) printf("DISK II unhandled write of %02X to %04X (%s)\n", data, addr, io[addr].c_str());
+        if(debug & DEBUG_WARN) printf("DISK II unhandled write of %02X to %04X (%s)\n", data, addr, io[addr].c_str());
         return false;
     }
     virtual bool read(int addr, unsigned char &data)
@@ -442,7 +442,7 @@ struct DISKIIboard : board_base
             // disable other drive?
             return true;
         }
-        printf("DISK II unhandled read from %04X (%s)\n", addr, io[addr].c_str());
+        if(debug & DEBUG_WARN) printf("DISK II unhandled read from %04X (%s)\n", addr, io[addr].c_str());
         data = 0;
         return true;
     }
@@ -1945,6 +1945,17 @@ struct CPU6502
                 break;
             }
 
+            case 0x2E: { // ROL abs
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                m = bus.read(addr);
+                bool c = isset(C);
+                flag_change(C, m & 0x80);
+                set_flags(N | Z, m = (c ? 0x01 : 0x00) | (m << 1));
+                bus.write(addr, m);
+                break;
+            }
+
+
             case 0x26: { // ROL
                 unsigned char zpg = read_pc_inc(bus);
                 bool c = isset(C);
@@ -2238,6 +2249,14 @@ struct CPU6502
             case 0x85: { // STA
                 unsigned char zpg = read_pc_inc(bus);
                 bus.write(zpg, a);
+                break;
+            }
+
+            case 0x40: { // RTI
+                p = stack_pull(bus);
+                unsigned char pcl = stack_pull(bus);
+                unsigned char pch = stack_pull(bus);
+                pc = pcl + pch * 256 + 1;
                 break;
             }
 
