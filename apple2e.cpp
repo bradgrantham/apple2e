@@ -321,7 +321,7 @@ struct DISKIIboard : board_base
             
             floppy_present[number] = true;
             unsigned char *skew;
-            if(strcmp(name + strlen(name) - 3, ".po"))
+            if(strcmp(name + strlen(name) - 3, ".po") == 0)
                 skew = floppy_poSector;
             else
                 skew = floppy_doSector;
