@@ -30,6 +30,8 @@ static GLFWwindow* my_window;
 DisplayMode display_mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
 bool mixed_mode = false;
+bool vid80 = false;
+bool altchar = false;
 
 bool use_joystick = false;
 int joystick_axis0 = 0;
@@ -75,18 +77,30 @@ GLuint font_texture;
 const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
 
+GLuint textport_texture[2][2]; // [aux][page]
+
 GLuint text_program;
 const int textport_w = 40;
 const int textport_h = 24;
-GLuint textport_texture[2];
 GLuint textport_texture_location;
-GLuint blink_location;
+GLuint textport_blink_location;
 GLuint textport_x_offset_location;
 GLuint textport_y_offset_location;
 GLuint textport_to_screen_location;
 GLuint textport_foreground_location;
 GLuint textport_background_location;
-GLuint font_texture_location;
+GLuint textport_font_texture_location;
+
+GLuint text80_program;
+GLuint textport80_texture_location;
+GLuint textport80_aux_texture_location;
+GLuint textport80_blink_location;
+GLuint textport80_x_offset_location;
+GLuint textport80_y_offset_location;
+GLuint textport80_to_screen_location;
+GLuint textport80_foreground_location;
+GLuint textport80_background_location;
+GLuint textport80_font_texture_location;
 
 GLuint lores_program;
 GLuint lores_texture_location;
@@ -275,6 +289,58 @@ static const char *text_fragment_shader = "\n\
             color = mix(background, foreground, pixel / 255.0);\n\
     }\n";
 
+static const char *text80_fragment_shader = "\n\
+    in vec2 raster_coords;\n\
+    uniform int blink;\n\
+    uniform vec4 foreground;\n\
+    uniform vec4 background;\n\
+    uniform usampler2DRect font_texture;\n\
+    uniform usampler2DRect textport_texture;\n\
+    uniform usampler2DRect textport_aux_texture;\n\
+    \n\
+    out vec4 color;\n\
+    \n\
+    void main()\n\
+    {\n\
+        uint character;\n\
+        uint x = uint(raster_coords.x * 2) / 7u; \n\
+        if(x % 2u == 1u) \n\
+            character = texture(textport_texture, uvec2((x - 1u) / 2u, uint(raster_coords.y) / 8u)).x; \n\
+        else \n\
+            character = texture(textport_aux_texture, uvec2(x / 2u, uint(raster_coords.y) / 8u)).x; \n\
+        bool inverse = false;\n\
+        if(character >= 0u && character <= 31u) {\n\
+            character = character - 0u + 32u;\n\
+            inverse = true;\n\
+        } else if(character >= 32u && character <= 63u) {\n\
+            character = character - 32u + 0u;\n\
+            inverse = true;\n\
+        } else if(character >= 64u && character <= 95u) {\n\
+            character = character - 64u + 32u; // XXX BLINK \n\
+            inverse = blink == 1;\n\
+        } else if(character >= 96u && character <= 127u){\n\
+            character = character - 96u + 0u; // XXX BLINK \n\
+            inverse = blink == 1;\n\
+        } else if(character >= 128u && character <= 159u)\n\
+            character = character - 128u + 32u;\n\
+        else if(character >= 160u && character <= 191u)\n\
+            character = character - 160u + 0u;\n\
+        else if(character >= 192u && character <= 223u)\n\
+            character = character - 192u + 32u;\n\
+        else if(character >= 224u && character <= 255u)\n\
+            character = character - 224u + 64u;\n\
+        else \n\
+            character = 33u;\n\
+        uvec2 inglyph = uvec2(uint(raster_coords.x * 2) % 7u + 1u, uint(raster_coords.y) % 8u);\n\
+        uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
+        uint pixel = texture(font_texture, infont).x;\n\
+        float value;\n\
+        if(inverse)\n\
+            color = mix(background, foreground, 1.0 - pixel / 255.0);\n\
+        else\n\
+            color = mix(background, foreground, pixel / 255.0);\n\
+    }\n";
+
 static const char *lores_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     uniform usampler2DRect font_texture;\n\
@@ -435,7 +501,7 @@ GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
     return texture;
 }
 
-unsigned char textport[2][24][40];
+// unsigned char textport[2][2][24][40];
 
 void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink, float x, float y, float fg[4], float bg[4])
 {
@@ -446,8 +512,8 @@ void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink,
     glUniform1i(textport_texture_location, 0);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
-    glUniform1i(font_texture_location, 1);
-    glUniform1i(blink_location, blink);
+    glUniform1i(textport_font_texture_location, 1);
+    glUniform1i(textport_blink_location, blink);
     glUniform1f(textport_x_offset_location, x);
     glUniform1f(textport_y_offset_location, y);
     glUniform4fv(textport_background_location, 1, bg);
@@ -455,20 +521,58 @@ void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink,
     glUniformMatrix3fv(textport_to_screen_location, 1, GL_FALSE, to_screen);
 }
 
-void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, int blink, float x, float y)
+void set_textport80_shader(float to_screen[9], GLuint textport80_texture, GLuint textport80_aux_texture, int blink, float x, float y, float fg[4], float bg[4])
+{
+    glUseProgram(text80_program);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    int tex = 0;
+    glActiveTexture(GL_TEXTURE0 + tex);
+    glBindTexture(GL_TEXTURE_RECTANGLE, textport80_texture);
+    glUniform1i(textport80_texture_location, tex);
+    tex += 1;
+    CheckOpenGL(__FILE__, __LINE__);
+    glActiveTexture(GL_TEXTURE0 + tex);
+    glBindTexture(GL_TEXTURE_RECTANGLE, textport80_aux_texture);
+    glUniform1i(textport80_aux_texture_location, tex);
+    tex += 1;
+    CheckOpenGL(__FILE__, __LINE__);
+    glActiveTexture(GL_TEXTURE0 + tex);
+    glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
+    glUniform1i(textport80_font_texture_location, tex);
+    tex += 1;
+    CheckOpenGL(__FILE__, __LINE__);
+    glUniform1i(textport80_blink_location, blink);
+    CheckOpenGL(__FILE__, __LINE__);
+    glUniform1f(textport80_x_offset_location, x);
+    CheckOpenGL(__FILE__, __LINE__);
+    glUniform1f(textport80_y_offset_location, y);
+    CheckOpenGL(__FILE__, __LINE__);
+    glUniform4fv(textport80_background_location, 1, bg);
+    CheckOpenGL(__FILE__, __LINE__);
+    glUniform4fv(textport80_foreground_location, 1, fg);
+    CheckOpenGL(__FILE__, __LINE__);
+    glUniformMatrix3fv(textport80_to_screen_location, 1, GL_FALSE, to_screen);
+    CheckOpenGL(__FILE__, __LINE__);
+}
+
+void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, bool vid80, int blink, float x, float y)
 {
     if(mixed_mode || (display_mode == TEXT)) {
 
         float bg[4] = {0, 0, 0, 1};
         float fg[4] = {1, 1, 1, 1};
-        set_textport_shader(to_screen, textport_texture[display_page], blink, x, y, fg, bg);
+        if(vid80) 
+            set_textport80_shader(to_screen, textport_texture[0][display_page], textport_texture[1][display_page], blink, x, y, fg, bg);
+        else
+            set_textport_shader(to_screen, textport_texture[0][display_page], blink, x, y, fg, bg);
 
     } else if(display_mode == LORES) {
 
         glUseProgram(lores_program);
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[display_page]);
+        glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[0][display_page]);
         glUniform1i(lores_texture_location, 0);
         glUniformMatrix3fv(lores_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(lores_x_offset_location, x);
@@ -768,14 +872,15 @@ struct apple2screen : public widget
         w = w_;
         h = h_;
         long long elapsed_millis = now * 1000;
-        set_shader(to_screen, display_mode, false, (elapsed_millis / 300) % 2, x, y);
+        set_shader(to_screen, display_mode, false, vid80, (elapsed_millis / 300) % 2, x, y);
+        CheckOpenGL(__FILE__, __LINE__);
 
         glBindVertexArray(upper_screen_area);
         CheckOpenGL(__FILE__, __LINE__);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
 
-        set_shader(to_screen, display_mode, mixed_mode, (elapsed_millis / 300) % 2, x, y);
+        set_shader(to_screen, display_mode, mixed_mode, vid80, (elapsed_millis / 300) % 2, x, y);
 
         glBindVertexArray(lower_screen_area);
         CheckOpenGL(__FILE__, __LINE__);
@@ -1054,8 +1159,10 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 
     font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
-    textport_texture[0] = initialize_texture(textport_w, textport_h);
-    textport_texture[1] = initialize_texture(textport_w, textport_h);
+    textport_texture[0][0] = initialize_texture(textport_w, textport_h);
+    textport_texture[0][1] = initialize_texture(textport_w, textport_h);
+    textport_texture[1][0] = initialize_texture(textport_w, textport_h);
+    textport_texture[1][1] = initialize_texture(textport_w, textport_h);
     hires_texture[0] = initialize_texture(hires_w, hires_h);
     hires_texture[1] = initialize_texture(hires_w, hires_h);
     CheckOpenGL(__FILE__, __LINE__);
@@ -1068,13 +1175,25 @@ void initialize_gl(void)
 
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
     textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
-    font_texture_location = glGetUniformLocation(text_program, "font_texture");
-    blink_location = glGetUniformLocation(text_program, "blink");
+    textport_font_texture_location = glGetUniformLocation(text_program, "font_texture");
+    textport_blink_location = glGetUniformLocation(text_program, "blink");
     textport_x_offset_location = glGetUniformLocation(text_program, "x_offset");
     textport_y_offset_location = glGetUniformLocation(text_program, "y_offset");
     textport_to_screen_location = glGetUniformLocation(text_program, "to_screen");
     textport_foreground_location = glGetUniformLocation(text_program, "foreground");
     textport_background_location = glGetUniformLocation(text_program, "background");
+    CheckOpenGL(__FILE__, __LINE__);
+
+    text80_program = GenerateProgram("textport80", text_vertex_shader, text80_fragment_shader);
+    textport80_texture_location = glGetUniformLocation(text80_program, "textport_texture");
+    textport80_aux_texture_location = glGetUniformLocation(text80_program, "textport_aux_texture");
+    textport80_font_texture_location = glGetUniformLocation(text80_program, "font_texture");
+    textport80_blink_location = glGetUniformLocation(text80_program, "blink");
+    textport80_x_offset_location = glGetUniformLocation(text80_program, "x_offset");
+    textport80_y_offset_location = glGetUniformLocation(text80_program, "y_offset");
+    textport80_to_screen_location = glGetUniformLocation(text80_program, "to_screen");
+    textport80_foreground_location = glGetUniformLocation(text80_program, "foreground");
+    textport80_background_location = glGetUniformLocation(text80_program, "background");
     CheckOpenGL(__FILE__, __LINE__);
 
     lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
@@ -1491,11 +1610,20 @@ void shutdown()
     glfwTerminate();
 }
 
-void set_switches(DisplayMode mode_, bool mixed, int page)
+void set_switches(DisplayMode mode_, bool mixed, int page, bool vid80_, bool altchar_)
 {
     display_mode = mode_;
     mixed_mode = mixed;
     display_page = page;
+    vid80 = vid80_;
+    altchar = altchar_;
+
+    // XXX
+    static bool altchar_warned = false;
+    if(altchar && !altchar_warned) {
+        fprintf(stderr, "Warning: ALTCHAR activated, is not implemented\n");
+        altchar_warned = true;
+    }
 }
 
 static const int text_page1_base = 0x400;
@@ -1508,7 +1636,7 @@ static const int hires_page_size = 8192;
 extern int text_row_base_offsets[24];
 extern int hires_memory_to_scanout_address[8192];
 
-bool write(int addr, unsigned char data)
+bool write(int addr, bool aux, unsigned char data)
 {
     // We know text page 1 and 2 are contiguous
     if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
@@ -1519,9 +1647,9 @@ bool write(int addr, unsigned char data)
             if((within_page >= row_offset) && 
                 (within_page < row_offset + 40)){
                 int col = within_page - row_offset;
-                glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[page]);
+                glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[aux ? 1 : 0][page]);
                 glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col, row, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &data);
-                textport[page][row][col] = data;
+                // textport[aux ? 1 : 0][page][row][col] = data;
                 CheckOpenGL(__FILE__, __LINE__);
             }
         }

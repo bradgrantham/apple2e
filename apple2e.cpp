@@ -321,8 +321,10 @@ struct DISKIIboard : board_base
             
             floppy_present[number] = true;
             unsigned char *skew;
-            if(strcmp(name + strlen(name) - 3, ".po") == 0)
+            if(strcmp(name + strlen(name) - 3, ".po") == 0) {
+                printf("ProDOS floppy\n");
                 skew = floppy_poSector;
+            }
             else
                 skew = floppy_doSector;
             floppy_NybblizeImage(floppy_image[number], floppy_nybblized[number], skew);
@@ -463,8 +465,8 @@ struct MAINboard : board_base
     SoftSwitch RAMWRT {"RAMWRT", 0xC004, 0xC005, 0xC014, false, switches, true};
     SoftSwitch ALTZP {"ALTZP", 0xC008, 0xC009, 0xC016, false, switches, true};
     SoftSwitch C3ROM {"C3ROM", 0xC00A, 0xC00B, 0xC017, false, switches, true};
-    SoftSwitch ALTCHAR {"ALTCHAR", 0xC00E, 0xC00F, 0xC01E, false, switches};
-    SoftSwitch VID80 {"VID80", 0xC00C, 0xC00D, 0xC01F, false, switches};
+    SoftSwitch ALTCHAR {"ALTCHAR", 0xC00E, 0xC00F, 0xC01E, false, switches, true};
+    SoftSwitch VID80 {"VID80", 0xC00C, 0xC00D, 0xC01F, false, switches, true};
     SoftSwitch TEXT {"TEXT", 0xC050, 0xC051, 0xC01A, true, switches, true};
     SoftSwitch MIXED {"MIXED", 0xC052, 0xC053, 0xC01B, true, switches, true};
     SoftSwitch PAGE2 {"PAGE2", 0xC054, 0xC055, 0xC01C, true, switches, true};
@@ -495,8 +497,8 @@ struct MAINboard : board_base
     backed_region ram_6000 = {"ram_6000", 0x6000, 0x6000, RAM, &regions, read_from_main_ram, write_to_main_ram};
     backed_region ram_6000_x = {"ram_6000_x", 0x6000, 0x6000, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
 
-    enabled_func read_from_aux_text1 = [&]{return RAMRD && ((!STORE80) || (STORE80 && PAGE2));};
-    enabled_func write_to_aux_text1 = [&]{return RAMWRT && ((!STORE80) || (STORE80 && PAGE2));};
+    enabled_func read_from_aux_text1 = [&]{return (RAMRD && !STORE80) || (STORE80 && PAGE2);};
+    enabled_func write_to_aux_text1 = [&]{return (RAMWRT && !STORE80) || (STORE80 && PAGE2);};
     enabled_func read_from_main_text1 = [&]{return !read_from_aux_text1();};
     enabled_func write_to_main_text1 = [&]{return !write_to_aux_text1();};
 
@@ -583,7 +585,7 @@ struct MAINboard : board_base
         keyboard_buffer.push_back(k);
     }
 
-    typedef std::function<bool (int addr, unsigned char data)> display_write_func;
+    typedef std::function<bool (int addr, bool aux, unsigned char data)> display_write_func;
     display_write_func display_write;
     typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
     audio_flush_func audio_flush;
@@ -794,7 +796,7 @@ struct MAINboard : board_base
         if(((addr >= 0x400) && (addr <= 0xBFF)) || ((addr >= 0x2000) && (addr <= 0x5FFF)))
 #endif
         {
-            display_write(addr, data);
+            display_write(addr, write_to_aux_text1(), data);
         }
         for(auto it = boards.begin(); it != boards.end(); it++) {
             board_base* b = *it;
@@ -2356,7 +2358,7 @@ void cleanup(void)
     fflush(stderr);
 }
 
-bool use_fake6502 = false;
+bool use_fake6502 = true;
 
 struct saved_inst {
     int pc;
@@ -2660,7 +2662,7 @@ int main(int argc, char **argv)
 
     MAINboard* mainboard;
 
-    MAINboard::display_write_func display = [](int addr, unsigned char data)->bool{return APPLE2Einterface::write(addr, data);};
+    MAINboard::display_write_func display = [](int addr, bool aux, unsigned char data)->bool{return APPLE2Einterface::write(addr, aux, data);};
     MAINboard::audio_flush_func audio;
     MAINboard::get_paddle_func paddle = [](int num)->tuple<float, bool>{return APPLE2Einterface::get_paddle(num);};
     if(have_audio)
@@ -2767,8 +2769,8 @@ int main(int argc, char **argv)
             }
             mainboard->sync();
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
-            int page = mainboard->PAGE2 ? 1 : 0;
-            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page);
+            int page = (mainboard->PAGE2 && !mainboard->STORE80) ? 1 : 0;
+            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
             APPLE2Einterface::iterate();
             chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
 
@@ -2833,8 +2835,8 @@ int main(int argc, char **argv)
             mainboard->sync();
 
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
-            int page = mainboard->PAGE2 ? 1 : 0;
-            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page);
+            int page = (mainboard->PAGE2 && !mainboard->STORE80) ? 1 : 0;
+            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
             APPLE2Einterface::iterate();
         }
     }

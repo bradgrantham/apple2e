@@ -47,8 +47,8 @@ bool event_waiting();
 event dequeue_event();
 
 enum DisplayMode {TEXT, LORES, HIRES};
-void set_switches(DisplayMode mode, bool mixed, int page);
-bool write(int addr, unsigned char data);
+void set_switches(DisplayMode mode, bool mixed, int page, bool vid80, bool altchar);
+bool write(int addr, bool aux, unsigned char data);
 
 std::tuple<float,bool> get_paddle(int num);
 
