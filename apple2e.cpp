@@ -2541,12 +2541,17 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
             }
         } if(e.type == APPLE2Einterface::RESET) {
             bus.reset();
-            cpu.reset(bus);
+            if(use_fake6502)
+                reset6502();
+            else
+                cpu.reset(bus);
         } else if(e.type == APPLE2Einterface::REBOOT) {
             bus.reset();
             board->momentary_open_apple(machine_clock_rate / 5);
-            cpu.reset(bus);
-            // cpu.nmi(bus);
+            if(use_fake6502)
+                reset6502();
+            else
+                cpu.reset(bus);
         } else if(e.type == APPLE2Einterface::PAUSE) {
             pause_cpu = e.value;
         } else if(e.type == APPLE2Einterface::SPEED) {
