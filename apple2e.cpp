@@ -18,7 +18,6 @@
 using namespace std;
 
 #include "emulator.h"
-#include "keyboard.h"
 #include "dis6502.h"
 #include "interface.h"
 
@@ -637,6 +636,7 @@ struct MAINboard : board_base
         RAMRD.enabled = false;
         RAMWRT.enabled = false;
         C3ROM.enabled = false;
+        VID80.enabled = false;
         C08X_bank = BANK2;
         C08X_read_RAM = false;
         C08X_write_RAM = true;
@@ -2351,14 +2351,11 @@ bool debugging = false;
 
 void cleanup(void)
 {
-    if(!debugging) {
-        stop_keyboard();
-    }
     fflush(stdout);
     fflush(stderr);
 }
 
-bool use_fake6502 = true;
+bool use_fake6502 = false;
 
 struct saved_inst {
     int pc;
@@ -2712,10 +2709,6 @@ int main(int argc, char **argv)
 
     atexit(cleanup);
 
-    if(!debugging) {
-        start_keyboard();
-    }
-
     if(use_fake6502)
         reset6502();
 
@@ -2727,26 +2720,9 @@ int main(int argc, char **argv)
 
     while(1) {
         if(!debugging) {
-            poll_keyboard();
-
-            char key;
-            bool have_key = peek_key(&key);
 
             if(process_events(mainboard, bus, cpu) == APPLE2Einterface::QUIT) {
                 break;
-            }
-
-            if(have_key) {
-                if(key == '') {
-                    debugging = true;
-                    printf("enter debugger\n");
-                    clear_strobe();
-                    stop_keyboard();
-                    continue;
-                } else {
-                    mainboard->enqueue_key(key);
-                    clear_strobe();
-                }
             }
 
             int clocks_per_slice;
@@ -2796,7 +2772,6 @@ int main(int argc, char **argv)
             if(strcmp(line, "go") == 0) {
                 printf("continuing\n");
                 debugging = false;
-                start_keyboard();
                 continue;
             } else if(strcmp(line, "fast") == 0) {
                 printf("run flat out\n");
@@ -2846,6 +2821,5 @@ int main(int argc, char **argv)
         }
     }
 
-    stop_keyboard();
     APPLE2Einterface::shutdown();
 }
