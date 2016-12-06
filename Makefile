@@ -3,7 +3,9 @@ CXXFLAGS        += $(INCFLAGS) -g -Wall --std=c++11 -O2
 LDFLAGS         += -L/opt/local/lib
 LDLIBS          += -lglfw -lao -framework OpenGL -framework Cocoa -framework IOkit
 
-OBJECTS         = apple2e.o keyboard.o dis6502.o fake6502.o interface.o
+OBJECTS         = apple2e.o dis6502.o fake6502.o interface.o
+
+# keyboard.o
 
 all: apple2e
 
