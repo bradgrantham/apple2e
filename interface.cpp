@@ -108,14 +108,21 @@ GLuint lores_x_offset_location;
 GLuint lores_y_offset_location;
 GLuint lores_to_screen_location;
 
-GLuint hires_program;
-GLuint hires_texture[2];
-GLuint hires_texture_location;
 const int hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
 const int hires_h = 192;
+GLuint hires_texture[2];
+
+GLuint hires_program;
+GLuint hires_texture_location;
 GLuint hires_to_screen_location;
 GLuint hires_x_offset_location;
 GLuint hires_y_offset_location;
+
+GLuint hirescolor_program;
+GLuint hirescolor_texture_location;
+GLuint hirescolor_to_screen_location;
+GLuint hirescolor_x_offset_location;
+GLuint hirescolor_y_offset_location;
 
 GLuint image_program;
 GLuint image_texture_location;
@@ -237,6 +244,63 @@ static const char *hires_fragment_shader = "\n\
         uint pixel = texture(hires_texture, tc).x;\n\
         float value = pixel / 255.0;\n\
         color = vec4(value, value, value, 1);\n\
+    }\n";
+
+static const char *hirescolor_fragment_shader = "\n\
+    in vec2 raster_coords;\n\
+    uniform usampler2DRect hires_texture;\n\
+    \n\
+    out vec4 color;\n\
+    \n\
+    ivec2 raster_to_texture(int x, int y)\n\
+    {\n\
+        int byte = x / 7;\n\
+        int bit = x % 7;\n\
+        int texturex = byte * 8 + bit;\n\
+        return ivec2(texturex, y); \n\
+    }\n\
+    void main()\n\
+    {\n\
+        int x = int(raster_coords.x); \n\
+        int y = int(raster_coords.y); \n\
+ \n\
+        uint left = (x < 1) ? 0u : texture(hires_texture, raster_to_texture(x - 1, y)).x;\n\
+        uint pixel = texture(hires_texture, raster_to_texture(x, y)).x;\n\
+        uint right = (x > 278) ? 0u : texture(hires_texture, raster_to_texture(x + 1, y)).x;\n\
+ \n\
+        if((pixel == 255u) && ((left == 255u) || (right == 255u))) { \n\
+            /* Okay, first of all, if this pixel's on and its left or right are on, it's white. */ \n\
+            color = vec4(1.0, 1.0, 1.0, 1.0);\n\
+        } else if((pixel == 0u) && (left == 0u) && (right == 0u)) { \n\
+            /* If none are on, it's black */ \n\
+            color = vec4(0.0, 0.0, 0.0, 1.0);\n\
+        } else { \n\
+            uint even = (x % 2 == 1) ? left : pixel; \n\
+            uint odd = (x % 2 == 1) ? pixel : right; \n\
+            uint palette = texture(hires_texture, ivec2((x / 7) * 8 + 7, raster_coords.y)).x; \n\
+ \n\
+            if(palette == 0u) { \n\
+                if((even == 0u) && (odd == 255u)) { \n\
+                    color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1.0);\n\
+                    /* green 20 245  60 */ \n\
+                } else if((even == 255u) && (odd == 0u)) { \n\
+                    /* purple 255  68 253 */ \n\
+                    color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1.0);\n\
+                } else if((even == 0u) && (odd == 0u)) { \n\
+                    color = vec4(0, 0, 0, 1);\n\
+                } /* handled 1,1 above */ \n\
+            } else { \n\
+                if((even == 0u) && (odd == 255u)) { \n\
+                    /* orange 255 106  60 */ \n\
+                    color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1.0);\n\
+                } else if((even == 255u) && (odd == 0u)) { \n\
+                    /* blue 20 207 253 */ \n\
+                    color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1.0);\n\
+                } else if((even == 0u) && (odd == 0u)) { \n\
+                    color = vec4(0, 0, 0, 1);\n\
+                } /* handled 1,1 above */ \n\
+            } \n\
+        } \n\
     }\n";
 
 static const char *text_vertex_shader = "\n\
@@ -532,15 +596,27 @@ void set_image_shader(float to_screen[9], GLuint texture, float x, float y)
     glUniform1f(image_y_offset_location, y);
 }
 
-void set_hires_shader(float to_screen[9], GLuint hires_texture, float x, float y)
+void set_hires_shader(float to_screen[9], GLuint hires_texture, bool color, float x, float y)
 {
-    glUseProgram(hires_program);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture);
-    glUniform1i(hires_texture_location, 0);
-    glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
-    glUniform1f(hires_x_offset_location, x);
-    glUniform1f(hires_y_offset_location, y);
+    if(color) {
+        glUseProgram(hirescolor_program);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture);
+        glUniform1i(hirescolor_texture_location, 0);
+        glUniformMatrix3fv(hirescolor_to_screen_location, 1, GL_FALSE, to_screen);
+        glUniform1f(hirescolor_x_offset_location, x);
+        glUniform1f(hirescolor_y_offset_location, y);
+
+    } else {
+
+        glUseProgram(hires_program);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture);
+        glUniform1i(hires_texture_location, 0);
+        glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
+        glUniform1f(hires_x_offset_location, x);
+        glUniform1f(hires_y_offset_location, y);
+    }
 }
 
 void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink, float x, float y, float fg[4], float bg[4])
@@ -614,7 +690,7 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, b
 
     } else if(display_mode == HIRES) {
 
-        set_hires_shader(to_screen, hires_texture[display_page], x, y);
+        set_hires_shader(to_screen, hires_texture[display_page], draw_using_color, x, y);
 
     }
 }
@@ -1235,6 +1311,12 @@ void initialize_gl(void)
     hires_x_offset_location = glGetUniformLocation(hires_program, "x_offset");
     hires_y_offset_location = glGetUniformLocation(hires_program, "y_offset");
 
+    hirescolor_program = GenerateProgram("hirescolor", hires_vertex_shader, hirescolor_fragment_shader);
+    hirescolor_texture_location = glGetUniformLocation(hirescolor_program, "hires_texture");
+    hirescolor_to_screen_location = glGetUniformLocation(hirescolor_program, "to_screen");
+    hirescolor_x_offset_location = glGetUniformLocation(hirescolor_program, "x_offset");
+    hirescolor_y_offset_location = glGetUniformLocation(hirescolor_program, "y_offset");
+
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
     textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
     textport_font_texture_location = glGetUniformLocation(text_program, "font_texture");
@@ -1354,6 +1436,7 @@ struct floppy_icon : public widget
     bool active;
 
     switcher *switched;
+    widgetbox *labeled;
 
     floppy_icon(int number_, bool inserted_) :
         number(number_),
@@ -1365,14 +1448,16 @@ struct floppy_icon : public widget
         widget *disk_in_active = new padding(3, 3, 3, 3, new centering(new image_widget(40, 23, disk_in_on_bitmap)));
         switched = new switcher({disk_out, disk_in, disk_in_active});
         switched->which = inserted_ ? 1 : 0;
+        widget *label = new text_widget(to_string(number_ + 1));
+        labeled = new widgetbox(widgetbox::HORIZONTAL, {new centering(label), new centering((widget*)switched)});
     }
     virtual tuple<float, float> get_min_dimensions() const
     {
-        return switched->get_min_dimensions();
+        return labeled->get_min_dimensions();
     }
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
-        switched->draw(now, to_screen, x, y, w, h);
+        labeled->draw(now, to_screen, x, y, w, h);
     }
     virtual bool click(double now, float x, float y)
     {
