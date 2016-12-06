@@ -1449,7 +1449,7 @@ struct floppy_icon : public widget
         switched = new switcher({disk_out, disk_in, disk_in_active});
         switched->which = inserted_ ? 1 : 0;
         widget *label = new text_widget(to_string(number_ + 1));
-        labeled = new widgetbox(widgetbox::HORIZONTAL, {new centering(label), new centering((widget*)switched)});
+        labeled = new widgetbox(widgetbox::HORIZONTAL, {new centering(label), new centering((widget*)switched), new centering(new text_widget(" "))});
     }
     virtual tuple<float, float> get_min_dimensions() const
     {
