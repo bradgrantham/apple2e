@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <set>
@@ -450,6 +451,21 @@ struct DISKIIboard : board_base
     virtual void reset(void) {}
 };
 
+const int waveform_length = 44100 / 500 / 2; // half of a wave at 4000 Hz
+const float waveform_max_amplitude = .35f;
+static unsigned char waveform[waveform_length];
+
+static void initialize_audio_waveform() __attribute__((constructor));
+void initialize_audio_waveform()
+{
+    for(int i = 0; i < waveform_length; i++) {
+        float theta = (float(i) / (waveform_length - 1) -.5f) * M_PI;
+
+        waveform[i] = 127.5 + waveform_max_amplitude * 127.5 * sin(theta);
+        printf("%d: %d\n", i, waveform[i]);
+    }
+}
+
 struct MAINboard : board_base
 {
     system_clock& clk;
@@ -551,13 +567,22 @@ struct MAINboard : board_base
     char audio_buffer[audio_buffer_size];
     long long audio_buffer_start_sample = 0;
     long long audio_buffer_next_sample = -1;
-    bool speaker_energized = false;
+    unsigned char speaker_level;
+    bool speaker_transitioning_to_high = false; 
+    int where_in_waveform = 0;
 
     void fill_flush_audio()
     {
         long long current_sample = clk * sample_rate / machine_clock_rate;
+
         for(long long i = audio_buffer_next_sample; i < current_sample; i++) {
-            audio_buffer[i % audio_buffer_size] = speaker_energized ? 128 - 32 : 128 + 32;
+            if(where_in_waveform < waveform_length) {
+                unsigned char level = waveform[where_in_waveform++];
+                speaker_level = speaker_transitioning_to_high ? level : (255 - level);
+            }
+
+            audio_buffer[i % audio_buffer_size] = speaker_level;
+
             if(i - audio_buffer_start_sample == audio_buffer_size - 1) {
                 audio_flush(audio_buffer, audio_buffer_size);
 
@@ -594,6 +619,7 @@ struct MAINboard : board_base
     MAINboard(system_clock& clk_, unsigned char rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_, get_paddle_func get_paddle_) :
         clk(clk_),
         internal_C800_ROM_selected(true),
+        speaker_level(waveform[0]),
         display_write(display_write_),
         audio_flush(audio_flush_),
         get_paddle(get_paddle_)
@@ -711,7 +737,8 @@ struct MAINboard : board_base
 
                 fill_flush_audio();
                 data = 0x00;
-                speaker_energized = !speaker_energized;
+                where_in_waveform = 0;
+                speaker_transitioning_to_high = !speaker_transitioning_to_high;
                 return true;
             } else if(addr == 0xC010) {
                 // reset keyboard latch
@@ -846,7 +873,8 @@ struct MAINboard : board_base
                 if(debug & DEBUG_RW) printf("write SPKR\n");
                 fill_flush_audio();
                 data = 0x00;
-                speaker_energized = !speaker_energized;
+                where_in_waveform = 0;
+                speaker_transitioning_to_high = !speaker_transitioning_to_high;
                 return true;
             }
             printf("unhandled MMIO Write at %04X\n", addr);
