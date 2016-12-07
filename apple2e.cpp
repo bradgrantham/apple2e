@@ -462,7 +462,6 @@ void initialize_audio_waveform()
         float theta = (float(i) / (waveform_length - 1) -.5f) * M_PI;
 
         waveform[i] = 127.5 + waveform_max_amplitude * 127.5 * sin(theta);
-        printf("%d: %d\n", i, waveform[i]);
     }
 }
 
