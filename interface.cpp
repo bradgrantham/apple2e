@@ -42,8 +42,7 @@ int joystick_button1 = 1;
 extern int font_offset;
 extern unsigned char font_bytes[96 * 7 * 8];
 
-static int gWindowWidth;
-static int gWindowHeight;
+static int gWindowWidth, gWindowHeight;
 
 bool gPrintShaderLog = true;
 
@@ -1541,16 +1540,16 @@ void show_floppy_activity(int number, bool activity)
         floppy1_icon->change_state(elapsed.count(), 1, activity);
 }
 
-float widget_scale = 4;
+float pixel_to_ui_scale;
 float to_screen_transform[9];
 
 void make_to_screen_transform()
 {
-    to_screen_transform[0 * 3 + 0] = 2.0 / gWindowWidth * widget_scale;
+    to_screen_transform[0 * 3 + 0] = 2.0 / gWindowWidth * pixel_to_ui_scale;
     to_screen_transform[0 * 3 + 1] = 0;
     to_screen_transform[0 * 3 + 2] = 0;
     to_screen_transform[1 * 3 + 0] = 0;
-    to_screen_transform[1 * 3 + 1] = -2.0 / gWindowHeight * widget_scale;
+    to_screen_transform[1 * 3 + 1] = -2.0 / gWindowHeight * pixel_to_ui_scale;
     to_screen_transform[1 * 3 + 2] = 0;
     to_screen_transform[2 * 3 + 0] = -1;
     to_screen_transform[2 * 3 + 1] = 1;
@@ -1560,8 +1559,8 @@ void make_to_screen_transform()
 tuple<float, float> window_to_widget(float x, float y)
 {
     float wx, wy;
-    wx = x * 2.0 / widget_scale;
-    wy = y * 2.0 / widget_scale;
+    wx = x / pixel_to_ui_scale;
+    wy = y / pixel_to_ui_scale;
 
     return make_tuple(wx, wy);
 }
@@ -1573,7 +1572,7 @@ static void redraw(GLFWwindow *window)
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    ui->draw(elapsed.count(), to_screen_transform, 0, 0, gWindowWidth / widget_scale, gWindowHeight / widget_scale);
+    ui->draw(elapsed.count(), to_screen_transform, 0, 0, gWindowWidth / pixel_to_ui_scale, gWindowHeight / pixel_to_ui_scale);
 
     CheckOpenGL(__FILE__, __LINE__);
 }
@@ -1622,23 +1621,25 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
     }
 }
 
-static void resize_based_on_framebuffer(GLFWwindow *window)
+static void resize_based_on_window(GLFWwindow *window)
 {
-    glfwGetFramebufferSize(window, &gWindowWidth, &gWindowHeight);
+    glfwGetWindowSize(window, &gWindowWidth, &gWindowHeight);
     float cw, ch;
     tie(cw, ch) = ui->get_min_dimensions();
     if(float(gWindowHeight) / gWindowWidth < ch / cw) {
-        widget_scale = gWindowHeight / ch;
+        pixel_to_ui_scale = gWindowHeight / ch;
     } else {
-        widget_scale = gWindowWidth / cw;
+        pixel_to_ui_scale = gWindowWidth / cw;
     }
-    glViewport(0, 0, gWindowWidth, gWindowHeight);
     make_to_screen_transform();
 }
 
 static void resize(GLFWwindow *window, int x, int y)
 {
-    resize_based_on_framebuffer(window);
+    resize_based_on_window(window);
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    glViewport(0, 0, fbw, fbh);
 }
 
 widget *widget_clicked = NULL;
@@ -1755,7 +1756,7 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); 
 
-    glfwWindowHint(GLFW_SAMPLES, 4);
+    // glfwWindowHint(GLFW_SAMPLES, 4);
     my_window = glfwCreateWindow(280 * pixel_scale, 192 * pixel_scale, "Apple //e", NULL, NULL);
     if (!my_window) {
         glfwTerminate();
@@ -1767,12 +1768,11 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
     // printf("GL_RENDERER: %s\n", glGetString(GL_RENDERER));
     // printf("GL_VERSION: %s\n", glGetString(GL_VERSION));
 
-    glfwGetFramebufferSize(my_window, &gWindowWidth, &gWindowHeight);
-    glViewport(0, 0, gWindowWidth, gWindowHeight);
+    glfwGetWindowSize(my_window, &gWindowWidth, &gWindowHeight);
     make_to_screen_transform();
     initialize_gl();
     initialize_widgets(run_fast, add_floppies, floppy0_inserted, floppy1_inserted);
-    resize_based_on_framebuffer(my_window);
+    resize_based_on_window(my_window);
     CheckOpenGL(__FILE__, __LINE__);
 
     glfwSetKeyCallback(my_window, key);
