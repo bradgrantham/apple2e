@@ -451,7 +451,7 @@ struct DISKIIboard : board_base
     virtual void reset(void) {}
 };
 
-const int waveform_length = 44100 / 500 / 2; // half of a wave at 4000 Hz
+const int waveform_length = 44100 / 1000 / 2; // half of a wave at 4000 Hz
 const float waveform_max_amplitude = .35f;
 static unsigned char waveform[waveform_length];
 
@@ -2382,7 +2382,7 @@ void cleanup(void)
     fflush(stderr);
 }
 
-bool use_fake6502 = false;
+bool use_fake6502 = true;
 
 struct saved_inst {
     int pc;
