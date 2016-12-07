@@ -1524,11 +1524,9 @@ void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted,
     for(auto b : controls)
         controls_centered.push_back(new centering(b));
 
-
     widget *screen = new apple2screen();
-    widget *padding = new spacer(10, 0);
     widget *buttonpanel = new centering(new widgetbox(widgetbox::VERTICAL, controls_centered));
-    vector<widget*> panels_centered = {new centering(screen), padding, new centering(buttonpanel)};
+    vector<widget*> panels_centered = {new spacer(10, 0), new centering(screen), new spacer(10, 0), new centering(buttonpanel), new spacer(10, 0)};
 
     ui = new centering(new widgetbox(widgetbox::HORIZONTAL, panels_centered));
 }
@@ -1543,7 +1541,7 @@ void show_floppy_activity(int number, bool activity)
         floppy1_icon->change_state(elapsed.count(), 1, activity);
 }
 
-const float widget_scale = 4;
+float widget_scale = 4;
 float to_screen_transform[9];
 
 void make_to_screen_transform()
@@ -1624,11 +1622,23 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
     }
 }
 
-static void resize(GLFWwindow *window, int x, int y)
+static void resize_based_on_framebuffer(GLFWwindow *window)
 {
     glfwGetFramebufferSize(window, &gWindowWidth, &gWindowHeight);
+    float cw, ch;
+    tie(cw, ch) = ui->get_min_dimensions();
+    if(float(gWindowHeight) / gWindowWidth < ch / cw) {
+        widget_scale = gWindowHeight / ch;
+    } else {
+        widget_scale = gWindowWidth / cw;
+    }
     glViewport(0, 0, gWindowWidth, gWindowHeight);
     make_to_screen_transform();
+}
+
+static void resize(GLFWwindow *window, int x, int y)
+{
+    resize_based_on_framebuffer(window);
 }
 
 widget *widget_clicked = NULL;
@@ -1762,6 +1772,7 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
     make_to_screen_transform();
     initialize_gl();
     initialize_widgets(run_fast, add_floppies, floppy0_inserted, floppy1_inserted);
+    resize_based_on_framebuffer(my_window);
     CheckOpenGL(__FILE__, __LINE__);
 
     glfwSetKeyCallback(my_window, key);
