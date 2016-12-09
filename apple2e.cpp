@@ -2382,7 +2382,7 @@ void cleanup(void)
     fflush(stderr);
 }
 
-bool use_fake6502 = true;
+bool use_fake6502 = false;
 
 struct saved_inst {
     int pc;
