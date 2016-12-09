@@ -116,7 +116,7 @@
 #define UNDOCUMENTED //when this is defined, undocumented opcodes are handled.
                      //otherwise, they're simply treated as NOPs.
 
-#define NES_CPU      //when this is defined, the binary-coded decimal (BCD)
+#undef NES_CPU      //when this is defined, the binary-coded decimal (BCD)
                      //status flag is not honored by ADC and SBC. the 2A03
                      //CPU in the Nintendo Entertainment System does not
                      //support BCD operation.
