@@ -34,13 +34,18 @@ Options:
     -diskII diskIIrom.bin {floppy1image.dsk|none} {floppy2image.dsk|none}
 
 Examples of operation:
-    # Use original Apple ][ ROM, no floppy controller, at maximum available clock rate.
+
+    # Use original Apple ][ ROM, no floppy controller,
+    # at maximum available clock rate.
     apple2e -fast apple2o.rom
 
-    # Use Apple //e ROM, add diskII controller with two floppies, put LodeRunner.dsk in drive 1 and nothing in drive 2. Attempt to run at 1.023 MHz.
+    # Use Apple //e ROM, add diskII controller with two floppies,
+    # put LodeRunner.dsk in drive 1 and nothing in drive 2. Attempt
+    # to run at 1.023 MHz.
     apple2e -diskII diskII.c600.c67f.bin LodeRunner.dsk none apple2e.rom < /dev/null
 
-    # Use updated Apple ][ ROM, attempt to run at 1.023 MHz, but don't output audio.
+    # Use updated Apple ][ ROM, attempt to run at 1.023 MHz, but
+    # don't output audio.
     apple2e -noaudio apple2.rom
 
 Useful debugger commands:
