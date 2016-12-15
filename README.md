@@ -28,12 +28,20 @@ Usage:
 
 Options:
 
-```
     -debugger # start in the debugger
     -fast     # start with CPU running as fast as it can run
     -noaudio  # stream no audio buffers
     -diskII diskIIrom.bin {floppy1image.dsk|none} {floppy2image.dsk|none}
-```
+
+Examples of operation:
+    # Use original Apple ][ ROM, no floppy controller, at maximum available clock rate.
+    apple2e -fast apple2o.rom
+
+    # Use Apple //e ROM, add diskII controller with two floppies, put LodeRunner.dsk in drive 1 and nothing in drive 2. Attempt to run at 1.023 MHz.
+    apple2e -diskII diskII.c600.c67f.bin LodeRunner.dsk none apple2e.rom < /dev/null
+
+    # Use updated Apple ][ ROM, attempt to run at 1.023 MHz, but don't output audio.
+    apple2e -noaudio apple2.rom
 
 Useful debugger commands:
 
@@ -46,13 +54,13 @@ Useful debugger commands:
     # Enter a blank line to step one instruction
 
 When the window opens, the emulator displays a user interface panel to the right of the graphics screen.  The buttons and icons are as follows:
-* RESET - click to simulate pressing CONTROL and RESET keys
-* REBOOT - click to simulate pressing CONTROL and Open-Apple and RESET keys
-* FAST - click to toggle between running at 1.023MHz and running the CPU as fast as possible (audio will stop in "fast" mode)
-* CAPS - click to toggle forcing caps lock on.
-* COLOR - click to switch between color hi-res graphics and monochrome.
-* PAUSE - click to pause or resume running the CPU.
+* RESET - simulate pressing CONTROL and RESET keys and releasing
+* REBOOT - simulate pressing CONTROL and Open-Apple and RESET keys and releasing
+* FAST - toggle between running at 1.023MHz and running the CPU as fast as possible (audio will stop in "fast" mode)
+* CAPS - toggle caps lock forcibly on or off.
+* COLOR - switch between color hi-res graphics and monochrome.
+* PAUSE - pause or resume running the CPU.
 * Floppy drive icons: Drag and drop floppy `.dsk` files onto a drive to "insert" the flopy disk.  Click the drive icon to "eject" the floppy disk.
 
-If no joystick or gamepad is configured, the Apple 2 screen acts as a joystick.  To configure a joystick, store the GLFW numbers of the two axes and two buttons in "joystick.ini".
+If no joystick or gamepad is configured, the Apple 2 screen acts as a joystick.  To configure a joystick, store the GLFW numbers of the two axes and two buttons in "joystick.ini".  A very skilled practitioner may be able to print the joysticks, axes, and buttons by modifying interface.cpp.
 
