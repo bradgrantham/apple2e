@@ -1920,6 +1920,17 @@ struct CPU6502
                 break;
             }
 
+            case 0x36: { // ROL zpg,X
+                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                m = bus.read(zpg);
+                bool c = isset(C);
+                flag_change(C, m & 0x01);
+                set_flags(N | Z, m = (c ? 0x01 : 0x00) | (m << 1));
+                bus.write(zpg, m);
+                break;
+            }
+
+
             case 0x3E: { // ROL abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + x);
@@ -2162,6 +2173,13 @@ struct CPU6502
                 break;
             }
 
+            case 0x55: { // EOR zpg, X
+                unsigned char zpg = read_pc_inc(bus) + x;
+                m = bus.read(zpg & 0xFF);
+                set_flags(N | Z, a = a ^ m);
+                break;
+            }
+            
             case 0x41: { // EOR (ind, X)
                 unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
