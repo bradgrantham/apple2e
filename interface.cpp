@@ -6,6 +6,7 @@
 #include <vector>
 #include <chrono>
 #include <iostream>
+#include <map>
 
 // implicit centering in widget? Or special centering widget?
 // lines (for around toggle and momentary)
@@ -1785,8 +1786,12 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
     CheckOpenGL(__FILE__, __LINE__);
 }
 
+void apply_writes(void);
+
 void iterate()
 {
+    apply_writes();
+
     CheckOpenGL(__FILE__, __LINE__);
     if(glfwWindowShouldClose(my_window)) {
         event_queue.push_back({QUIT, 0});
@@ -1871,7 +1876,10 @@ static const int hires_page_size = 8192;
 extern int text_row_base_offsets[24];
 extern int hires_memory_to_scanout_address[8192];
 
-bool write(int addr, bool aux, unsigned char data)
+map< tuple<int, bool>, unsigned char> writes;
+int collisions = 0;
+
+void write2(int addr, bool aux, unsigned char data)
 {
     // We know text page 1 and 2 are contiguous
     if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
@@ -1879,15 +1887,13 @@ bool write(int addr, bool aux, unsigned char data)
         int within_page = addr - text_page1_base - page * text_page_size;
         for(int row = 0; row < 24; row++) {
             int row_offset = text_row_base_offsets[row];
-            if((within_page >= row_offset) && 
-                (within_page < row_offset + 40)){
+            if((within_page >= row_offset) && (within_page < row_offset + 40)) {
                 int col = within_page - row_offset;
                 glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture[aux ? 1 : 0][page]);
                 glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col, row, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &data);
                 CheckOpenGL(__FILE__, __LINE__);
             }
         }
-        return true;
 
     } else if(((addr >= hires_page1_base) && (addr < hires_page1_base + hires_page_size)) || ((addr >= hires_page2_base) && (addr < hires_page2_base + hires_page_size))) {
 
@@ -1903,6 +1909,36 @@ bool write(int addr, bool aux, unsigned char data)
             pixels[i] = ((data & (1 << i)) ? 255 : 0);
         glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col * 8, row, 8, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
         CheckOpenGL(__FILE__, __LINE__);
+    }
+}
+
+void apply_writes(void)
+{
+    for(auto it : writes) {
+        int addr;
+        bool aux;
+        tie(addr, aux) = it.first;
+        write2(addr, aux, it.second); 
+    }
+    writes.clear();
+    collisions = 0;
+}
+
+bool write(int addr, bool aux, unsigned char data)
+{
+    // We know text page 1 and 2 are contiguous
+    if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
+
+        if(writes.find(make_tuple(addr, aux)) != writes.end())
+            collisions++;
+        writes[make_tuple(addr, aux)] = data;
+        return true;
+
+    } else if(((addr >= hires_page1_base) && (addr < hires_page1_base + hires_page_size)) || ((addr >= hires_page2_base) && (addr < hires_page2_base + hires_page_size))) {
+
+        if(writes.find(make_tuple(addr, aux)) != writes.end())
+            collisions++;
+        writes[make_tuple(addr, aux)] = data;
         return true;
     }
     return false;
