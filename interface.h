@@ -54,4 +54,6 @@ std::tuple<float,bool> get_paddle(int num);
 
 void show_floppy_activity(int number, bool activity);
 
+void enqueue_audio_samples(char *buf, size_t sz);
+
 };

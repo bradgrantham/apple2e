@@ -11,7 +11,6 @@
 #include <map>
 #include <thread>
 #include <signal.h>
-#include <ao/ao.h>
 
 
 #include "fake6502.h"
@@ -2604,31 +2603,6 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
     return APPLE2Einterface::NONE;
 }
 
-ao_device *open_ao()
-{
-    ao_device *device;
-    ao_sample_format format;
-    int default_driver;
-
-    ao_initialize();
-
-    default_driver = ao_default_driver_id();
-
-    memset(&format, 0, sizeof(format));
-    format.bits = 8;
-    format.channels = 1;
-    format.rate = 44100;
-    format.byte_format = AO_FMT_LITTLE;
-
-    /* -- Open driver -- */
-    device = ao_open_live(default_driver, &format, NULL /* no options */);
-    if (device == NULL) {
-        fprintf(stderr, "Error opening libao audio device.\n");
-        return nullptr;
-    }
-    return device;
-}
-
 
 int main(int argc, char **argv)
 {
@@ -2636,8 +2610,6 @@ int main(int argc, char **argv)
     argc -= 1;
     argv += 1;
     char *diskII_rom_name = NULL, *floppy1_name = NULL, *floppy2_name = NULL;
-
-    bool have_audio = true;
 
     while((argc > 0) && (argv[0][0] == '-')) {
 	if(strcmp(argv[0], "-debugger") == 0) {
@@ -2654,10 +2626,6 @@ int main(int argc, char **argv)
             floppy2_name = argv[3];
             argv += 4;
             argc -= 4;
-	} else if(strcmp(argv[0], "-noaudio") == 0) {
-            have_audio = false;
-            argv += 1;
-            argc -= 1;
 	} else if(strcmp(argv[0], "-fast") == 0) {
             run_fast = true;
             argv += 1;
@@ -2703,27 +2671,14 @@ int main(int argc, char **argv)
 
     system_clock clk;
 
-    ao_device *aodev = open_ao();
-    if(aodev == NULL)
-        exit(EXIT_FAILURE);
-
     MAINboard* mainboard;
 
     MAINboard::display_write_func display = [](int addr, bool aux, unsigned char data)->bool{return APPLE2Einterface::write(addr, aux, data);};
-    MAINboard::audio_flush_func audio;
+
     MAINboard::get_paddle_func paddle = [](int num)->tuple<float, bool>{return APPLE2Einterface::get_paddle(num);};
-    if(have_audio)
-        audio = [aodev](char *buf, size_t sz){
-            // static char prev_sample;
-            // for(int i = 0; i < sz; i++)
-                // if(buf[i] != prev_sample) {
-                    if(!run_fast) ao_play(aodev, buf, sz);
-                    // break;
-                // }
-            // prev_sample = buf[sz - 1];
-        };
-    else
-        audio = [](char *buf, size_t sz){};
+
+    MAINboard::audio_flush_func audio = [](char *buf, size_t sz){ if(!run_fast) APPLE2Einterface::enqueue_audio_samples(buf, sz); };
+
     mainboard = new MAINboard(clk, b, display, audio, paddle);
     bus.board = mainboard;
     bus.reset();

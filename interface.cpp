@@ -7,6 +7,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <ao/ao.h>
 
 // implicit centering in widget? Or special centering widget?
 // lines (for around toggle and momentary)
@@ -27,6 +28,7 @@ namespace APPLE2Einterface
 chrono::time_point<chrono::system_clock> start_time;
 
 static GLFWwindow* my_window;
+ao_device *aodev;
 
 DisplayMode display_mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
@@ -1742,8 +1744,42 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
     ui->drop(elapsed.count(), wx, wy, count, paths);
 }
 
+void enqueue_audio_samples(char *buf, size_t sz)
+{
+    ao_play(aodev, buf, sz);
+}
+
+ao_device *open_ao()
+{
+    ao_device *device;
+    ao_sample_format format;
+    int default_driver;
+
+    ao_initialize();
+
+    default_driver = ao_default_driver_id();
+
+    memset(&format, 0, sizeof(format));
+    format.bits = 8;
+    format.channels = 1;
+    format.rate = 44100;
+    format.byte_format = AO_FMT_LITTLE;
+
+    /* -- Open driver -- */
+    device = ao_open_live(default_driver, &format, NULL /* no options */);
+    if (device == NULL) {
+        fprintf(stderr, "Error opening libao audio device.\n");
+        return nullptr;
+    }
+    return device;
+}
+
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted)
 {
+    aodev = open_ao();
+    if(aodev == NULL)
+        exit(EXIT_FAILURE);
+
     load_joystick_setup();
 
     glfwSetErrorCallback(error_callback);
