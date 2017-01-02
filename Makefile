@@ -1,16 +1,13 @@
-INCFLAGS        += -I/opt/local/include
-CXXFLAGS        += $(INCFLAGS) -g -Wall --std=c++11 -O2
-LDFLAGS         += -L/opt/local/lib
-LDLIBS          += -lglfw -lao -framework OpenGL -framework Cocoa -framework IOkit
+INCFLAGS        +=
+CXXFLAGS        += $(INCFLAGS) -g -Wall -std=c++11 -O2
+LDFLAGS         +=
+LDLIBS          +=
 
-OBJECTS         = apple2e.o dis6502.o fake6502.o interface.o
+SOURCES         = apple2e.cpp dis6502.cpp web_interface.cpp
 
-# keyboard.o
+all: apple2e.js
 
-all: apple2e
-
-apple2e: $(OBJECTS)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+apple2e.js: $(SOURCES)
+	emcc $(CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS) --preload-file apple2e.rom 
 
 clean:
-	rm $(OBJECTS)
