@@ -563,7 +563,7 @@ struct MAINboard : board_base
     static const size_t audio_buffer_size = sample_rate / 10;
     char audio_buffer[audio_buffer_size];
     long long audio_buffer_start_sample = 0;
-    long long audio_buffer_next_sample = -1;
+    long long audio_buffer_next_sample = 0;
     unsigned char speaker_level;
     bool speaker_transitioning_to_high = false; 
     int where_in_waveform = 0;
