@@ -7,6 +7,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <emscripten/bind.h>
 
 #include "interface.h"
 
@@ -250,6 +251,32 @@ void initialize_memory_to_scanout()
 void show_floppy_activity(int number, bool activity)
 {
 }
+
+void enqueue_console_key(int key)
+{
+    static bool caps_lock_down = false;
+
+    // XXX not ideal, can be enqueued out of turn
+    if(caps_lock_down && !force_caps_on) {
+        caps_lock_down = false;
+        event_queue.push_back({KEYUP, CAPS_LOCK});
+    } else if(!caps_lock_down && force_caps_on) {
+        caps_lock_down = true;
+        event_queue.push_back({KEYDOWN, CAPS_LOCK});
+    }
+
+    if(key == 13)
+        key = ENTER;
+    if(force_caps_on && (key >= 'a') && (key <= 'z'))
+        key = key - 'a' + 'A';
+    event_queue.push_back({KEYDOWN, key});
+    event_queue.push_back({KEYUP, key});
+}
+
+EMSCRIPTEN_BINDINGS(my_module) {
+    emscripten::function("enqueue_console_key", &enqueue_console_key);
+}
+
 
 };
 

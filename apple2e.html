@@ -1292,6 +1292,10 @@
           Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
         }
       };
+      document.getElementById('output').addEventListener('keydown', function (e){
+          Module.enqueue_console_key(e.which);
+      }, false);
+
       Module.setStatus('Downloading...');
       window.onerror = function(event) {
         // TODO: do not warn on ok events like simulating an infinite loop or exitStatus
