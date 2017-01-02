@@ -67,7 +67,7 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
 void apply_writes(void);
 
 bool textport_changed = false;
-unsigned char textport[24][40];
+unsigned char textport[2][24][40];
 
 void iterate()
 {
@@ -78,7 +78,7 @@ void iterate()
         for(int row = 0; row < 24; row++) {
             printf("|");
             for(int col = 0; col < 40; col++) {
-                char ch = textport[row][col] & 0x7f;
+                char ch = textport[display_page][row][col] & 0x7f;
                 putchar(isprint(ch) ? ch : '?');
             }
             printf("|\n");
@@ -131,7 +131,7 @@ void write2(int addr, bool aux, unsigned char data)
             int row_offset = text_row_base_offsets[row];
             if((within_page >= row_offset) && (within_page < row_offset + 40)) {
                 int col = within_page - row_offset;
-                if(!aux) textport[row][col] = data;
+                if(!aux) textport[page][row][col] = data;
             }
         }
 
@@ -252,7 +252,7 @@ void show_floppy_activity(int number, bool activity)
 {
 }
 
-void enqueue_console_key(int key)
+void enqueue_console_keydown(int key)
 {
     static bool caps_lock_down = false;
 
@@ -265,16 +265,64 @@ void enqueue_console_key(int key)
         event_queue.push_back({KEYDOWN, CAPS_LOCK});
     }
 
-    if(key == 13)
-        key = ENTER;
+    switch(key) {
+        case 16: key = LEFT_SHIFT; break;
+        case 13: key = ENTER; break;
+        case 37: key = LEFT; break;
+        case 186: key = ';'; break;
+        case 187: key = '='; break;
+        case 188: key = ','; break;
+        case 189: key = '-'; break;
+        case 190: key = '.'; break;
+        case 191: key = '/'; break;
+        case 219: key = '['; break;
+        case 221: key = ']'; break;
+        case 222: key = '\''; break;
+    }
+
     if(force_caps_on && (key >= 'a') && (key <= 'z'))
         key = key - 'a' + 'A';
+
     event_queue.push_back({KEYDOWN, key});
+}
+
+void enqueue_console_keyup(int key)
+{
+    static bool caps_lock_down = false;
+
+    // XXX not ideal, can be enqueued out of turn
+    if(caps_lock_down && !force_caps_on) {
+        caps_lock_down = false;
+        event_queue.push_back({KEYUP, CAPS_LOCK});
+    } else if(!caps_lock_down && force_caps_on) {
+        caps_lock_down = true;
+        event_queue.push_back({KEYDOWN, CAPS_LOCK});
+    }
+
+    switch(key) {
+        case 16: key = LEFT_SHIFT; break;
+        case 13: key = ENTER; break;
+        case 37: key = LEFT; break;
+        case 186: key = ';'; break;
+        case 187: key = '='; break;
+        case 188: key = ','; break;
+        case 189: key = '-'; break;
+        case 190: key = '.'; break;
+        case 191: key = '/'; break;
+        case 219: key = '['; break;
+        case 221: key = ']'; break;
+        case 222: key = '\''; break;
+    }
+
+    if(force_caps_on && (key >= 'a') && (key <= 'z'))
+        key = key - 'a' + 'A';
+
     event_queue.push_back({KEYUP, key});
 }
 
 EMSCRIPTEN_BINDINGS(my_module) {
-    emscripten::function("enqueue_console_key", &enqueue_console_key);
+    emscripten::function("enqueue_console_keydown", &enqueue_console_keydown);
+    emscripten::function("enqueue_console_keyup", &enqueue_console_keyup);
 }
 
 
