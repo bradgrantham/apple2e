@@ -1,10 +1,16 @@
-// g++ -Wall     `sdl-config --cflags --libs` testsdl.cpp -o testsdl
+// g++ -Wall `sdl-config --cflags --libs` testsdl.cpp -o testsdl
+// emcc -s USE_SDL=2 -Wall testsdl.cpp -o testsdl.html
 
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <ctime>
+#include <cstdlib>
 #include <SDL.h>
+
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+#endif
 
 #define BUF_SIZE 4096
 
@@ -30,8 +36,22 @@ void fill_audio(void *udata, Uint8 *stream, int len)
     audio_pos += len;
 }
 
+time_t now;
+bool done = false;
+
+void mainloop(void) 
+{
+    if ( time(0) - now >= 10 )
+#ifdef EMSCRIPTEN
+        emscripten_cancel_main_loop();
+#else
+        done = true;
+#endif
+}
+
 extern "C" int main(int argc, char **argv)
 {
+    printf("main()\n");
     SDL_AudioSpec wanted;
 
     /* Set the audio format */
@@ -47,18 +67,26 @@ extern "C" int main(int argc, char **argv)
         fprintf(stderr, "Couldn't open audio: %s\n", SDL_GetError());
         exit(1);
     }
+    printf("opened audio\n");
 
     audio_pos = 0;
 
     /* Let the callback function play the audio chunk */
     SDL_PauseAudio(0);
+    printf("unpaused audio, playing...\n");
 
-    /* Wait for sound to complete */
-    time_t now = time(0);
-    while ( time(0) - now < 10 ) {
-        SDL_Delay(100);         /* Sleep 1/10 second */
+    now = time(0);
+#ifdef EMSCRIPTEN
+    emscripten_set_main_loop(mainloop, 10, true);
+#else
+    while(!done) {
+        mainloop();
+        SDL_Delay(100);
     }
+#endif
+
     SDL_CloseAudio();
+    printf("closing...\n");
 
     return 0;
 }
