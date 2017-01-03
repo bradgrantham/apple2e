@@ -629,7 +629,7 @@ struct MAINboard : board_base
         std::copy(rom_image + rom_C400.base - 0x8000, rom_image + rom_C400.base - 0x8000 + rom_C400.size, rom_C400.memory.begin());
         std::copy(rom_image + rom_C800.base - 0x8000, rom_image + rom_C800.base - 0x8000 + rom_C800.size, rom_C800.memory.begin());
 
-        for(auto it = regions.begin(); it != regions.end(); it++) {
+        for(auto it : regions) {
             backed_region* r = *it;
             int firstpage = r->base / 256;
             int lastpage = (r->base + r->size + 255) / 256 - 1;
@@ -639,7 +639,7 @@ struct MAINboard : board_base
         }
         for(int i = 0; i < 256; i++)
             switches_by_address[i] = NULL;
-        for(auto it = switches.begin(); it != switches.end(); it++) {
+        for(auto it : switches) {
             SoftSwitch* sw = *it;
             switches_by_address[sw->clear_address - 0xC000] = sw;
             switches_by_address[sw->set_address - 0xC000] = sw;
@@ -670,7 +670,7 @@ struct MAINboard : board_base
     virtual bool read(int addr, unsigned char &data)
     {
         if(debug & DEBUG_RW) printf("MAIN board read\n");
-        for(auto it = boards.begin(); it != boards.end(); it++) {
+        for(auto it : boards) {
             board_base* b = *it;
             if(b->read(addr, data)) {
                 return true;
@@ -779,7 +779,7 @@ struct MAINboard : board_base
             printf("unhandled MMIO Read at %04X\n", addr);
             fflush(stdout); exit(0);
         }
-        for(auto it = regions_by_page[addr / 256].begin(); it != regions_by_page[addr / 256].end(); it++) {
+        for(auto it : regions_by_page[addr / 256]) {
             backed_region* r = *it;
             if(r->read(addr, data)) {
                 if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from %s\n", addr, data, r->name.c_str());
@@ -798,7 +798,7 @@ struct MAINboard : board_base
         if(exit_on_memory_fallthrough) {
             printf("unhandled memory read at %04X, aborting\n", addr);
             printf("Switches:\n");
-            for(auto it = switches.begin(); it != switches.end(); it++) {
+            for(auto it : switches) {
                 SoftSwitch* sw = *it;
                 printf("    %s: %s\n", sw->name.c_str(), sw->enabled ? "enabled" : "disabled");
             }
@@ -823,7 +823,7 @@ struct MAINboard : board_base
         {
             display_write(addr, write_to_aux_text1(), data);
         }
-        for(auto it = boards.begin(); it != boards.end(); it++) {
+        for(auto it : boards) { 
             board_base* b = *it;
             if(b->write(addr, data)) {
                 return true;
@@ -878,7 +878,7 @@ struct MAINboard : board_base
             printf("unhandled MMIO Write at %04X\n", addr);
             fflush(stdout); exit(0);
         }
-        for(auto it = regions_by_page[addr / 256].begin(); it != regions_by_page[addr / 256].end(); it++) {
+        for(auto it : regions_by_page[addr / 256]) {
             backed_region* r = *it;
             if(r->write(addr, data)) {
                 if(debug & DEBUG_RW) printf("wrote %02X to 0x%04X in %s\n", addr, data, r->name.c_str());
