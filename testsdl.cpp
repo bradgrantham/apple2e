@@ -14,26 +14,30 @@
 
 #define BUF_SIZE 4096
 
-unsigned long long audio_pos;
-unsigned char buf[32768];
+unsigned long long audio_pos = 0;
+unsigned short buf[2048];
 
-const int freq = 440;
+float freq1 = 440;
+float freq2 = 410;
 const int rate = 44100;
 
 /* The audio function callback takes the following parameters:
    stream:  A pointer to the audio buffer to be filled
    len:     The length (in bytes) of the audio buffer
 */
-void fill_audio(void *udata, Uint8 *stream, int len)
+void fill_audio(void *userdata, Uint8 *stream, int len)
 {
-    for (int i = 0; i < len; i++) {
-        buf[i] = (int)(0.75 * 128.0 *
-            sin(2 * M_PI * freq * ((float) (audio_pos + i)/rate)));
+    printf("fill audio %d\n", len);
+    for (int i = 0; i < len / 4; i++) {
+        buf[i * 2 + 0] = (int)(0.75 * 32768.0 *
+            sin(2 * M_PI * freq1 * ((float) (audio_pos + i)/rate)));
+        buf[i * 2 + 1] = (int)(0.75 * 32768.0 *
+            sin(2 * M_PI * freq2 * ((float) (audio_pos + i)/rate)));
     }
 
     /* Mix as much data as possible */
-    SDL_MixAudio(stream, buf, len, SDL_MIX_MAXVOLUME);
-    audio_pos += len;
+    SDL_MixAudio(stream, (unsigned char *)buf, len, SDL_MIX_MAXVOLUME);
+    audio_pos += len / 4;
 }
 
 time_t now;
@@ -56,8 +60,8 @@ extern "C" int main(int argc, char **argv)
 
     /* Set the audio format */
     wanted.freq = rate;
-    wanted.format = AUDIO_S8;
-    wanted.channels = 1;    /* 1 = mono, 2 = stereo */
+    wanted.format = AUDIO_S16;
+    wanted.channels = 2;    /* 1 = mono, 2 = stereo */
     wanted.samples = 1024;  /* Good low-latency value for callback */
     wanted.callback = fill_audio;
     wanted.userdata = NULL;
@@ -68,8 +72,6 @@ extern "C" int main(int argc, char **argv)
         exit(1);
     }
     printf("opened audio\n");
-
-    audio_pos = 0;
 
     /* Let the callback function play the audio chunk */
     SDL_PauseAudio(0);
