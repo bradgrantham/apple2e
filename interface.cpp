@@ -7,7 +7,10 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+
+#if !defined(EMSCRIPTEN)
 #include <ao/ao.h>
+#endif //!EMSCRIPTEN
 
 // implicit centering in widget? Or special centering widget?
 // lines (for around toggle and momentary)
@@ -15,7 +18,8 @@
 // hbox
 // what is window resize / shrink policy?
 
-#define GLFW_INCLUDE_GLCOREARB
+// #define GLFW_INCLUDE_GLCOREARB
+#define GLFW_INCLUDE_ES2
 #include <GLFW/glfw3.h>
 
 #include "interface.h"
@@ -28,7 +32,9 @@ namespace APPLE2Einterface
 chrono::time_point<chrono::system_clock> start_time;
 
 static GLFWwindow* my_window;
+#if !defined(EMSCRIPTEN)
 ao_device *aodev;
+#endif //!EMSCRIPTEN
 
 DisplayMode display_mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
@@ -1745,9 +1751,12 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
 
 void enqueue_audio_samples(char *buf, size_t sz)
 {
+#if !defined(EMSCRIPTEN)
     ao_play(aodev, buf, sz);
+#endif //!EMSCRIPTEN
 }
 
+#if !defined(EMSCRIPTEN)
 ao_device *open_ao()
 {
     ao_device *device;
@@ -1772,13 +1781,15 @@ ao_device *open_ao()
     }
     return device;
 }
+#endif //!EMSCRIPTEN
 
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted)
 {
+#if !defined(EMSCRIPTEN)
     aodev = open_ao();
     if(aodev == NULL)
         exit(EXIT_FAILURE);
-
+#endif //!EMSCRIPTEN
     load_joystick_setup();
 
     glfwSetErrorCallback(error_callback);
