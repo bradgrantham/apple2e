@@ -1095,8 +1095,7 @@ struct text_widget : public widget
         // construct string texture
         auto_ptr<unsigned char> bytes(new unsigned char[content.size() + 1]);
         int i = 0;
-        for(auto it = content.begin(); it != content.end(); it++) {
-            unsigned char c = *it;
+        for(auto c : content) {
             if(c >= ' ' && c <= '?')
                 bytes.get()[i] = c - ' ' + 160;
             else if(c >= '@' && c <= '_')
