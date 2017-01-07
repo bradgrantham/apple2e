@@ -418,7 +418,7 @@ static const char *text_fragment_shader = "\n\
     uniform vec4 foreground;\n\
     uniform vec4 background;\n\
     uniform vec2 font_texture_coord_scale;\n\
-    uniform usampler2D font_texture;\n\
+    uniform sampler2D font_texture;\n\
     uniform vec2 textport_texture_coord_scale;\n\
     uniform usampler2D textport_texture;\n\
     \n\
@@ -453,12 +453,11 @@ static const char *text_fragment_shader = "\n\
             character = 33u;\n\
         uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        uint pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
-        float value;\n\
+        float pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
         if(inverse)\n\
-            color = mix(background, foreground, 1.0 - pixel / 255.0);\n\
+            color = mix(background, foreground, 1.0 - pixel);\n\
         else\n\
-            color = mix(background, foreground, pixel / 255.0);\n\
+            color = mix(background, foreground, pixel);\n\
     }\n";
 
 static const char *text80_fragment_shader = "\n\
@@ -467,7 +466,7 @@ static const char *text80_fragment_shader = "\n\
     uniform vec4 foreground;\n\
     uniform vec4 background;\n\
     uniform vec2 font_texture_coord_scale;\n\
-    uniform usampler2D font_texture;\n\
+    uniform sampler2D font_texture;\n\
     uniform vec2 textport_texture_coord_scale;\n\
     uniform usampler2D textport_texture;\n\
     uniform usampler2D textport_aux_texture;\n\
@@ -507,12 +506,12 @@ static const char *text80_fragment_shader = "\n\
             character = 33u;\n\
         uvec2 inglyph = uvec2(uint(raster_coords.x * 2) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        uint pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
+        float pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
         float value;\n\
         if(inverse)\n\
-            color = mix(background, foreground, 1.0 - pixel / 255.0);\n\
+            color = mix(background, foreground, 1.0 - pixel);\n\
         else\n\
-            color = mix(background, foreground, pixel / 255.0);\n\
+            color = mix(background, foreground, pixel);\n\
     }\n";
 
 static const char *lores_fragment_shader = "\n\
@@ -1388,7 +1387,7 @@ void initialize_gl(void)
     glClearColor(0, 0, 0, 1);
     CheckOpenGL(__FILE__, __LINE__);
 
-    font_texture = initialize_texture_integer(fonttexture_w, fonttexture_h, font_bytes);
+    font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
     textport_texture[0][0] = initialize_texture_integer(textport_w, textport_h);
     textport_texture[0][1] = initialize_texture_integer(textport_w, textport_h);
     textport_texture[1][0] = initialize_texture_integer(textport_w, textport_h);
