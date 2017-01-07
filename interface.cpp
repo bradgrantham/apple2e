@@ -1400,7 +1400,7 @@ void initialize_gl(void)
 
     hirescolor_program = GenerateProgram("hirescolor", hires_vertex_shader, hirescolor_fragment_shader);
     hirescolor_texture_location = glGetUniformLocation(hirescolor_program, "hires_texture");
-    hirescolor_texture_coord_scale_location = glGetUniformLocation(hirescolor_program, "hirescolor_texture_coord_scale");
+    hirescolor_texture_coord_scale_location = glGetUniformLocation(hirescolor_program, "hires_texture_coord_scale");
     hirescolor_to_screen_location = glGetUniformLocation(hirescolor_program, "to_screen");
     hirescolor_x_offset_location = glGetUniformLocation(hirescolor_program, "x_offset");
     hirescolor_y_offset_location = glGetUniformLocation(hirescolor_program, "y_offset");
