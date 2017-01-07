@@ -93,7 +93,7 @@ static void CheckOpenGL(const char *filename, int line)
     }
 }
 
-struct texture
+struct opengl_texture
 {
     int w;
     int h;
@@ -101,7 +101,7 @@ struct texture
     operator GLuint() const { return t; }
 };
 
-texture initialize_texture(int w, int h, unsigned char *pixels = NULL)
+opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL)
 {
     GLuint tex;
 
@@ -116,11 +116,11 @@ texture initialize_texture(int w, int h, unsigned char *pixels = NULL)
     return {w, h, tex};
 }
 
-texture font_texture;
+opengl_texture font_texture;
 const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
 
-texture textport_texture[2][2]; // [aux][page]
+opengl_texture textport_texture[2][2]; // [aux][page]
 
 GLuint text_program;
 const int textport_w = 40;
@@ -158,22 +158,25 @@ GLuint lores_to_screen_location;
 
 const int hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
 const int hires_h = 192;
-GLuint hires_texture[2];
+opengl_texture hires_texture[2];
 
 GLuint hires_program;
 GLuint hires_texture_location;
+GLuint hires_texture_coord_scale_location;
 GLuint hires_to_screen_location;
 GLuint hires_x_offset_location;
 GLuint hires_y_offset_location;
 
 GLuint hirescolor_program;
 GLuint hirescolor_texture_location;
+GLuint hirescolor_texture_coord_scale_location;
 GLuint hirescolor_to_screen_location;
 GLuint hirescolor_x_offset_location;
 GLuint hirescolor_y_offset_location;
 
 GLuint image_program;
 GLuint image_texture_location;
+GLuint image_texture_coord_scale_location;
 GLuint image_to_screen_location;
 GLuint image_x_offset_location;
 GLuint image_y_offset_location;
@@ -284,21 +287,23 @@ static const char *hires_vertex_shader = "\n\
 
 static const char *image_fragment_shader = "\n\
     in vec2 raster_coords;\n\
-    uniform usampler2DRect image;\n\
+    uniform vec2 image_coord_scale;\n\
+    uniform usampler2D image;\n\
     \n\
     out vec4 color;\n\
     \n\
     void main()\n\
     {\n\
         ivec2 tc = ivec2(raster_coords.x, raster_coords.y);\n\
-        uint pixel = texture(image, raster_coords).x;\n\
+        uint pixel = texture(image, raster_coords * image_coord_scale).x;\n\
         float value = pixel / 255.0;\n\
         color = vec4(value, value, value, 1);\n\
     }\n";
 
 static const char *hires_fragment_shader = "\n\
     in vec2 raster_coords;\n\
-    uniform usampler2DRect hires_texture;\n\
+    uniform vec2 hires_texture_coord_scale;\n\
+    uniform usampler2D hires_texture;\n\
     \n\
     out vec4 color;\n\
     \n\
@@ -308,23 +313,24 @@ static const char *hires_fragment_shader = "\n\
         int bit = int(raster_coords.x) % 7;\n\
         int texturex = byte * 8 + bit;\n\
         ivec2 tc = ivec2(texturex, raster_coords.y);\n\
-        uint pixel = texture(hires_texture, tc).x;\n\
+        uint pixel = texture(hires_texture, tc * hires_texture_coord_scale).x;\n\
         float value = pixel / 255.0;\n\
         color = vec4(value, value, value, 1);\n\
     }\n";
 
 static const char *hirescolor_fragment_shader = "\n\
     in vec2 raster_coords;\n\
-    uniform usampler2DRect hires_texture;\n\
+    uniform vec2 hires_texture_coord_scale;\n\
+    uniform usampler2D hires_texture;\n\
     \n\
     out vec4 color;\n\
     \n\
-    ivec2 raster_to_texture(int x, int y)\n\
+    vec2 raster_to_texture(int x, int y)\n\
     {\n\
         int byte = x / 7;\n\
         int bit = x % 7;\n\
         int texturex = byte * 8 + bit;\n\
-        return ivec2(texturex, y); \n\
+        return vec2(texturex, y) * hires_texture_coord_scale; \n\
     }\n\
     void main()\n\
     {\n\
@@ -344,7 +350,7 @@ static const char *hirescolor_fragment_shader = "\n\
         } else { \n\
             uint even = (x % 2 == 1) ? left : pixel; \n\
             uint odd = (x % 2 == 1) ? pixel : right; \n\
-            uint palette = texture(hires_texture, ivec2((x / 7) * 8 + 7, raster_coords.y)).x; \n\
+            uint palette = texture(hires_texture, vec2((x / 7) * 8 + 7, raster_coords.y) * hires_texture_coord_scale).x; \n\
  \n\
             if(palette == 0u) { \n\
                 if((even == 0u) && (odd == 255u)) { \n\
@@ -591,10 +597,12 @@ static GLuint GenerateProgram(const string& shader_name, const string& vertex_sh
     glCompileShader(fragment_shader);
     if(!CheckShaderCompile(fragment_shader, shader_name + " fragment shader"))
 	return 0;
+    CheckOpenGL(__FILE__, __LINE__);
 
     GLuint program = glCreateProgram();
     glAttachShader(program, vertex_shader);
     glAttachShader(program, fragment_shader);
+    CheckOpenGL(__FILE__, __LINE__);
 
     // XXX Really need to do this generically
     glBindAttribLocation(program, raster_coords_attrib, "vertex_coords");
@@ -640,38 +648,25 @@ void initialize_screen_areas()
     lower_screen_area = make_rectangle_vertex_array(0, 160, 280, 32);
 }
 
-GLuint initialize_texture_integer(int w, int h, unsigned char *pixels = NULL)
-{
-    GLuint texture;
-
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_RECTANGLE, texture);
-    glTexParameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    CheckOpenGL(__FILE__, __LINE__);
-    glTexImage2D(GL_TEXTURE_RECTANGLE, 0, GL_R8UI, w, h, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
-    CheckOpenGL(__FILE__, __LINE__);
-    return texture;
-}
-
-void set_image_shader(float to_screen[9], GLuint texture, float x, float y)
+void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
 {
     glUseProgram(image_program);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_RECTANGLE, texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glUniform2f(image_texture_coord_scale_location, 1.0 / (texture.w - 0), 1.0 / (texture.h - 0));
     glUniform1i(image_texture_location, 0);
     glUniformMatrix3fv(image_to_screen_location, 1, GL_FALSE, to_screen);
     glUniform1f(image_x_offset_location, x);
     glUniform1f(image_y_offset_location, y);
 }
 
-void set_hires_shader(float to_screen[9], GLuint hires_texture, bool color, float x, float y)
+void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool color, float x, float y)
 {
     if(color) {
         glUseProgram(hirescolor_program);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform2f(hirescolor_texture_coord_scale_location, 1.0 / (texture.w - 0), 1.0 / (texture.h - 0));
         glUniform1i(hirescolor_texture_location, 0);
         glUniformMatrix3fv(hirescolor_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hirescolor_x_offset_location, x);
@@ -682,7 +677,8 @@ void set_hires_shader(float to_screen[9], GLuint hires_texture, bool color, floa
 
         glUseProgram(hires_program);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform2f(hires_texture_coord_scale_location, 1.0 / (texture.w - 0), 1.0 / (texture.h - 0));
         glUniform1i(hires_texture_location, 0);
         glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hires_x_offset_location, x);
@@ -691,7 +687,7 @@ void set_hires_shader(float to_screen[9], GLuint hires_texture, bool color, floa
     }
 }
 
-void set_textport_shader(float to_screen[9], const texture& textport, int blink, float x, float y, float fg[4], float bg[4])
+void set_textport_shader(float to_screen[9], const opengl_texture& textport, int blink, float x, float y, float fg[4], float bg[4])
 {
     glUseProgram(text_program);
 
@@ -720,7 +716,7 @@ void set_textport_shader(float to_screen[9], const texture& textport, int blink,
     CheckOpenGL(__FILE__, __LINE__);
 }
 
-void set_textport80_shader(float to_screen[9], const texture& textport80, GLuint textport80_aux_texture, int blink, float x, float y, float fg[4], float bg[4])
+void set_textport80_shader(float to_screen[9], const opengl_texture& textport80, GLuint textport80_aux_texture, int blink, float x, float y, float fg[4], float bg[4])
 {
     glUseProgram(text80_program);
     CheckOpenGL(__FILE__, __LINE__);
@@ -1135,7 +1131,7 @@ struct apple2screen : public widget
 
 struct image_widget : public widget
 {
-    GLuint image;
+    opengl_texture image;
     vertex_array rectangle;
     int w, h;
 
@@ -1143,7 +1139,7 @@ struct image_widget : public widget
         w(w_),
         h(h_)
     {
-        image = initialize_texture_integer(w, h, buffer);
+        image = initialize_texture(w, h, buffer);
         rectangle = make_rectangle_vertex_array(0, 0, w, h);
     }
 
@@ -1164,7 +1160,7 @@ struct image_widget : public widget
 
 struct text_widget : public widget
 {
-    texture string_texture;
+    opengl_texture string_texture;
     vertex_array rectangle;
     string content;
     float fg[4];
@@ -1384,24 +1380,27 @@ void initialize_gl(void)
     textport_texture[0][1] = initialize_texture(textport_w, textport_h);
     textport_texture[1][0] = initialize_texture(textport_w, textport_h);
     textport_texture[1][1] = initialize_texture(textport_w, textport_h);
-    hires_texture[0] = initialize_texture_integer(hires_w, hires_h);
-    hires_texture[1] = initialize_texture_integer(hires_w, hires_h);
+    hires_texture[0] = initialize_texture(hires_w, hires_h);
+    hires_texture[1] = initialize_texture(hires_w, hires_h);
     CheckOpenGL(__FILE__, __LINE__);
 
     image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
-    image_texture_location = glGetUniformLocation(image_program, "image_texture");
+    image_texture_location = glGetUniformLocation(image_program, "image");
+    image_texture_coord_scale_location = glGetUniformLocation(image_program, "image_coord_scale");
     image_to_screen_location = glGetUniformLocation(image_program, "to_screen");
     image_x_offset_location = glGetUniformLocation(image_program, "x_offset");
     image_y_offset_location = glGetUniformLocation(image_program, "y_offset");
 
     hires_program = GenerateProgram("hires", hires_vertex_shader, hires_fragment_shader);
     hires_texture_location = glGetUniformLocation(hires_program, "hires_texture");
+    hires_texture_coord_scale_location = glGetUniformLocation(hires_program, "hires_texture_coord_scale");
     hires_to_screen_location = glGetUniformLocation(hires_program, "to_screen");
     hires_x_offset_location = glGetUniformLocation(hires_program, "x_offset");
     hires_y_offset_location = glGetUniformLocation(hires_program, "y_offset");
 
     hirescolor_program = GenerateProgram("hirescolor", hires_vertex_shader, hirescolor_fragment_shader);
     hirescolor_texture_location = glGetUniformLocation(hirescolor_program, "hires_texture");
+    hirescolor_texture_coord_scale_location = glGetUniformLocation(hirescolor_program, "hirescolor_texture_coord_scale");
     hirescolor_to_screen_location = glGetUniformLocation(hirescolor_program, "to_screen");
     hirescolor_x_offset_location = glGetUniformLocation(hirescolor_program, "x_offset");
     hirescolor_y_offset_location = glGetUniformLocation(hirescolor_program, "y_offset");
@@ -2031,11 +2030,11 @@ void write2(int addr, bool aux, unsigned char data)
         int scanout_address = hires_memory_to_scanout_address[within_page];
         int row = scanout_address / 40;
         int col = scanout_address % 40;
-        glBindTexture(GL_TEXTURE_RECTANGLE, hires_texture[page]);
+        glBindTexture(GL_TEXTURE_2D, hires_texture[page]);
         unsigned char pixels[8];
         for(int i = 0; i < 8 ; i++)
             pixels[i] = ((data & (1 << i)) ? 255 : 0);
-        glTexSubImage2D(GL_TEXTURE_RECTANGLE, 0, col * 8, row, 8, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, col * 8, row, 8, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
         CheckOpenGL(__FILE__, __LINE__);
     }
 }
