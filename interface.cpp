@@ -111,6 +111,21 @@ opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     CheckOpenGL(__FILE__, __LINE__);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    CheckOpenGL(__FILE__, __LINE__);
+    return {w, h, tex};
+}
+
+opengl_texture initialize_texture_integer(int w, int h, unsigned char *pixels = NULL)
+{
+    GLuint tex;
+
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    CheckOpenGL(__FILE__, __LINE__);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, w, h, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
     CheckOpenGL(__FILE__, __LINE__);
     return {w, h, tex};
@@ -288,22 +303,21 @@ static const char *hires_vertex_shader = "\n\
 static const char *image_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     uniform vec2 image_coord_scale;\n\
-    uniform usampler2D image;\n\
+    uniform sampler2D image;\n\
     \n\
     out vec4 color;\n\
     \n\
     void main()\n\
     {\n\
         ivec2 tc = ivec2(raster_coords.x, raster_coords.y);\n\
-        uint pixel = texture(image, raster_coords * image_coord_scale).x;\n\
-        float value = pixel / 255.0;\n\
-        color = vec4(value, value, value, 1);\n\
+        float pixel = texture(image, raster_coords * image_coord_scale).x;\n\
+        color = vec4(pixel, pixel, pixel, 1);\n\
     }\n";
 
 static const char *hires_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     uniform vec2 hires_texture_coord_scale;\n\
-    uniform usampler2D hires_texture;\n\
+    uniform sampler2D hires_texture;\n\
     \n\
     out vec4 color;\n\
     \n\
@@ -313,15 +327,14 @@ static const char *hires_fragment_shader = "\n\
         int bit = int(raster_coords.x) % 7;\n\
         int texturex = byte * 8 + bit;\n\
         ivec2 tc = ivec2(texturex, raster_coords.y);\n\
-        uint pixel = texture(hires_texture, tc * hires_texture_coord_scale).x;\n\
-        float value = pixel / 255.0;\n\
-        color = vec4(value, value, value, 1);\n\
+        float pixel = texture(hires_texture, tc * hires_texture_coord_scale).x;\n\
+        color = vec4(pixel, pixel, pixel, 1);\n\
     }\n";
 
 static const char *hirescolor_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     uniform vec2 hires_texture_coord_scale;\n\
-    uniform usampler2D hires_texture;\n\
+    uniform sampler2D hires_texture;\n\
     \n\
     out vec4 color;\n\
     \n\
@@ -337,9 +350,9 @@ static const char *hirescolor_fragment_shader = "\n\
         int x = int(raster_coords.x); \n\
         int y = int(raster_coords.y); \n\
  \n\
-        uint left = (x < 1) ? 0u : texture(hires_texture, raster_to_texture(x - 1, y)).x;\n\
-        uint pixel = texture(hires_texture, raster_to_texture(x, y)).x;\n\
-        uint right = (x > 278) ? 0u : texture(hires_texture, raster_to_texture(x + 1, y)).x;\n\
+        uint left = (x < 1) ? 0u : uint(255 * texture(hires_texture, raster_to_texture(x - 1, y)).x);\n\
+        uint pixel = uint(255 * texture(hires_texture, raster_to_texture(x, y)).x);\n\
+        uint right = (x > 278) ? 0u : uint(255 * texture(hires_texture, raster_to_texture(x + 1, y)).x);\n\
  \n\
         if((pixel == 255u) && ((left == 255u) || (right == 255u))) { \n\
             /* Okay, first of all, if this pixel's on and its left or right are on, it's white. */ \n\
@@ -350,7 +363,7 @@ static const char *hirescolor_fragment_shader = "\n\
         } else { \n\
             uint even = (x % 2 == 1) ? left : pixel; \n\
             uint odd = (x % 2 == 1) ? pixel : right; \n\
-            uint palette = texture(hires_texture, vec2((x / 7) * 8 + 7, raster_coords.y) * hires_texture_coord_scale).x; \n\
+            uint palette = uint(texture(hires_texture, vec2((x / 7) * 8 + 7, raster_coords.y) * hires_texture_coord_scale).x); \n\
  \n\
             if(palette == 0u) { \n\
                 if((even == 0u) && (odd == 255u)) { \n\
@@ -1186,7 +1199,7 @@ struct text_widget : public widget
                 bytes.get()[i] = 255;
             i++;
         }
-        string_texture = initialize_texture(i, 1, bytes.get());
+        string_texture = initialize_texture_integer(i, 1, bytes.get());
         rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
     }
 
@@ -1375,11 +1388,11 @@ void initialize_gl(void)
     glClearColor(0, 0, 0, 1);
     CheckOpenGL(__FILE__, __LINE__);
 
-    font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
-    textport_texture[0][0] = initialize_texture(textport_w, textport_h);
-    textport_texture[0][1] = initialize_texture(textport_w, textport_h);
-    textport_texture[1][0] = initialize_texture(textport_w, textport_h);
-    textport_texture[1][1] = initialize_texture(textport_w, textport_h);
+    font_texture = initialize_texture_integer(fonttexture_w, fonttexture_h, font_bytes);
+    textport_texture[0][0] = initialize_texture_integer(textport_w, textport_h);
+    textport_texture[0][1] = initialize_texture_integer(textport_w, textport_h);
+    textport_texture[1][0] = initialize_texture_integer(textport_w, textport_h);
+    textport_texture[1][1] = initialize_texture_integer(textport_w, textport_h);
     hires_texture[0] = initialize_texture(hires_w, hires_h);
     hires_texture[1] = initialize_texture(hires_w, hires_h);
     CheckOpenGL(__FILE__, __LINE__);
@@ -2034,7 +2047,7 @@ void write2(int addr, bool aux, unsigned char data)
         unsigned char pixels[8];
         for(int i = 0; i < 8 ; i++)
             pixels[i] = ((data & (1 << i)) ? 255 : 0);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, col * 8, row, 8, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, col * 8, row, 8, 1, GL_RED, GL_UNSIGNED_BYTE, pixels);
         CheckOpenGL(__FILE__, __LINE__);
     }
 }
