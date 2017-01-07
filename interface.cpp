@@ -733,7 +733,7 @@ void set_textport80_shader(float to_screen[9], const texture& textport80, GLuint
     tex += 1;
     CheckOpenGL(__FILE__, __LINE__);
     glActiveTexture(GL_TEXTURE0 + tex);
-    glBindTexture(GL_TEXTURE_RECTANGLE, textport80_aux_texture);
+    glBindTexture(GL_TEXTURE_2D, textport80_aux_texture);
     glUniform1i(textport80_aux_texture_location, tex);
     tex += 1;
     CheckOpenGL(__FILE__, __LINE__);
