@@ -92,6 +92,7 @@ GLuint textport_to_screen_location;
 GLuint textport_foreground_location;
 GLuint textport_background_location;
 GLuint textport_font_texture_location;
+GLuint textport_font_texture_coord_scale_location;
 
 GLuint text80_program;
 GLuint textport80_texture_location;
@@ -103,6 +104,7 @@ GLuint textport80_to_screen_location;
 GLuint textport80_foreground_location;
 GLuint textport80_background_location;
 GLuint textport80_font_texture_location;
+GLuint textport80_font_texture_coord_scale_location;
 
 GLuint lores_program;
 GLuint lores_texture_location;
@@ -142,19 +144,56 @@ tuple<float,bool> get_paddle(int num)
     return make_tuple(paddle_values[num], paddle_buttons[num]);
 }
 
+
 static void CheckOpenGL(const char *filename, int line)
 {
     int glerr;
+    bool stored_exit_flag = false;
+    bool exit_on_error;
 
-    if((glerr = glGetError()) != GL_NO_ERROR) {
+    if(!stored_exit_flag) {
+        exit_on_error = getenv("EXIT_ON_OPENGL_ERROR") != NULL;
+        stored_exit_flag = true;
+    }
+
+    while((glerr = glGetError()) != GL_NO_ERROR) {
         printf("GL Error: %04X at %s:%d\n", glerr, filename, line);
+        if(exit_on_error)
+            exit(1);
     }
 }
 
-GLuint upper_screen_area;
-GLuint lower_screen_area;
-const int raster_coords_attrib = 0;
+struct vertex_attribute_buffer
+{
+    GLuint buffer;
+    GLuint which;
+    GLuint count;
+    GLenum type;
+    GLboolean normalized;
+    GLsizei stride;
+    void bind() const 
+    {
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+        CheckOpenGL(__FILE__, __LINE__);
+        glVertexAttribPointer(which, count, type, normalized, stride, 0);
+        CheckOpenGL(__FILE__, __LINE__);
+        glEnableVertexAttribArray(which);
+        CheckOpenGL(__FILE__, __LINE__);
+    }
+};
 
+struct vertex_array : public vector<vertex_attribute_buffer>
+{
+    void bind()
+    {
+        for(auto attr : *this) {
+            attr.bind();
+        }
+    }
+};
+
+const int raster_coords_attrib = 0;
+ 
 static bool CheckShaderCompile(GLuint shader, const std::string& shader_name)
 {
     int status;
@@ -333,7 +372,8 @@ static const char *text_fragment_shader = "\n\
     uniform int blink;\n\
     uniform vec4 foreground;\n\
     uniform vec4 background;\n\
-    uniform usampler2DRect font_texture;\n\
+    uniform vec2 font_texture_coord_scale;\n\
+    uniform usampler2D font_texture;\n\
     uniform usampler2DRect textport_texture;\n\
     \n\
     out vec4 color;\n\
@@ -365,9 +405,9 @@ static const char *text_fragment_shader = "\n\
             character = character - 224u + 64u;\n\
         else \n\
             character = 33u;\n\
-        uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u + 1u, uint(raster_coords.y) % 8u);\n\
+        uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        uint pixel = texture(font_texture, infont).x;\n\
+        uint pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
         float value;\n\
         if(inverse)\n\
             color = mix(background, foreground, 1.0 - pixel / 255.0);\n\
@@ -380,7 +420,8 @@ static const char *text80_fragment_shader = "\n\
     uniform int blink;\n\
     uniform vec4 foreground;\n\
     uniform vec4 background;\n\
-    uniform usampler2DRect font_texture;\n\
+    uniform vec2 font_texture_coord_scale;\n\
+    uniform usampler2D font_texture;\n\
     uniform usampler2DRect textport_texture;\n\
     uniform usampler2DRect textport_aux_texture;\n\
     \n\
@@ -417,9 +458,9 @@ static const char *text80_fragment_shader = "\n\
             character = character - 224u + 64u;\n\
         else \n\
             character = 33u;\n\
-        uvec2 inglyph = uvec2(uint(raster_coords.x * 2) % 7u + 1u, uint(raster_coords.y) % 8u);\n\
+        uvec2 inglyph = uvec2(uint(raster_coords.x * 2) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        uint pixel = texture(font_texture, infont).x;\n\
+        uint pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
         float value;\n\
         if(inverse)\n\
             color = mix(background, foreground, 1.0 - pixel / 255.0);\n\
@@ -429,7 +470,6 @@ static const char *text80_fragment_shader = "\n\
 
 static const char *lores_fragment_shader = "\n\
     in vec2 raster_coords;\n\
-    uniform usampler2DRect font_texture;\n\
     uniform usampler2DRect lores_texture;\n\
     \n\
     out vec4 color;\n\
@@ -539,12 +579,12 @@ static GLuint GenerateProgram(const string& shader_name, const string& vertex_sh
     return program;
 }
 
-GLuint make_rectangle_vertex_array(float x, float y, float w, float h)
+vertex_array upper_screen_area;
+vertex_array lower_screen_area;
+
+vertex_array make_rectangle_vertex_array(float x, float y, float w, float h)
 {
-    GLuint array;
-    glGenVertexArrays(1, &array);
-    glBindVertexArray(array);
-    CheckOpenGL(__FILE__, __LINE__);
+    vertex_array array;
 
     /* just x, y, also pixel coords */
     GLuint vertices;
@@ -560,9 +600,8 @@ GLuint make_rectangle_vertex_array(float x, float y, float w, float h)
     glBufferData(GL_ARRAY_BUFFER, sizeof(coords[0]) * 4, coords, GL_STATIC_DRAW);
     CheckOpenGL(__FILE__, __LINE__);
 
-    glVertexAttribPointer(raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glEnableVertexAttribArray(raster_coords_attrib);
-    CheckOpenGL(__FILE__, __LINE__);
+    array.push_back({vertices, raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
+
     return array;
 }
 
@@ -572,7 +611,7 @@ void initialize_screen_areas()
     lower_screen_area = make_rectangle_vertex_array(0, 160, 280, 32);
 }
 
-GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
+GLuint initialize_texture_integer(int w, int h, unsigned char *pixels = NULL)
 {
     GLuint texture;
 
@@ -583,6 +622,21 @@ GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     CheckOpenGL(__FILE__, __LINE__);
     glTexImage2D(GL_TEXTURE_RECTANGLE, 0, GL_R8UI, w, h, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
+    CheckOpenGL(__FILE__, __LINE__);
+    return texture;
+}
+
+GLuint initialize_texture(int w, int h, unsigned char *pixels = NULL)
+{
+    GLuint texture;
+
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    CheckOpenGL(__FILE__, __LINE__);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, w, h, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
     CheckOpenGL(__FILE__, __LINE__);
     return texture;
 }
@@ -608,6 +662,7 @@ void set_hires_shader(float to_screen[9], GLuint hires_texture, bool color, floa
         glUniformMatrix3fv(hirescolor_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hirescolor_x_offset_location, x);
         glUniform1f(hirescolor_y_offset_location, y);
+        CheckOpenGL(__FILE__, __LINE__);
 
     } else {
 
@@ -618,6 +673,7 @@ void set_hires_shader(float to_screen[9], GLuint hires_texture, bool color, floa
         glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hires_x_offset_location, x);
         glUniform1f(hires_y_offset_location, y);
+        CheckOpenGL(__FILE__, __LINE__);
     }
 }
 
@@ -629,14 +685,18 @@ void set_textport_shader(float to_screen[9], GLuint textport_texture, int blink,
     glBindTexture(GL_TEXTURE_RECTANGLE, textport_texture);
     glUniform1i(textport_texture_location, 0);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
+    glBindTexture(GL_TEXTURE_2D, font_texture);
     glUniform1i(textport_font_texture_location, 1);
+    CheckOpenGL(__FILE__, __LINE__);
+    glUniform2f(textport_font_texture_coord_scale_location, 1.0 / (fonttexture_w - 0), 1.0 / (fonttexture_h - 0));
+    CheckOpenGL(__FILE__, __LINE__);
     glUniform1i(textport_blink_location, blink);
     glUniform1f(textport_x_offset_location, x);
     glUniform1f(textport_y_offset_location, y);
     glUniform4fv(textport_background_location, 1, bg);
     glUniform4fv(textport_foreground_location, 1, fg);
     glUniformMatrix3fv(textport_to_screen_location, 1, GL_FALSE, to_screen);
+    CheckOpenGL(__FILE__, __LINE__);
 }
 
 void set_textport80_shader(float to_screen[9], GLuint textport80_texture, GLuint textport80_aux_texture, int blink, float x, float y, float fg[4], float bg[4])
@@ -656,8 +716,9 @@ void set_textport80_shader(float to_screen[9], GLuint textport80_texture, GLuint
     tex += 1;
     CheckOpenGL(__FILE__, __LINE__);
     glActiveTexture(GL_TEXTURE0 + tex);
-    glBindTexture(GL_TEXTURE_RECTANGLE, font_texture);
+    glBindTexture(GL_TEXTURE_2D, font_texture);
     glUniform1i(textport80_font_texture_location, tex);
+    glUniform2f(textport80_font_texture_coord_scale_location, 1.0 / (fonttexture_w - 1), 1.0 / (fonttexture_h - 1));
     tex += 1;
     glUniform1i(textport80_blink_location, blink);
     glUniform1f(textport80_x_offset_location, x);
@@ -980,14 +1041,14 @@ struct apple2screen : public widget
         set_shader(to_screen, display_mode, false, vid80, (elapsed_millis / 300) % 2, x, y);
         CheckOpenGL(__FILE__, __LINE__);
 
-        glBindVertexArray(upper_screen_area);
+        upper_screen_area.bind();
         CheckOpenGL(__FILE__, __LINE__);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
 
         set_shader(to_screen, display_mode, mixed_mode, vid80, (elapsed_millis / 300) % 2, x, y);
 
-        glBindVertexArray(lower_screen_area);
+        lower_screen_area.bind();
         CheckOpenGL(__FILE__, __LINE__);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
@@ -1052,14 +1113,14 @@ struct apple2screen : public widget
 struct image_widget : public widget
 {
     GLuint image;
-    GLuint rectangle;
+    vertex_array rectangle;
     int w, h;
 
     image_widget(int w_, int h_, unsigned char *buffer) :
         w(w_),
         h(h_)
     {
-        image = initialize_texture(w, h, buffer);
+        image = initialize_texture_integer(w, h, buffer);
         rectangle = make_rectangle_vertex_array(0, 0, w, h);
     }
 
@@ -1072,7 +1133,7 @@ struct image_widget : public widget
     {
         set_image_shader(to_screen, image, x, y);
 
-        glBindVertexArray(rectangle);
+        rectangle.bind();
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
     }
@@ -1081,7 +1142,7 @@ struct image_widget : public widget
 struct text_widget : public widget
 {
     GLuint string_texture;
-    GLuint rectangle;
+    vertex_array rectangle;
     string content;
     float fg[4];
     float bg[4];
@@ -1106,7 +1167,7 @@ struct text_widget : public widget
                 bytes.get()[i] = 255;
             i++;
         }
-        string_texture = initialize_texture(i, 1, bytes.get());
+        string_texture = initialize_texture_integer(i, 1, bytes.get());
         rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
     }
 
@@ -1119,7 +1180,7 @@ struct text_widget : public widget
     {
         set_textport_shader(to_screen, string_texture, 0, x, y, fg, bg);
 
-        glBindVertexArray(rectangle);
+        rectangle.bind();
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         CheckOpenGL(__FILE__, __LINE__);
     }
@@ -1288,16 +1349,20 @@ toggle *caps_toggle;
 
 void initialize_gl(void)
 {
+    GLuint va;
+    glGenVertexArrays(1, &va);
+    glBindVertexArray(va);
+
     glClearColor(0, 0, 0, 1);
     CheckOpenGL(__FILE__, __LINE__);
 
     font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
-    textport_texture[0][0] = initialize_texture(textport_w, textport_h);
-    textport_texture[0][1] = initialize_texture(textport_w, textport_h);
-    textport_texture[1][0] = initialize_texture(textport_w, textport_h);
-    textport_texture[1][1] = initialize_texture(textport_w, textport_h);
-    hires_texture[0] = initialize_texture(hires_w, hires_h);
-    hires_texture[1] = initialize_texture(hires_w, hires_h);
+    textport_texture[0][0] = initialize_texture_integer(textport_w, textport_h);
+    textport_texture[0][1] = initialize_texture_integer(textport_w, textport_h);
+    textport_texture[1][0] = initialize_texture_integer(textport_w, textport_h);
+    textport_texture[1][1] = initialize_texture_integer(textport_w, textport_h);
+    hires_texture[0] = initialize_texture_integer(hires_w, hires_h);
+    hires_texture[1] = initialize_texture_integer(hires_w, hires_h);
     CheckOpenGL(__FILE__, __LINE__);
 
     image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
@@ -1321,6 +1386,7 @@ void initialize_gl(void)
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
     textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
     textport_font_texture_location = glGetUniformLocation(text_program, "font_texture");
+    textport_font_texture_coord_scale_location = glGetUniformLocation(text_program, "font_texture_coord_scale");
     textport_blink_location = glGetUniformLocation(text_program, "blink");
     textport_x_offset_location = glGetUniformLocation(text_program, "x_offset");
     textport_y_offset_location = glGetUniformLocation(text_program, "y_offset");
@@ -1339,6 +1405,7 @@ void initialize_gl(void)
     textport80_to_screen_location = glGetUniformLocation(text80_program, "to_screen");
     textport80_foreground_location = glGetUniformLocation(text80_program, "foreground");
     textport80_background_location = glGetUniformLocation(text80_program, "background");
+    textport80_font_texture_coord_scale_location = glGetUniformLocation(text80_program, "font_texture_coord_scale");
     CheckOpenGL(__FILE__, __LINE__);
 
     lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
