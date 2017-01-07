@@ -116,21 +116,6 @@ opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL)
     return {w, h, tex};
 }
 
-opengl_texture initialize_texture_integer(int w, int h, unsigned char *pixels = NULL)
-{
-    GLuint tex;
-
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    CheckOpenGL(__FILE__, __LINE__);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, w, h, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, pixels);
-    CheckOpenGL(__FILE__, __LINE__);
-    return {w, h, tex};
-}
-
 opengl_texture font_texture;
 const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;
@@ -420,14 +405,14 @@ static const char *text_fragment_shader = "\n\
     uniform vec2 font_texture_coord_scale;\n\
     uniform sampler2D font_texture;\n\
     uniform vec2 textport_texture_coord_scale;\n\
-    uniform usampler2D textport_texture;\n\
+    uniform sampler2D textport_texture;\n\
     \n\
     out vec4 color;\n\
     \n\
     void main()\n\
     {\n\
         uint character;\n\
-        character = texture(textport_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x; \n\
+        character = uint(texture(textport_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x * 255.0); \n\
         bool inverse = false;\n\
         if(character >= 0u && character <= 31u) {\n\
             character = character - 0u + 32u;\n\
@@ -468,8 +453,8 @@ static const char *text80_fragment_shader = "\n\
     uniform vec2 font_texture_coord_scale;\n\
     uniform sampler2D font_texture;\n\
     uniform vec2 textport_texture_coord_scale;\n\
-    uniform usampler2D textport_texture;\n\
-    uniform usampler2D textport_aux_texture;\n\
+    uniform sampler2D textport_texture;\n\
+    uniform sampler2D textport_aux_texture;\n\
     \n\
     out vec4 color;\n\
     \n\
@@ -478,9 +463,9 @@ static const char *text80_fragment_shader = "\n\
         uint character;\n\
         uint x = uint(raster_coords.x * 2) / 7u; \n\
         if(x % 2u == 1u) \n\
-            character = texture(textport_texture, uvec2((x - 1u) / 2u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x; \n\
+            character = uint(texture(textport_texture, uvec2((x - 1u) / 2u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x * 255.0); \n\
         else \n\
-            character = texture(textport_aux_texture, uvec2(x / 2u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x; \n\
+            character = uint(texture(textport_aux_texture, uvec2(x / 2u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x * 255.0); \n\
         bool inverse = false;\n\
         if(character >= 0u && character <= 31u) {\n\
             character = character - 0u + 32u;\n\
@@ -517,14 +502,14 @@ static const char *text80_fragment_shader = "\n\
 static const char *lores_fragment_shader = "\n\
     in vec2 raster_coords;\n\
     uniform vec2 lores_texture_coord_scale;\n\
-    uniform usampler2D lores_texture;\n\
+    uniform sampler2D lores_texture;\n\
     \n\
     out vec4 color;\n\
     \n\
     void main()\n\
     {\n\
         uint byte;\n\
-        byte = texture(lores_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * lores_texture_coord_scale).x; \n\
+        byte = uint(texture(lores_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * lores_texture_coord_scale).x * 255.0); \n\
         uint inglyph_y = uint(raster_coords.y) % 8u;\n\
         uint lorespixel;\n\
         if(inglyph_y < 4u)\n\
@@ -1198,7 +1183,7 @@ struct text_widget : public widget
                 bytes.get()[i] = 255;
             i++;
         }
-        string_texture = initialize_texture_integer(i, 1, bytes.get());
+        string_texture = initialize_texture(i, 1, bytes.get());
         rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
     }
 
@@ -1388,10 +1373,10 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 
     font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
-    textport_texture[0][0] = initialize_texture_integer(textport_w, textport_h);
-    textport_texture[0][1] = initialize_texture_integer(textport_w, textport_h);
-    textport_texture[1][0] = initialize_texture_integer(textport_w, textport_h);
-    textport_texture[1][1] = initialize_texture_integer(textport_w, textport_h);
+    textport_texture[0][0] = initialize_texture(textport_w, textport_h);
+    textport_texture[0][1] = initialize_texture(textport_w, textport_h);
+    textport_texture[1][0] = initialize_texture(textport_w, textport_h);
+    textport_texture[1][1] = initialize_texture(textport_w, textport_h);
     hires_texture[0] = initialize_texture(hires_w, hires_h);
     hires_texture[1] = initialize_texture(hires_w, hires_h);
     CheckOpenGL(__FILE__, __LINE__);
@@ -2029,7 +2014,7 @@ void write2(int addr, bool aux, unsigned char data)
             if((within_page >= row_offset) && (within_page < row_offset + 40)) {
                 int col = within_page - row_offset;
                 glBindTexture(GL_TEXTURE_2D, textport_texture[aux ? 1 : 0][page]);
-                glTexSubImage2D(GL_TEXTURE_2D, 0, col, row, 1, 1, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &data);
+                glTexSubImage2D(GL_TEXTURE_2D, 0, col, row, 1, 1, GL_RED, GL_UNSIGNED_BYTE, &data);
                 CheckOpenGL(__FILE__, __LINE__);
             }
         }
