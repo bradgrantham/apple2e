@@ -653,7 +653,7 @@ void set_image_shader(float to_screen[9], const opengl_texture& texture, float x
     glUseProgram(image_program);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
-    glUniform2f(image_texture_coord_scale_location, 1.0 / (texture.w - 0), 1.0 / (texture.h - 0));
+    glUniform2f(image_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
     glUniform1i(image_texture_location, 0);
     glUniformMatrix3fv(image_to_screen_location, 1, GL_FALSE, to_screen);
     glUniform1f(image_x_offset_location, x);
@@ -666,7 +666,7 @@ void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool co
         glUseProgram(hirescolor_program);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
-        glUniform2f(hirescolor_texture_coord_scale_location, 1.0 / (texture.w - 0), 1.0 / (texture.h - 0));
+        glUniform2f(hirescolor_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
         glUniform1i(hirescolor_texture_location, 0);
         glUniformMatrix3fv(hirescolor_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hirescolor_x_offset_location, x);
@@ -678,7 +678,7 @@ void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool co
         glUseProgram(hires_program);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
-        glUniform2f(hires_texture_coord_scale_location, 1.0 / (texture.w - 0), 1.0 / (texture.h - 0));
+        glUniform2f(hires_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
         glUniform1i(hires_texture_location, 0);
         glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hires_x_offset_location, x);
@@ -697,7 +697,7 @@ void set_textport_shader(float to_screen[9], const opengl_texture& textport, int
     CheckOpenGL(__FILE__, __LINE__);
     glUniform1i(textport_texture_location, 0);
     CheckOpenGL(__FILE__, __LINE__);
-    glUniform2f(textport_texture_coord_scale_location, 1.0 / (textport.w - 0), 1.0 / (textport.h - 0));
+    glUniform2f(textport_texture_coord_scale_location, 1.0 / textport.w, 1.0 / textport.h);
     CheckOpenGL(__FILE__, __LINE__);
     glActiveTexture(GL_TEXTURE1);
     CheckOpenGL(__FILE__, __LINE__);
@@ -705,7 +705,7 @@ void set_textport_shader(float to_screen[9], const opengl_texture& textport, int
     CheckOpenGL(__FILE__, __LINE__);
     glUniform1i(textport_font_texture_location, 1);
     CheckOpenGL(__FILE__, __LINE__);
-    glUniform2f(textport_font_texture_coord_scale_location, 1.0 / (fonttexture_w - 0), 1.0 / (fonttexture_h - 0));
+    glUniform2f(textport_font_texture_coord_scale_location, 1.0 / fonttexture_w, 1.0 / fonttexture_h);
     CheckOpenGL(__FILE__, __LINE__);
     glUniform1i(textport_blink_location, blink);
     glUniform1f(textport_x_offset_location, x);
@@ -725,7 +725,7 @@ void set_textport80_shader(float to_screen[9], const opengl_texture& textport80,
     glActiveTexture(GL_TEXTURE0 + tex);
     glBindTexture(GL_TEXTURE_2D, textport80);
     glUniform1i(textport80_texture_location, tex);
-    glUniform2f(textport80_texture_coord_scale_location, 1.0 / (textport_w - 0), 1.0 / (textport_h - 0));
+    glUniform2f(textport80_texture_coord_scale_location, 1.0 / textport_w, 1.0 / textport_h);
     tex += 1;
     CheckOpenGL(__FILE__, __LINE__);
     glActiveTexture(GL_TEXTURE0 + tex);
@@ -736,7 +736,7 @@ void set_textport80_shader(float to_screen[9], const opengl_texture& textport80,
     glActiveTexture(GL_TEXTURE0 + tex);
     glBindTexture(GL_TEXTURE_2D, font_texture);
     glUniform1i(textport80_font_texture_location, tex);
-    glUniform2f(textport80_font_texture_coord_scale_location, 1.0 / (fonttexture_w - 1), 1.0 / (fonttexture_h - 1));
+    glUniform2f(textport80_font_texture_coord_scale_location, 1.0 / fonttexture_w, 1.0 / fonttexture_h);
     tex += 1;
     glUniform1i(textport80_blink_location, blink);
     glUniform1f(textport80_x_offset_location, x);
@@ -765,7 +765,7 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, b
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textport_texture[0][display_page]);
         glUniform1i(lores_texture_location, 0);
-        glUniform2f(lores_texture_coord_scale_location, 1.0 / (textport_w - 0), 1.0 / (textport_h - 0));
+        glUniform2f(lores_texture_coord_scale_location, 1.0 / (textport_w), 1.0 / (textport_h));
         glUniformMatrix3fv(lores_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(lores_x_offset_location, x);
         glUniform1f(lores_y_offset_location, y);
