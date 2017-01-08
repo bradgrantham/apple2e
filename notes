@@ -1,0 +1,46 @@
+final release:
+    help screen
+    gamepad calibration screen (for desktop GLFW anyway)
+        need to handle asynchronous gamepad arrival (a la HTML5)
+    screenshots for README.md
+    link to emscripten version
+    Linux build
+
+emscripten:
+    safari misses 'V' for some reason
+    why is it running slow in Chrome?
+        runs fast in Safari and Firefox.  :-/
+    upgrade to 1.37, see if -O2 issue is fixed
+    audio
+    paste somehow
+        store paste event contents into a variable, copy that in GLFW clipboard routines?
+    floppies
+        IDBFS, local storage initialized from DOS 3.3 floppy and other floppies
+        copy into IDBFS from other web pages
+        drag and drop from IDBFS into floppy icons
+    make rasterization less ugly
+        retina canvas?
+        limit to integer-zoomed pixels?
+    GLFW - gamepad using HTML5 gamepad interface
+        note that it doesn't show up until initially used
+
+cleanup:
+    deglobalize where possible
+    lower and underscores throughout
+    exceptions?
+    tableize 6502?
+
+Run this software, purge fake6502:
+    ProDOS
+    LodeRunner
+    ChopLifter
+    Digitizer
+    Plasmania
+    Christmas Carols
+    Data Capture //e
+    Contiki no network
+    Idiom Translator
+    Pascal - Brad's Disk
+    ...?
+
+apple2e -diskII diskII.c600.c67f.bin ~/Downloads/LodeRunner.dsk none apple2e.rom < /dev/null
