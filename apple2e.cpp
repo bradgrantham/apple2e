@@ -2746,7 +2746,7 @@ int main(int argc, char **argv)
         return true;
     };
 
-    emscripten_set_main_loop_arg(caller, &main_loop_body, 60, true);
+    emscripten_set_main_loop_arg(caller, &main_loop_body, 0, true);
 
     APPLE2Einterface::shutdown();
 }
