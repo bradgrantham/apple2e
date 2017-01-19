@@ -187,7 +187,7 @@ bool paddle_buttons[4] = {false, false, false, false};
 tuple<float,bool> get_paddle(int num)
 {
     if(num < 0 || num > 3)
-        make_tuple(-1, false);
+        return make_tuple(-1, false);
     return make_tuple(paddle_values[num], paddle_buttons[num]);
 }
 
@@ -774,9 +774,11 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, b
     }
 }
 
+typedef pair<float, float> width_height;
+
 struct widget
 {
-    virtual tuple<float, float> get_min_dimensions() const = 0;
+    virtual width_height get_min_dimensions() const = 0;
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h) {};
     virtual bool click(double now, float x, float y) { return false; };
     virtual void hover(double now, float x, float y) {};
@@ -803,9 +805,9 @@ struct switcher
             h = max(h, ch);
         }
     }
-    virtual tuple<float, float> get_min_dimensions() const 
+    virtual width_height get_min_dimensions() const 
     {
-        return make_tuple(w, h);
+        return {w, h};
     }
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
@@ -840,9 +842,9 @@ struct spacer : public widget
         w(w_),
         h(h_)
     {}
-    virtual tuple<float, float> get_min_dimensions() const 
+    virtual width_height get_min_dimensions() const 
     {
-        return make_tuple(w, h);
+        return {w, h};
     }
 };
 
@@ -871,9 +873,9 @@ struct padding : public widget
         h = ch + top_pad_ + bottom_pad_;
     }
 
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
-        return make_tuple(w, h);
+        return {w, h};
     }
     virtual void draw(double now, float to_screen[9], float x, float y, float w_, float h_)
     {
@@ -912,9 +914,9 @@ struct centering : public widget
         tie(cw, ch) = child->get_min_dimensions();
     }
 
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
-        return make_tuple(cw, ch);
+        return {cw, ch};
     }
     virtual void draw(double now, float to_screen[9], float x, float y, float w_, float h_)
     {
@@ -984,9 +986,9 @@ struct widgetbox : public widget
             }
         }
     }
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
-        return make_tuple(w, h);
+        return {w, h};
     }
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
     {
@@ -1044,9 +1046,9 @@ struct apple2screen : public widget
     float w, h;
     apple2screen() { }
 
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
-        return make_tuple(280, 192);
+        return {280, 192};
     }
 
     virtual void draw(double now, float to_screen[9], float x, float y, float w_, float h_)
@@ -1140,9 +1142,9 @@ struct image_widget : public widget
         rectangle = make_rectangle_vertex_array(0, 0, w, h);
     }
 
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
-        return make_tuple(w, h);
+        return {w, h};
     }
 
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
@@ -1187,9 +1189,9 @@ struct text_widget : public widget
         rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
     }
 
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
-        return make_tuple(content.size() * 7, 8);
+        return {content.size() * 7, 8};
     }
 
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
@@ -1216,11 +1218,11 @@ struct momentary : public text_widget
         set(fg, 1, 1, 1, 1);
     }
 
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
         float w, h;
         tie(w, h) = text_widget::get_min_dimensions();
-        return make_tuple(w + 3 * 2, h + 3 * 2);
+        return {w + 3 * 2, h + 3 * 2};
     }
 
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
@@ -1289,11 +1291,11 @@ struct toggle : public text_widget
         }
     }
 
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
         float w, h;
         tie(w, h) = text_widget::get_min_dimensions();
-        return make_tuple(w + 3 * 2, h + 3 * 2);
+        return {w + 3 * 2, h + 3 * 2};
     }
 
     virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
@@ -1541,7 +1543,7 @@ struct floppy_icon : public widget
         widget *label = new text_widget(to_string(number_ + 1));
         labeled = new widgetbox(widgetbox::HORIZONTAL, {new centering(label), new centering((widget*)switched), new centering(new text_widget(" "))});
     }
-    virtual tuple<float, float> get_min_dimensions() const
+    virtual width_height get_min_dimensions() const
     {
         return labeled->get_min_dimensions();
     }
@@ -2000,7 +2002,8 @@ static const int hires_page_size = 8192;
 extern int text_row_base_offsets[24];
 extern int hires_memory_to_scanout_address[8192];
 
-map< tuple<int, bool>, unsigned char> writes;
+typedef pair<int, bool> address_auxpage;
+map< address_auxpage, unsigned char> writes;
 int collisions = 0;
 
 void write2(int addr, bool aux, unsigned char data)
@@ -2053,16 +2056,16 @@ bool write(int addr, bool aux, unsigned char data)
     // We know text page 1 and 2 are contiguous
     if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
 
-        if(writes.find(make_tuple(addr, aux)) != writes.end())
+        if(writes.find({addr, aux}) != writes.end())
             collisions++;
-        writes[make_tuple(addr, aux)] = data;
+        writes[{addr, aux}] = data;
         return true;
 
     } else if(((addr >= hires_page1_base) && (addr < hires_page1_base + hires_page_size)) || ((addr >= hires_page2_base) && (addr < hires_page2_base + hires_page_size))) {
 
-        if(writes.find(make_tuple(addr, aux)) != writes.end())
+        if(writes.find({addr, aux}) != writes.end())
             collisions++;
-        writes[make_tuple(addr, aux)] = data;
+        writes[{addr, aux}] = data;
         return true;
     }
     return false;
