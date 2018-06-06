@@ -44,3 +44,10 @@ Run this software, purge fake6502:
     ...?
 
 apple2e -diskII diskII.c600.c67f.bin ~/Downloads/LodeRunner.dsk none apple2e.rom < /dev/null
+
+Actual ROM files that are in our Apple IIe, and run Brad's sound digitizer:
+    wget http://www.applelogic.org/files/3420135A.BIN
+    wget http://www.applelogic.org/files/3420134A.bin
+    cat 3420135A.BIN 3420134A.bin > apple2e_a.rom
+    (dd if=/dev/zero bs=16384 count=1 ; cat 3420135A.BIN 3420134A.bin) > apple2e_a.rom
+    apple2e -diskII diskII.c600.c67f.bin ~/packages/Disk\ Images/Brad\'s\ Handwriting/Sound\ Digitizer\ Original\ 1.2.dsk none apple2e_a.rom
