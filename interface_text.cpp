@@ -21,6 +21,7 @@ using namespace std;
 namespace APPLE2Einterface
 {
 
+bool textport_needs_output[2] = {false, false};
 DisplayMode display_mode = TEXT;
 int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
 bool mixed_mode = false;
@@ -34,8 +35,6 @@ static const int text_page_size = 0x400;
 unsigned char textport[2][24][40];
 
 deque<event> event_queue;
-
-bool force_caps_on = true;
 
 bool event_waiting()
 {
@@ -184,6 +183,8 @@ void poll_keyboard()
         } else if(c >= 1 && c<= 26) {
             control = true;
             ch = 'A' + c - 1;
+        } else if(c >= 'a' && c<= 'z') {
+            ch = 'A' + c - 'a';
         } else {
             ch = c;
         }
@@ -206,16 +207,21 @@ void iterate()
 {
     apply_writes();
 
-    printf(".----------------------------------------.\n");
-    for(int row = 0; row < 24; row++) {
-        putchar('|');
-        for(int col = 0; col < 40; col++) {
-            int ch = textport[display_page][row][col] & 0x7F;
-            printf("%c", isprint(ch) ? ch : '?');
+    if(textport_needs_output[display_page])
+    {
+        printf("\033[0;0H");
+        printf(".----------------------------------------.\n");
+        for(int row = 0; row < 24; row++) {
+            putchar('|');
+            for(int col = 0; col < 40; col++) {
+                int ch = textport[display_page][row][col] & 0x7F;
+                printf("%c", isprint(ch) ? ch : '?');
+            }
+            puts("|");
         }
-        puts("|");
+        printf("`----------------------------------------'\n");
+        textport_needs_output[display_page] = false;
     }
-    printf("`----------------------------------------'\n");
 
     poll_keyboard();
 }
@@ -257,6 +263,7 @@ void write2(int addr, unsigned char data)
             if((within_page >= row_offset) && (within_page < row_offset + 40)) {
                 int col = within_page - row_offset;
                 textport[page][row][col] = data;
+                textport_needs_output[page] = true;
             }
         }
 
