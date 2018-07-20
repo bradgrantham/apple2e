@@ -7,6 +7,10 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <functional>
+#include <cstring>
+#include <cassert>
 #include <ao/ao.h>
 
 // implicit centering in widget? Or special centering widget?
@@ -14,6 +18,10 @@
 // widget which is graphics/text/lores screen
 // hbox
 // what is window resize / shrink policy?
+
+#if defined(__linux__)
+#include <GL/glew.h>
+#endif // defined(__linux__)
 
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
@@ -398,6 +406,7 @@ static const char *text_vertex_shader = "\n\
 // 224-255 is normal 64-95
 
 static const char *text_fragment_shader = "\n\
+    precision highp float;\n\
     in vec2 raster_coords;\n\
     uniform int blink;\n\
     uniform vec4 foreground;\n\
@@ -517,52 +526,52 @@ static const char *lores_fragment_shader = "\n\
         else\n\
             lorespixel = byte / 16u;\n\
         switch(lorespixel) {\n\
-            case 0:\n\
+            case 0u:\n\
                 color = vec4(0, 0, 0, 1);\n\
                 break;\n\
-            case 1:\n\
+            case 1u:\n\
                 color = vec4(227.0/255.0, 30.0/255.0, 96.0/255.0, 1);\n\
                 break;\n\
-            case 2:\n\
+            case 2u:\n\
                 color = vec4(96.0/255.0, 78.0/255.0, 189.0/255.0, 1);\n\
                 break;\n\
-            case 3:\n\
+            case 3u:\n\
                 color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1);\n\
                 break;\n\
-            case 4:\n\
+            case 4u:\n\
                 color = vec4(9.0/255.0, 163.0/255.0, 96.0/255.0, 1);\n\
                 break;\n\
-            case 5:\n\
+            case 5u:\n\
                 color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);\n\
                 break;\n\
-            case 6:\n\
+            case 6u:\n\
                 color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1);\n\
                 break;\n\
-            case 7:\n\
+            case 7u:\n\
                 color = vec4(208.0/255.0, 195.0/255.0, 255.0/255.0, 1);\n\
                 break;\n\
-            case 8:\n\
+            case 8u:\n\
                 color = vec4(96.0/255.0, 114.0/255.0, 3.0/255.0, 1);\n\
                 break;\n\
-            case 9:\n\
+            case 9u:\n\
                 color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1);\n\
                 break;\n\
-            case 10:\n\
+            case 10u:\n\
                 color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);\n\
                 break;\n\
-            case 11:\n\
+            case 11u:\n\
                 color = vec4(255.0/255.0, 160.0/255.0, 208.0/255.0, 1);\n\
                 break;\n\
-            case 12:\n\
+            case 12u:\n\
                 color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1);\n\
                 break;\n\
-            case 13:\n\
+            case 13u:\n\
                 color = vec4(208.0/255.0, 221.0/255.0, 141.0/255.0, 1);\n\
                 break;\n\
-            case 14:\n\
+            case 14u:\n\
                 color = vec4(114.0/255.0, 255.0/255.0, 208.0/255.0, 1);\n\
                 break;\n\
-            case 15:\n\
+            case 15u:\n\
                 color = vec4(255.0/255.0, 255.0/255.0, 255.0/255.0, 1);\n\
                 break;\n\
         }\n\
@@ -1076,7 +1085,7 @@ struct apple2screen : public widget
     {
         float w, h;
         tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h) {
+        if(x >= 0 && y >= 0 && x < w && y < h) {
             if(!use_joystick)
                 paddle_buttons[0] = true;
             return true;
@@ -1113,7 +1122,7 @@ struct apple2screen : public widget
         // insert
         float w, h;
         tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h) {
+        if(x >= 0 && y >= 0 && x < w && y < h) {
             FILE *fp = fopen(paths[0], "r");
             fseek(fp, 0, SEEK_END);
             long length = ftell(fp);
@@ -1172,7 +1181,7 @@ struct text_widget : public widget
         set(bg, 0, 0, 0, 0);
 
         // construct string texture
-        auto_ptr<unsigned char> bytes(new unsigned char[content.size() + 1]);
+        unique_ptr<unsigned char> bytes(new unsigned char[content.size() + 1]);
         int i = 0;
         for(auto c : content) {
             if(c >= ' ' && c <= '?')
@@ -1238,7 +1247,7 @@ struct momentary : public text_widget
     {
         float w, h;
         tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h) {
+        if(x >= 0 && y >= 0 && x < w && y < h) {
             on = true;
             set(fg, 0, 0, 0, 1);
             set(bg, 1, 1, 1, 1);
@@ -1251,7 +1260,7 @@ struct momentary : public text_widget
     {
         float w, h;
         tie(w, h) = get_min_dimensions();
-        on = (x >= 0 && y >= 0 & x < w && y < h);
+        on = (x >= 0 && y >= 0 && x < w && y < h);
         if(on) {
             set(fg, 0, 0, 0, 1);
             set(bg, 1, 1, 1, 1);
@@ -1311,7 +1320,7 @@ struct toggle : public text_widget
     {
         float w, h;
         tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h) {
+        if(x >= 0 && y >= 0 && x < w && y < h) {
             if(on) {
                 set(fg, 0, 0, 0, 1);
                 set(bg, 1, 1, 1, 1);
@@ -1328,7 +1337,7 @@ struct toggle : public text_widget
     {
         float w, h;
         tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h) {
+        if(x >= 0 && y >= 0 && x < w && y < h) {
             if(on) {
                 set(fg, 0, 0, 0, 1);
                 set(bg, 1, 1, 1, 1);
@@ -1367,6 +1376,9 @@ toggle *caps_toggle;
 
 void initialize_gl(void)
 {
+#if defined(__linux__)
+    glewInit();
+#endif // defined(__linux__)
     GLuint va;
     glGenVertexArrays(1, &va);
     glBindVertexArray(va);
@@ -1384,6 +1396,7 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 
     image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
+    assert(image_program != 0);
     image_texture_location = glGetUniformLocation(image_program, "image");
     image_texture_coord_scale_location = glGetUniformLocation(image_program, "image_coord_scale");
     image_to_screen_location = glGetUniformLocation(image_program, "to_screen");
@@ -1391,6 +1404,7 @@ void initialize_gl(void)
     image_y_offset_location = glGetUniformLocation(image_program, "y_offset");
 
     hires_program = GenerateProgram("hires", hires_vertex_shader, hires_fragment_shader);
+    assert(hires_program != 0);
     hires_texture_location = glGetUniformLocation(hires_program, "hires_texture");
     hires_texture_coord_scale_location = glGetUniformLocation(hires_program, "hires_texture_coord_scale");
     hires_to_screen_location = glGetUniformLocation(hires_program, "to_screen");
@@ -1398,6 +1412,7 @@ void initialize_gl(void)
     hires_y_offset_location = glGetUniformLocation(hires_program, "y_offset");
 
     hirescolor_program = GenerateProgram("hirescolor", hires_vertex_shader, hirescolor_fragment_shader);
+    assert(hirescolor_program != 0);
     hirescolor_texture_location = glGetUniformLocation(hirescolor_program, "hires_texture");
     hirescolor_texture_coord_scale_location = glGetUniformLocation(hirescolor_program, "hires_texture_coord_scale");
     hirescolor_to_screen_location = glGetUniformLocation(hirescolor_program, "to_screen");
@@ -1405,6 +1420,7 @@ void initialize_gl(void)
     hirescolor_y_offset_location = glGetUniformLocation(hirescolor_program, "y_offset");
 
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
+    assert(text_program != 0);
     textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
     textport_texture_coord_scale_location = glGetUniformLocation(text_program, "textport_texture_coord_scale");
     textport_font_texture_location = glGetUniformLocation(text_program, "font_texture");
@@ -1418,6 +1434,7 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 
     text80_program = GenerateProgram("textport80", text_vertex_shader, text80_fragment_shader);
+    assert(text80_program != 0);
     textport80_texture_location = glGetUniformLocation(text80_program, "textport_texture");
     textport80_texture_coord_scale_location = glGetUniformLocation(text80_program, "textport_texture_coord_scale");
     textport80_aux_texture_location = glGetUniformLocation(text80_program, "textport_aux_texture");
@@ -1431,7 +1448,8 @@ void initialize_gl(void)
     textport80_font_texture_coord_scale_location = glGetUniformLocation(text80_program, "font_texture_coord_scale");
     CheckOpenGL(__FILE__, __LINE__);
 
-    lores_program = GenerateProgram("textport", text_vertex_shader, lores_fragment_shader);
+    lores_program = GenerateProgram("lores", text_vertex_shader, lores_fragment_shader);
+    assert(lores_program != 0);
     lores_texture_location = glGetUniformLocation(lores_program, "lores_texture");
     lores_texture_coord_scale_location = glGetUniformLocation(lores_program, "lores_texture_coord_scale");
     lores_x_offset_location = glGetUniformLocation(lores_program, "x_offset");
@@ -1555,7 +1573,7 @@ struct floppy_icon : public widget
     {
         float w, h;
         tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h)
+        if(x >= 0 && y >= 0 && x < w && y < h)
             return true;
         return false;
     }
@@ -1577,7 +1595,7 @@ struct floppy_icon : public widget
         // insert
         float w, h;
         tie(w, h) = get_min_dimensions();
-        if(x >= 0 && y >= 0 & x < w && y < h) {
+        if(x >= 0 && y >= 0 && x < w && y < h) {
             event_queue.push_back({INSERT_FLOPPY, number, strdup(paths[0])});
             switched->which = 1;
             return true;
@@ -1778,11 +1796,6 @@ static void motion(GLFWwindow *window, double x, double y)
     }
     chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
     chrono::duration<double> elapsed = now - start_time;
-
-    double dx, dy;
-
-    dx = x - gOldMouseX;
-    dy = y - gOldMouseY;
 
     gOldMouseX = x;
     gOldMouseY = y;
