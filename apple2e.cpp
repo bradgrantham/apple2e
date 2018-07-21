@@ -32,6 +32,7 @@ const unsigned int DEBUG_FLOPPY = 0x40;
 const unsigned int DEBUG_SWITCH = 0x80;
 volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN ; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
 
+bool delete_is_left_arrow = true;
 volatile bool exit_on_banking = false;
 volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
@@ -2517,7 +2518,7 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
             diskIIboard->set_floppy(e.value, e.str);
             free(e.str);
         } else if(e.type == APPLE2Einterface::PASTE) {
-            for(int i = 0; i < strlen(e.str); i++)
+            for(unsigned int i = 0; i < strlen(e.str); i++)
                 if(e.str[i] == '\n')
                     board->enqueue_key('\r');
                 else
@@ -2536,8 +2537,12 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
                 board->enqueue_key('	');
             } else if(e.value == APPLE2Einterface::ESCAPE) {
                 board->enqueue_key('');
-            } else if(e.value == APPLE2Einterface::DELETE) {
-                board->enqueue_key(255 - 128);
+            } else if(e.value == APPLE2Einterface::BACKSPACE) {
+                if(delete_is_left_arrow) {
+                    board->enqueue_key(136 - 128);
+                } else {
+                    board->enqueue_key(255 - 128);
+                }
             } else if(e.value == APPLE2Einterface::RIGHT) {
                 board->enqueue_key(149 - 128);
             } else if(e.value == APPLE2Einterface::LEFT) {
@@ -2620,6 +2625,10 @@ int main(int argc, char **argv)
             floppy2_name = argv[3];
             argv += 4;
             argc -= 4;
+	} else if(strcmp(argv[0], "-backspace-is-delete") == 0) {
+            delete_is_left_arrow = false;
+            argv += 1;
+            argc -= 1;
 	} else if(strcmp(argv[0], "-fast") == 0) {
             run_fast = true;
             argv += 1;
