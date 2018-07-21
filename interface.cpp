@@ -356,7 +356,7 @@ static const char *hirescolor_fragment_shader = "\n\
         } else { \n\
             uint even = (x % 2 == 1) ? left : pixel; \n\
             uint odd = (x % 2 == 1) ? pixel : right; \n\
-            uint palette = uint(texture(hires_texture, vec2((x / 7) * 8 + 7, raster_coords.y) * hires_texture_coord_scale).x); \n\
+            uint palette = uint(texture(hires_texture, vec2((x / 7) * 8 + 7 + .01f, raster_coords.y + .01f) * hires_texture_coord_scale).x); \n\
  \n\
             if(palette == 0u) { \n\
                 if((even == 0u) && (odd == 255u)) { \n\
