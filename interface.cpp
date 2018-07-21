@@ -406,7 +406,6 @@ static const char *text_vertex_shader = "\n\
 // 224-255 is normal 64-95
 
 static const char *text_fragment_shader = "\n\
-    precision highp float;\n\
     in vec2 raster_coords;\n\
     uniform int blink;\n\
     uniform vec4 foreground;\n\
@@ -421,7 +420,7 @@ static const char *text_fragment_shader = "\n\
     void main()\n\
     {\n\
         uint character;\n\
-        character = uint(texture(textport_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x * 255.0); \n\
+        character = uint(texture(textport_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale + vec2(.01f / 40.0f, .01f / 24.0f)).x * 255.0); \n\
         bool inverse = false;\n\
         if(character >= 0u && character <= 31u) {\n\
             character = character - 0u + 32u;\n\
@@ -447,7 +446,7 @@ static const char *text_fragment_shader = "\n\
             character = 33u;\n\
         uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        float pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
+        float pixel = texture(font_texture, infont * font_texture_coord_scale + vec2(.01f / 7.0f, .01f / 768.0f)).x;\n\
         if(inverse)\n\
             color = mix(background, foreground, 1.0 - pixel);\n\
         else\n\
