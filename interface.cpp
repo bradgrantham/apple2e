@@ -320,7 +320,7 @@ static const char *hires_fragment_shader = "\n\
         int bit = int(raster_coords.x) % 7;\n\
         int texturex = byte * 8 + bit;\n\
         ivec2 tc = ivec2(texturex, raster_coords.y);\n\
-        float pixel = texture(hires_texture, tc * hires_texture_coord_scale).x;\n\
+        float pixel = texture(hires_texture, (tc + vec2(.01f, .01f)) * hires_texture_coord_scale).x;\n\
         color = vec4(pixel, pixel, pixel, 1);\n\
     }\n";
 
@@ -336,7 +336,7 @@ static const char *hirescolor_fragment_shader = "\n\
         int byte = x / 7;\n\
         int bit = x % 7;\n\
         int texturex = byte * 8 + bit;\n\
-        return vec2(texturex, y) * hires_texture_coord_scale; \n\
+        return vec2(texturex + .01f, y + .01f) * hires_texture_coord_scale; \n\
     }\n\
     void main()\n\
     {\n\
@@ -420,7 +420,7 @@ static const char *text_fragment_shader = "\n\
     void main()\n\
     {\n\
         uint character;\n\
-        character = uint(texture(textport_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale + vec2(.01f / 40.0f, .01f / 24.0f)).x * 255.0); \n\
+        character = uint(texture(textport_texture, (uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); \n\
         bool inverse = false;\n\
         if(character >= 0u && character <= 31u) {\n\
             character = character - 0u + 32u;\n\
@@ -446,7 +446,7 @@ static const char *text_fragment_shader = "\n\
             character = 33u;\n\
         uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        float pixel = texture(font_texture, infont * font_texture_coord_scale + vec2(.01f / 7.0f, .01f / 768.0f)).x;\n\
+        float pixel = texture(font_texture, (infont + vec2(.01f, 0.1f)) * font_texture_coord_scale).x;\n\
         if(inverse)\n\
             color = mix(background, foreground, 1.0 - pixel);\n\
         else\n\
@@ -471,9 +471,9 @@ static const char *text80_fragment_shader = "\n\
         uint character;\n\
         uint x = uint(raster_coords.x * 2) / 7u; \n\
         if(x % 2u == 1u) \n\
-            character = uint(texture(textport_texture, uvec2((x - 1u) / 2u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x * 255.0); \n\
+            character = uint(texture(textport_texture, (uvec2((x - 1u) / 2u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); \n\
         else \n\
-            character = uint(texture(textport_aux_texture, uvec2(x / 2u, uint(raster_coords.y) / 8u) * textport_texture_coord_scale).x * 255.0); \n\
+            character = uint(texture(textport_aux_texture, (uvec2(x / 2u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); \n\
         bool inverse = false;\n\
         if(character >= 0u && character <= 31u) {\n\
             character = character - 0u + 32u;\n\
@@ -499,7 +499,7 @@ static const char *text80_fragment_shader = "\n\
             character = 33u;\n\
         uvec2 inglyph = uvec2(uint(raster_coords.x * 2) % 7u, uint(raster_coords.y) % 8u);\n\
         uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        float pixel = texture(font_texture, infont * font_texture_coord_scale).x;\n\
+        float pixel = texture(font_texture, (infont + vec2(.01f, 0.1f)) * font_texture_coord_scale).x;\n\
         float value;\n\
         if(inverse)\n\
             color = mix(background, foreground, 1.0 - pixel);\n\
@@ -517,7 +517,7 @@ static const char *lores_fragment_shader = "\n\
     void main()\n\
     {\n\
         uint byte;\n\
-        byte = uint(texture(lores_texture, uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) * lores_texture_coord_scale).x * 255.0); \n\
+        byte = uint(texture(lores_texture, (uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * lores_texture_coord_scale).x * 255.0); \n\
         uint inglyph_y = uint(raster_coords.y) % 8u;\n\
         uint lorespixel;\n\
         if(inglyph_y < 4u)\n\
