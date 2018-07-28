@@ -49,7 +49,10 @@ struct system_clock
     clk_t operator++(int) { clk_t v = value; value ++; return v; }
 } clk;
 
-const int machine_clock_rate = 1023000;
+// was 1023000
+// 3.579545 * 4 / 14
+// 1.02272714285714285714
+const int machine_clock_rate = 1022727;
 
 bool read_blob(char *name, unsigned char *b, size_t sz)
 {
@@ -986,7 +989,7 @@ struct CPU6502
     static const unsigned char I = 0x04;
     static const unsigned char Z = 0x02;
     static const unsigned char C = 0x01;
-    int pc;
+    int pc = 0;
     enum Exception {
         NONE,
         RESET,
@@ -2027,7 +2030,7 @@ struct CPU6502
                 break;
             }
 
-            case 0x91: { // STA
+            case 0x91: { // STA (ind), Y
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 bus.write(addr, a);
@@ -2352,6 +2355,23 @@ struct CPU6502
                 break;
             }
 
+            case 0x92: { // STA (zpg), 65C02 instruction!
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                bus.write(addr, a);
+                break;
+            }
+
+            case 0x3A: { // DEC
+                set_flags(N | Z, a = a - 1);
+                break;
+            }
+
+            case 0x1A: { // INC
+                set_flags(N | Z, a = a + 1);
+                break;
+            }
+
             default:
                 printf("unhandled instruction %02X\n", inst);
                 fflush(stdout); exit(1);
@@ -2602,6 +2622,7 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
     return APPLE2Einterface::NONE;
 }
 
+extern uint16_t pc;
 
 int main(int argc, char **argv)
 {
@@ -2740,7 +2761,7 @@ int main(int argc, char **argv)
             clk_t prev_clock = clk;
             while(clk - prev_clock < clocks_per_slice) {
                 if(debug & DEBUG_DECODE) {
-                    string dis = read_bus_and_disassemble(bus, cpu.pc);
+                    string dis = read_bus_and_disassemble(bus, use_fake6502 ? pc : cpu.pc);
                     printf("%s\n", dis.c_str());
                 }
                 if(use_fake6502) {
@@ -2804,7 +2825,7 @@ int main(int argc, char **argv)
                 continue;
             }
             if(debug & DEBUG_DECODE) {
-                string dis = read_bus_and_disassemble(bus, cpu.pc);
+                string dis = read_bus_and_disassemble(bus, use_fake6502 ? pc : cpu.pc);
                 printf("%s\n", dis.c_str());
             }
             
