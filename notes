@@ -3,34 +3,38 @@ per-scanline modes
         Not for DHGR or 80-col but they're probably just same address twice alternating banks
     tracking clock and reporting video memory contents
         clock
-            actual fastest clock is 14.31818MHz
             one tick of ~1MHz clock maps to one tick of address counter
                 so is 7 HGR bits or one GR/TEXT horizontal cell
-            unsigned long would overflow after 20 minutes
-            But could modulo byteclock by 14318180 at interface update
-              time and not overflow
-                as long as it doesn't take longer than 20 minutes between calls to APPLE2Einterface::iterate
-                than 20 minutes...)
-            Want current CPU clock count after "cycle()" - map that to 14MHz clocks, can map that to actual wall clock
-            "most 6502 cycles are 978 nS long [14 14mhz clocks], but every 65th cycle is 1117 nS long [16 14mhz clocks]."
-            So wall clock time is (((clockcount / 65) * 912 + clockcount * 16) / 14318180 seconds) but only starting from 0
-                so need seconds from t_phase to t_clocks in clock counts where t_phase != 0
-                initially t_phase = 0
-                t_elapsed_14mhz = t_clocks * 14 + (t_clocks + t_phase) / 65 * 16
-                t = t + t_elapsed_14mhz / 14318180
-                t_phase = (t_phase + t_clocks) % 65
-            So clk would remain machine clock cycles, but actual wall clock time won't be known until calculated
-                Could increment wall clock at clk++ depending on phase, but then probably accumulate error because 14MHz clock rate is so high
-            Current CPU clk (in 1MHz CPU cycles) :
-                is used to determine to which audio sample (at libAO sample rate) in the audio waveform we should fill
+                "most 6502 cycles are 978 nS long [14 14mhz clocks], but every 65th cycle is 1117 nS long [16 14mhz clocks]."
+            source clock is 14.31818MHz
+                unsigned long would overflow after 20 minutes
+                    Could modulo byteclock by 14318180 at iterate() and not overflow
+                    as long as it doesn't take longer than 20 minutes between calls to APPLE2Einterface::iterate than 20 minutes...)
+                Could have clk be in 14MHz ticks.
+                    unsigned long long will last 40853 years (could be slow on embedded systems)
+                    Keep track of phase at clk delta time, and add 14 usually but 16 every 65th
+                    Then wall clock is just always ticks / 14318180.0
+                    phase_hpe initially 0
+                    add_cpu_cycles(elapsed_cpu) {
+                        clock_cpu += elapsed_cpu
+                        clock_14mhz = elapsed_cpu * 14 + (elapsed_cpu + phase_hpe) / 65 * 16
+                        phase_hpe = (phase_hpe + elapsed_cpu) % 65
+                    }
+            clock_14mhz is 14mhz ticks
+            clock_cpu is CPU clocks, averaging 1.023MHz
+            phase_hpe is clock_cpu within horizontal line
+            Current CPU clk (in 1MHz CPU cycles) is used for
+                which audio sample (at libAO sample rate) in the audio waveform we should fill
                     OK - should work with higher fixed rate
-                is used to mark after how many cycles the open apple key should be raised
-                    checked against clk in 
-                    HM - need to convert to wall clock?
-                    doesn't need to be that 
+                mark after how many cycles the open apple key should be raised
+                    OK - should work with higher fixed rate
+                mark paddle timer
+                    OK - should work with higher fixed rate
+                incrementing CPU instruction cycles
+                    OK - call add_cpu_cycles()
         address generator
             honor softswitches
-            convert byteclock to address
+            convert clock_cpu to address
         read empty memory address on bus no longer fails but instead
             generate address, get byte from RAM and return it
     recording softswitch mode changes

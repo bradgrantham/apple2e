@@ -43,16 +43,24 @@ const float paddle_max_pulse_seconds = .00282;
 typedef unsigned long long clk_t;
 struct system_clock
 {
-    clk_t value = 0;
-    operator clk_t() const { return value; }
-    clk_t operator+=(clk_t i) { return value += i; }
-    clk_t operator++(int) { clk_t v = value; value ++; return v; }
+    clk_t clock_cpu = 0; // Actual CPU and memory clocks, variable rate
+    clk_t clock_14mhz = 0; // Fixed 14.31818MHz clock
+    clk_t phase_hpe = 0; // Phase of CPU clock within horizontal lines
+    operator clk_t() const { return clock_14mhz; }
+    void add_cpu_cycles(clk_t elapsed_cpu)
+    {
+        clock_cpu += elapsed_cpu;
+        clock_14mhz += elapsed_cpu * 14 + (elapsed_cpu + phase_hpe) / 65 * 2;
+        phase_hpe = (phase_hpe + elapsed_cpu) % 65;
+        if(0) printf("added %llu, new cpu clock %llu, 14mhz clock %llu, phase %llu\n", elapsed_cpu, clock_cpu, clock_14mhz, phase_hpe);
+    }
 } clk;
 
 // was 1023000
 // 3.579545 * 4 / 14
 // 1.02272714285714285714
-const int machine_clock_rate = 1022727;
+const int machine_clock_rate = 14318180;
+
 
 bool read_blob(char *name, unsigned char *b, size_t sz)
 {
@@ -1067,22 +1075,22 @@ struct CPU6502
     }
     int cycles[256] = 
     {
-        7, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, -1, 4, 6, -1,
-        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
-        6, 6, -1, -1, 3, 3, 5, -1, 4, 2, 2, -1, 4, 4, 6, -1,
-        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
-        6, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, 3, 4, 6, -1,
-        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
-        6, 6, -1, -1, -1, 3, 5, -1, 4, 2, 2, -1, 5, 4, 6, -1,
-        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
-        2, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
-        2, 6, -1, -1, 4, 4, 4, -1, 2, 5, 2, -1, -1, 5, -1, -1,
-        2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, -1,
-        2, 5, -1, -1, 4, 4, 4, -1, 2, 4, 2, -1, 4, 4, 4, -1,
-        2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 3, -1,
-        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
-        2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 6, -1,
-        2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        /* 0x0- */ 7, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, -1, 4, 6, -1,
+        /* 0x1- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, 2, -1, -1, 4, 7, -1,
+        /* 0x2- */ 6, 6, -1, -1, 3, 3, 5, -1, 4, 2, 2, -1, 4, 4, 6, -1,
+        /* 0x3- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, 2, -1, -1, 4, 7, -1,
+        /* 0x4- */ 6, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, 3, 4, 6, -1,
+        /* 0x5- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        /* 0x6- */ 6, 6, -1, -1, -1, 3, 5, -1, 4, 2, 2, -1, 5, 4, 6, -1,
+        /* 0x7- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        /* 0x8- */ 2, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
+        /* 0x9- */ 2, 6, 5, -1, 4, 4, 4, -1, 2, 5, 2, -1, -1, 5, -1, -1,
+        /* 0xA- */ 2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, -1,
+        /* 0xB- */ 2, 5, -1, -1, 4, 4, 4, -1, 2, 4, 2, -1, 4, 4, 4, -1,
+        /* 0xC- */ 2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 3, -1,
+        /* 0xD- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        /* 0xE- */ 2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 6, -1,
+        /* 0xF- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
     };
     enum Operand {
         A,
@@ -1261,7 +1269,7 @@ struct CPU6502
             case 0xFE: { // INC abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
                 if((addr - x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, m = bus.read(addr) + 1);
                 bus.write(addr, m);
                 break;
@@ -1301,9 +1309,9 @@ struct CPU6502
             case 0x10: { // BPL
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(!isset(N)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1312,9 +1320,9 @@ struct CPU6502
             case 0x50: { // BVC
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(!isset(V)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1323,9 +1331,9 @@ struct CPU6502
             case 0x70: { // BVS
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(isset(V)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1334,9 +1342,9 @@ struct CPU6502
             case 0x30: { // BMI
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(isset(N)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1345,9 +1353,9 @@ struct CPU6502
             case 0x90: { // BCC
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(!isset(C)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1356,9 +1364,9 @@ struct CPU6502
             case 0xB0: { // BCS
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(isset(C)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1367,9 +1375,9 @@ struct CPU6502
             case 0xD0: { // BNE
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(!isset(Z)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1378,9 +1386,9 @@ struct CPU6502
             case 0xF0: { // BEQ
                 int rel = (read_pc_inc(bus) + 128) % 256 - 128;
                 if(isset(Z)) {
-                    clk++;
+                    clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
-                        clk++;
+                        clk.add_cpu_cycles(1);
                     pc += rel;
                 }
                 break;
@@ -1405,7 +1413,7 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
@@ -1420,7 +1428,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
                 break;
@@ -1430,7 +1438,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
                 break;
@@ -1440,7 +1448,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = bus.read(addr + y));
                 if((addr + y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 break;
             }
 
@@ -1448,7 +1456,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, y = bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 break;
             }
 
@@ -1456,7 +1464,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 break;
             }
 
@@ -1500,7 +1508,7 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xff) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
@@ -1520,7 +1528,7 @@ struct CPU6502
             case 0xF9: { // SBC abs, Y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
@@ -1540,7 +1548,7 @@ struct CPU6502
             case 0xFD: { // SBC abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
                 if((addr - x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
@@ -1596,7 +1604,7 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -1652,7 +1660,7 @@ struct CPU6502
             case 0x7D: { // ADC abs, X
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
                 if((addr - x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -1672,7 +1680,7 @@ struct CPU6502
             case 0x79: { // ADC abs, Y
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -1817,7 +1825,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = a | m);
                 break;
             }
@@ -1826,7 +1834,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = a | m);
                 break;
             }
@@ -1835,7 +1843,7 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
                 break;
@@ -1864,7 +1872,7 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = a & bus.read(addr));
                 break;
             }
@@ -1873,7 +1881,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = a & bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 break;
             }
 
@@ -1881,7 +1889,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 set_flags(N | Z, a = a & bus.read(addr + y));
                 if((addr + y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 break;
             }
 
@@ -2094,7 +2102,7 @@ struct CPU6502
             case 0xBE: { // LDX
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, x = bus.read(addr));
                 break;
             }
@@ -2197,7 +2205,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = a ^ m);
                 break;
             }
@@ -2206,7 +2214,7 @@ struct CPU6502
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = a ^ m);
                 break;
             }
@@ -2227,7 +2235,7 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 m = bus.read(addr);
                 set_flags(N | Z, a = a ^ m);
                 break;
@@ -2237,7 +2245,7 @@ struct CPU6502
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
-                    clk++;
+                    clk.add_cpu_cycles(1);
                 m = bus.read(addr);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
@@ -2395,7 +2403,7 @@ struct CPU6502
             printf("%s ", (p & C) ? "C" : "c");
             printf("S:%02X (%02X %02X %02X ...) PC:%04X (%02X %02X %02X ...)\n", s, s0, s1, s2, pc, pc0, pc1, pc2);
         }
-        clk += cycles[inst];
+        clk.add_cpu_cycles(cycles[inst]);
     }
 };
 
@@ -2608,7 +2616,7 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
                 cpu.reset(bus);
         } else if(e.type == APPLE2Einterface::REBOOT) {
             bus.reset();
-            board->momentary_open_apple(machine_clock_rate / 5);
+            board->momentary_open_apple(machine_clock_rate / (5 * 14));
             if(use_fake6502)
                 reset6502();
             else
@@ -2768,7 +2776,7 @@ int main(int argc, char **argv)
                 if(use_fake6502) {
                     clockticks6502 = 0;
                     step6502();
-                    clk += clockticks6502;
+                    clk.add_cpu_cycles(clockticks6502);
                 } else {
                     cpu.cycle(bus);
                 }
@@ -2833,7 +2841,7 @@ int main(int argc, char **argv)
             if(use_fake6502) {
                 clockticks6502 = 0;
                 step6502();
-                clk += clockticks6502;
+                clk.add_cpu_cycles(clockticks6502);
             } else {
                 cpu.cycle(bus);
             }
