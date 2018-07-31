@@ -817,6 +817,8 @@ struct MAINboard : board_base
     }
     virtual bool write(int addr, unsigned char data)
     {
+        if(addr == 0x6000)
+            printf("$6000 = $%02X\n", data);
 #if 0
         if(text_page1.write(addr, data) ||
             text_page1x.write(addr, data) ||
@@ -1082,7 +1084,7 @@ struct CPU6502
         /* 0x4- */ 6, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, 3, 4, 6, -1,
         /* 0x5- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
         /* 0x6- */ 6, 6, -1, -1, -1, 3, 5, -1, 4, 2, 2, -1, 5, 4, 6, -1,
-        /* 0x7- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
+        /* 0x7- */ 2, 5, 5, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
         /* 0x8- */ 2, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, -1,
         /* 0x9- */ 2, 6, 5, -1, 4, 4, 4, -1, 2, 5, 2, -1, -1, 5, -1, -1,
         /* 0xA- */ 2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, -1,
@@ -2364,19 +2366,39 @@ struct CPU6502
                 break;
             }
 
-            case 0x92: { // STA (zpg), 65C02 instruction!
+            case 0x92: { // STA (zpg), 65C02 instruction
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 bus.write(addr, a);
                 break;
             }
 
-            case 0x3A: { // DEC
+            case 0x72: { // ADC (zpg), 65C02 instruction
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+
+                m = bus.read(addr);
+                int carry = isset(C) ? 1 : 0;
+                if(isset(D)) {
+                    unsigned char bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, (int)(bcd + m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, (int)(a + m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
+                break;
+            }
+
+            case 0x3A: { // DEC, 65C02 instruction
                 set_flags(N | Z, a = a - 1);
                 break;
             }
 
-            case 0x1A: { // INC
+            case 0x1A: { // INC, 65C02 instruction
                 set_flags(N | Z, a = a + 1);
                 break;
             }
