@@ -817,8 +817,6 @@ struct MAINboard : board_base
     }
     virtual bool write(int addr, unsigned char data)
     {
-        if(addr == 0x6000)
-            printf("$6000 = $%02X\n", data);
 #if 0
         if(text_page1.write(addr, data) ||
             text_page1x.write(addr, data) ||
