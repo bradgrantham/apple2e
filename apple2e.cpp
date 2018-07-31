@@ -521,9 +521,9 @@ int get_hires_scanout_address(int byte_in_frame)
     int line_in_frame = byte_in_frame / 65;
     int byte_in_line = byte_in_frame % 65;
     if(byte_in_line < 25)
-        return hires_blanking_address_base[line_in_frame] + byte_in_line;
+        return 0x2000 + (hires_blanking_address_base[line_in_frame] + byte_in_line) % 0x2000;
 
-    return hires_visible_address_base[line_in_frame] + byte_in_line - 25;
+    return 0x2000 + (hires_visible_address_base[line_in_frame] + byte_in_line - 25) % 0x2000;
 }
 
 static int text_blanking_address_base[] =
@@ -2849,6 +2849,14 @@ extern uint16_t pc;
 
 int main(int argc, char **argv)
 {
+    if(0) {
+        for(int i = 0; i < 262; i++) {
+            int addr = i * 65;
+            printf("hires scanout address for %d = $%04X\n", addr, get_hires_scanout_address(addr));
+            printf("hires scanout address for %d = $%04X\n", addr + 25, get_hires_scanout_address(addr + 25));
+        }
+        exit(0);
+    }
     char *progname = argv[0];
     argc -= 1;
     argv += 1;
