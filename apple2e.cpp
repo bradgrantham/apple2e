@@ -463,6 +463,32 @@ struct DISKIIboard : board_base
     virtual void reset(void) {}
 };
 
+struct Mockingboard : board_base
+{
+    Mockingboard()
+    {
+    }
+
+    virtual bool write(int addr, unsigned char data)
+    {
+        if((addr >= 0xC400) && (addr <= 0xC4FF)) {
+            if(debug & DEBUG_RW) printf("Mockingboard write 0x%02X to 0x%04X ignored\n", data, addr);
+            return true;
+        }
+        return false;
+    }
+    virtual bool read(int addr, unsigned char &data)
+    {
+        if((addr >= 0xC400) && (addr <= 0xC4FF)) {
+            if(debug & DEBUG_RW) printf("Mockingboard read at 0x%04X ignored\n", addr);
+            data = 0;
+            return true;
+        }
+        return false;
+    }
+    virtual void reset(void) {}
+};
+
 const int waveform_length = 44100 / 1000 / 2; // half of a wave at 4000 Hz
 const float waveform_max_amplitude = .35f;
 static unsigned char waveform[waveform_length];
@@ -475,6 +501,114 @@ void initialize_audio_waveform()
 
         waveform[i] = 127.5 + waveform_max_amplitude * 127.5 * sin(theta);
     }
+}
+
+int hires_blanking_address_base[262];
+extern int hires_visible_address_base[262];
+
+static void generate_hires_scanout_addresses() __attribute__((constructor));
+void generate_hires_scanout_addresses()
+{
+    for(int i = 0; i < 262; i++)
+        if(i < 64)
+            hires_blanking_address_base[i] = hires_visible_address_base[i] + 0x68;
+        else
+            hires_blanking_address_base[i] = hires_visible_address_base[i] - 0x18;
+}
+
+int get_hires_scanout_address(int byte_in_frame)
+{
+    int line_in_frame = byte_in_frame / 65;
+    int byte_in_line = byte_in_frame % 65;
+    if(byte_in_line < 25)
+        return hires_blanking_address_base[line_in_frame] + byte_in_line;
+
+    return hires_visible_address_base[line_in_frame] + byte_in_line - 25;
+}
+
+static int text_blanking_address_base[] =
+{
+    0x1468,
+    0x14E8,
+    0x1568,
+    0x15E8,
+    0x1668,
+    0x16E8,
+    0x1768,
+    0x17E8,
+    0x1410,
+    0x1490,
+    0x1510,
+    0x1590,
+    0x1610,
+    0x1690,
+    0x1710,
+    0x1790,
+    0x1438,
+    0x14B8,
+    0x1538,
+    0x15B8,
+    0x1638,
+    0x16B8,
+    0x1738,
+    0x17B8,
+    0x1460,
+    0x14E0,
+    0x1560,
+    0x15E0,
+    0x1660,
+    0x16E0,
+    0x1760,
+    0x17E0,
+    0x17E0, // last text line is actually scanned 14 times so add another row
+};
+
+static int text_visible_address_base[] =
+{
+    0x0400,
+    0x0480,
+    0x0500,
+    0x0580,
+    0x0600,
+    0x0680,
+    0x0700,
+    0x0780,
+    0x0428,
+    0x04A8,
+    0x0528,
+    0x05A8,
+    0x0628,
+    0x06A8,
+    0x0728,
+    0x07A8,
+    0x0450,
+    0x04D0,
+    0x0550,
+    0x05D0,
+    0x0650,
+    0x06D0,
+    0x0750,
+    0x07D0,
+    0x0478,
+    0x04F8,
+    0x0578,
+    0x05F8,
+    0x0678,
+    0x06F8,
+    0x0778,
+    0x07F8,
+    0x07F8, // last text line is actually scanned 14 times so add another row
+};
+
+int get_text_scanout_address(int byte_in_frame)
+{
+    int text_line_in_frame = byte_in_frame / (8 * 65);
+    int byte_in_line = byte_in_frame % 65;
+
+    if(byte_in_line < 25)
+        return text_blanking_address_base[text_line_in_frame] + byte_in_line;
+
+    return text_visible_address_base[text_line_in_frame] + byte_in_line - 25;
 }
 
 struct MAINboard : board_base
@@ -681,6 +815,58 @@ struct MAINboard : board_base
 
     virtual bool read(int addr, unsigned char &data)
     {
+        // Special case for floating bus for reading video scanout 
+        // XXX doesn't handle 80-column nor AUX
+        if((addr == 0xC050) || (addr == 0xC051)) {
+            bool page1 = (PAGE2 && !STORE80) ? false : true;
+
+            // 65 bytes per line, 262 lines per frame (aka "field")
+            int byte_in_frame = clk.clock_cpu % 17030;
+            int line_in_frame = byte_in_frame / 65;
+
+            if(1)printf("TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
+                TEXT ? "true" : "false",
+                HIRES ? "true" : "false",
+                MIXED ? "true" : "false",
+                line_in_frame);
+
+            bool mixed_text_scanout = 
+                ((line_in_frame >= 160) && (line_in_frame < 192)) || 
+                (line_in_frame >= 224);
+            if(TEXT || !HIRES || (MIXED && mixed_text_scanout)) {
+                // TEXT or GR mode; they read the same addresses.
+                int addr2 = get_text_scanout_address(byte_in_frame) + (page1 ? 0 : 0x0400);
+                printf("got text scanout address $%04X\n", addr2);
+                if(addr2 > 0xC00) {
+                    printf("read 0C00 floating bus\n");
+                    ram_0C00.read(addr2, data);
+                } else {
+                    if(page1) {
+                        printf("read text page1 floating bus\n");
+                        text_page1.read(addr2, data);
+                        return true;
+                    } else {
+                        printf("read text page2 floating bus\n");
+                        text_page2.read(addr2, data);
+                        return true;
+                    }
+                }
+            } else {
+                // HGR mode and not in text region if MIXED
+                int addr2 = get_hires_scanout_address(byte_in_frame) + (page1 ? 0 : 0x2000);
+                printf("got hires scanout address $%04X\n", addr2);
+                if(page1) {
+                    printf("read hires page1 floating bus\n");
+                    hires_page1.read(addr2, data);
+                    return true;
+                } else {
+                    printf("read hires page2 floating bus\n");
+                    hires_page2.read(addr2, data);
+                    return true;
+                }
+            }
+        }
+
         if(debug & DEBUG_RW) printf("MAIN board read\n");
         for(auto b : boards) {
             if(b->read(addr, data)) {
@@ -2559,6 +2745,7 @@ map<int, key_to_ascii> interface_key_to_apple2e =
 };
 
 DISKIIboard *diskIIboard;
+Mockingboard *mockingboard;
 
 enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& bus, CPU6502& cpu)
 {
@@ -2759,6 +2946,8 @@ int main(int argc, char **argv)
             DISKIIboard::floppy_activity_func activity = [](int num, bool activity){APPLE2Einterface::show_floppy_activity(num, activity);};
             diskIIboard = new DISKIIboard(diskII_rom, floppy1_name, floppy2_name, activity);
             mainboard->boards.push_back(diskIIboard);
+            mockingboard = new Mockingboard();
+            mainboard->boards.push_back(mockingboard);
         } catch(const char *msg) {
             cerr << msg << endl;
             exit(EXIT_FAILURE);
@@ -2883,3 +3072,43 @@ int main(int argc, char **argv)
 
     APPLE2Einterface::shutdown();
 }
+
+int hires_visible_address_base[262] =
+{
+     0x0000,  0x0400,  0x0800,  0x0C00,  0x1000,  0x1400,  0x1800,  0x1C00, 
+     0x0080,  0x0480,  0x0880,  0x0C80,  0x1080,  0x1480,  0x1880,  0x1C80, 
+     0x0100,  0x0500,  0x0900,  0x0D00,  0x1100,  0x1500,  0x1900,  0x1D00, 
+     0x0180,  0x0580,  0x0980,  0x0D80,  0x1180,  0x1580,  0x1980,  0x1D80, 
+     0x0200,  0x0600,  0x0A00,  0x0E00,  0x1200,  0x1600,  0x1A00,  0x1E00, 
+     0x0280,  0x0680,  0x0A80,  0x0E80,  0x1280,  0x1680,  0x1A80,  0x1E80, 
+     0x0300,  0x0700,  0x0B00,  0x0F00,  0x1300,  0x1700,  0x1B00,  0x1F00, 
+     0x0380,  0x0780,  0x0B80,  0x0F80,  0x1380,  0x1780,  0x1B80,  0x1F80, 
+
+     0x0028,  0x0428,  0x0828,  0x0C28,  0x1028,  0x1428,  0x1828,  0x1C28, 
+     0x00A8,  0x04A8,  0x08A8,  0x0CA8,  0x10A8,  0x14A8,  0x18A8,  0x1CA8, 
+     0x0128,  0x0528,  0x0928,  0x0D28,  0x1128,  0x1528,  0x1928,  0x1D28, 
+     0x01A8,  0x05A8,  0x09A8,  0x0DA8,  0x11A8,  0x15A8,  0x19A8,  0x1DA8, 
+     0x0228,  0x0628,  0x0A28,  0x0E28,  0x1228,  0x1628,  0x1A28,  0x1E28, 
+     0x02A8,  0x06A8,  0x0AA8,  0x0EA8,  0x12A8,  0x16A8,  0x1AA8,  0x1EA8, 
+     0x0328,  0x0728,  0x0B28,  0x0F28,  0x1328,  0x1728,  0x1B28,  0x1F28, 
+     0x03A8,  0x07A8,  0x0BA8,  0x0FA8,  0x13A8,  0x17A8,  0x1BA8,  0x1FA8, 
+
+     0x0050,  0x0450,  0x0850,  0x0C50,  0x1050,  0x1450,  0x1850,  0x1C50, 
+     0x00D0,  0x04D0,  0x08D0,  0x0CD0,  0x10D0,  0x14D0,  0x18D0,  0x1CD0, 
+     0x0150,  0x0550,  0x0950,  0x0D50,  0x1150,  0x1550,  0x1950,  0x1D50, 
+     0x01D0,  0x05D0,  0x09D0,  0x0DD0,  0x11D0,  0x15D0,  0x19D0,  0x1DD0, 
+     0x0250,  0x0650,  0x0A50,  0x0E50,  0x1250,  0x1650,  0x1A50,  0x1E50, 
+     0x02D0,  0x06D0,  0x0AD0,  0x0ED0,  0x12D0,  0x16D0,  0x1AD0,  0x1ED0, 
+     0x0350,  0x0750,  0x0B50,  0x0F50,  0x1350,  0x1750,  0x1B50,  0x1F50, 
+     0x03D0,  0x07D0,  0x0BD0,  0x0FD0,  0x13D0,  0x17D0,  0x1BD0,  0x1FD0, 
+
+     0x0078,  0x0478,  0x0878,  0x0C78,  0x1078,  0x1478,  0x1878,  0x1C78, 
+     0x00F8,  0x04F8,  0x08F8,  0x0CF8,  0x10F8,  0x14F8,  0x18F8,  0x1CF8, 
+     0x0178,  0x0578,  0x0978,  0x0D78,  0x1178,  0x1578,  0x1978,  0x1D78, 
+     0x01F8,  0x05F8,  0x09F8,  0x0DF8,  0x11F8,  0x15F8,  0x19F8,  0x1DF8, 
+     0x0278,  0x0678,  0x0A78,  0x0E78,  0x1278,  0x1678,  0x1A78,  0x1E78, 
+     0x02F8,  0x06F8,  0x0AF8,  0x0EF8,  0x12F8,  0x16F8,  0x1AF8,  0x1EF8, 
+     0x0378,  0x0778,  0x0B78,  0x0F78,  0x1378,  0x1778,  0x1B78,  0x1F78, 
+     0x03F8,  0x07F8,  0x0BF8,  0x0FF8,  0x13F8,  0x17F8,  0x1BF8,  0x1FF8, 
+     0x0BF8,  0x0FF8,  0x13F8,  0x17F8,  0x1BF8,  0x1FF8, 
+};

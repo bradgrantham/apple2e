@@ -33,8 +33,13 @@ per-scanline modes
                 incrementing CPU instruction cycles
                     OK - call add_cpu_cycles()
         address generator
+            every line is 65 bytes, there are 262 lines, so there are 17030 bytes per field
             honor softswitches
             convert clock_cpu to address
+            blanking and offscreen addressing during HIRES MIXED
+                160 through 191 and 224 through 261
+                TEXT addressing at 160, HPE' + 1 through at 192, HPE'
+                argh
         read empty memory address on bus no longer fails but instead
             generate address, get byte from RAM and return it
     recording softswitch mode changes
