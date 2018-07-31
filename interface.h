@@ -1,4 +1,5 @@
 #include <tuple>
+#include <vector>
 
 namespace APPLE2Einterface
 {
@@ -39,15 +40,29 @@ struct event {
     {}
 };
 
-void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted);
-void iterate(); // display
-void shutdown();
-
 bool event_waiting();
 event dequeue_event();
 
 enum DisplayMode {TEXT, LORES, HIRES};
-void set_switches(DisplayMode mode, bool mixed, int page, bool vid80, bool altchar);
+
+struct ModeSettings
+{
+    DisplayMode mode;
+    bool mixed;
+    int page;
+    bool vid80;
+    bool altchar;
+    ModeSettings(DisplayMode mode_, bool mixed_, int page_, bool vid80_, bool altchar_) :
+        mode(mode_),
+        mixed(mixed_),
+        page(page_),
+        vid80(vid80_),
+        altchar(altchar_)
+    {}
+};
+
+typedef std::vector<std::tuple<unsigned int, ModeSettings> > ModeHistory;
+
 bool write(int addr, bool aux, unsigned char data);
 
 std::tuple<float,bool> get_paddle(int num);
@@ -55,5 +70,9 @@ std::tuple<float,bool> get_paddle(int num);
 void show_floppy_activity(int number, bool activity);
 
 void enqueue_audio_samples(char *buf, size_t sz);
+
+void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted);
+void iterate(const ModeHistory& history); // display
+void shutdown();
 
 };

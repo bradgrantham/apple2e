@@ -1927,13 +1927,31 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
 
 void apply_writes(void);
 
-void iterate()
+void iterate(const ModeHistory& history)
 {
     apply_writes();
 
     CheckOpenGL(__FILE__, __LINE__);
     if(glfwWindowShouldClose(my_window)) {
         event_queue.push_back({QUIT, 0});
+    }
+
+    for(auto& h: history) {
+        unsigned int byte_in_frame = get<0>(h);
+        const ModeSettings& settings = get<1>(h);
+        int line_in_frame = byte_in_frame / 65;
+        if(0)printf("%u, TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
+                byte_in_frame, 
+                (settings.mode == TEXT) ? "true" : "false",
+                (settings.mode == HIRES) ? "true" : "false",
+                settings.mixed ? "true" : "false",
+                line_in_frame);
+        // XXX for now just set whole frame to last mode setting
+        display_mode = settings.mode;
+        mixed_mode = settings.mixed;
+        display_page = settings.page;
+        vid80 = settings.vid80;
+        altchar = settings.altchar;
     }
 
     CheckOpenGL(__FILE__, __LINE__);
@@ -1989,6 +2007,7 @@ void shutdown()
     glfwTerminate();
 }
 
+#if 0
 void set_switches(DisplayMode mode_, bool mixed, int page, bool vid80_, bool altchar_)
 {
     display_mode = mode_;
@@ -2004,6 +2023,7 @@ void set_switches(DisplayMode mode_, bool mixed, int page, bool vid80_, bool alt
         altchar_warned = true;
     }
 }
+#endif
 
 static const int text_page1_base = 0x400;
 static const int text_page2_base = 0x800;

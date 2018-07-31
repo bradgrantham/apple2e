@@ -3006,10 +3006,14 @@ int main(int argc, char **argv)
                 }
             }
             mainboard->sync();
+
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
             int page = (mainboard->PAGE2 && !mainboard->STORE80) ? 1 : 0;
-            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
-            APPLE2Einterface::iterate();
+            APPLE2Einterface::ModeSettings settings(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
+            APPLE2Einterface::ModeHistory history;
+            history.push_back(make_tuple(0, settings));
+            APPLE2Einterface::iterate(history);
+
             chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
@@ -3073,8 +3077,10 @@ int main(int argc, char **argv)
 
             APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
             int page = (mainboard->PAGE2 && !mainboard->STORE80) ? 1 : 0;
-            APPLE2Einterface::set_switches(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
-            APPLE2Einterface::iterate();
+            APPLE2Einterface::ModeSettings settings(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
+            APPLE2Einterface::ModeHistory history;
+            history.push_back(make_tuple(0, settings));
+            APPLE2Einterface::iterate(history);
         }
     }
 
