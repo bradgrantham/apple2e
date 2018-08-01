@@ -817,7 +817,7 @@ struct MAINboard : board_base
             switches_by_address[sw->set_address - 0xC000] = sw;
             switches_by_address[sw->read_address - 0xC000] = sw;
         }
-        // TEXT.enabled = true;
+        //  TEXT.enabled = true;
         old_mode_settings = convert_switches_to_mode_settings();
     }
 
