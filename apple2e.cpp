@@ -3038,7 +3038,7 @@ int main(int argc, char **argv)
             }
             mainboard->sync();
 
-            APPLE2Einterface::iterate(mode_history);
+            APPLE2Einterface::iterate(mode_history, clk.clock_cpu);
             mode_history.clear();
 
             chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
@@ -3102,7 +3102,7 @@ int main(int argc, char **argv)
             }
             mainboard->sync();
 
-            APPLE2Einterface::iterate(mode_history);
+            APPLE2Einterface::iterate(mode_history, clk.clock_cpu);
             mode_history.clear();
         }
     }

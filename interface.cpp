@@ -1927,7 +1927,7 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
 
 void apply_writes(void);
 
-void iterate(const ModeHistory& history)
+void iterate(const ModeHistory& history, unsigned long long current_clock)
 {
     apply_writes();
 

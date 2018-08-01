@@ -77,7 +77,7 @@ struct ModeSettings
     }
 };
 
-typedef std::vector<std::tuple<unsigned int, ModeSettings> > ModeHistory;
+typedef std::vector<std::tuple<unsigned long long, ModeSettings> > ModeHistory;
 
 bool write(int addr, bool aux, unsigned char data);
 
@@ -88,7 +88,7 @@ void show_floppy_activity(int number, bool activity);
 void enqueue_audio_samples(char *buf, size_t sz);
 
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted);
-void iterate(const ModeHistory& history); // display
+void iterate(const ModeHistory& history, unsigned long long current_clock); // display
 void shutdown();
 
 };
