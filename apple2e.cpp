@@ -38,6 +38,9 @@ volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
+// XXX - this should be handled through a function passed to MAINboard
+APPLE2Einterface::ModeHistory mode_history;
+
 const float paddle_max_pulse_seconds = .00282;
 
 typedef unsigned long long clk_t;
@@ -619,6 +622,7 @@ struct MAINboard : board_base
 
     vector<SoftSwitch*> switches;
     SoftSwitch* switches_by_address[256];
+    // SoftSwitch(const char* name_, int clear, int on, int read, bool read_changes, vector<SoftSwitch*>& s, bool implemented_ = false) :
     SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches, true};
     SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches, true};
     SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches, true};
@@ -754,6 +758,29 @@ struct MAINboard : board_base
         keyboard_buffer.push_back(k);
     }
 
+    APPLE2Einterface::ModeSettings convert_switches_to_mode_settings()
+    {
+        APPLE2Einterface::DisplayMode mode = TEXT ? APPLE2Einterface::TEXT : (HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
+        int page = (PAGE2 && !STORE80) ? 1 : 0;
+        if(0)printf("mode %s, mixed %s, page %d, vid80 %s, altchar %s\n",
+            (mode == APPLE2Einterface::TEXT) ? "TEXT" : ((mode == APPLE2Einterface::LORES) ? "LORES" : "HIRES"),
+            MIXED ? "true" : "false",
+            page,
+            VID80 ? "true" : "false",
+            ALTCHAR ? "true" : "false");
+        return APPLE2Einterface::ModeSettings(mode, MIXED, page, VID80, ALTCHAR);
+    }
+
+    APPLE2Einterface::ModeSettings old_mode_settings;
+    void post_soft_switch_mode_change()
+    {
+        APPLE2Einterface::ModeSettings settings = convert_switches_to_mode_settings();
+        if(settings != old_mode_settings) {
+            mode_history.push_back(make_tuple(clk.clock_cpu, settings));
+            old_mode_settings = settings;
+        }
+    }
+
     typedef std::function<bool (int addr, bool aux, unsigned char data)> display_write_func;
     display_write_func display_write;
     typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
@@ -790,7 +817,8 @@ struct MAINboard : board_base
             switches_by_address[sw->set_address - 0xC000] = sw;
             switches_by_address[sw->read_address - 0xC000] = sw;
         }
-        TEXT.enabled = true;
+        // TEXT.enabled = true;
+        old_mode_settings = convert_switches_to_mode_settings();
     }
 
     virtual ~MAINboard()
@@ -815,58 +843,6 @@ struct MAINboard : board_base
 
     virtual bool read(int addr, unsigned char &data)
     {
-        // Special case for floating bus for reading video scanout 
-        // XXX doesn't handle 80-column nor AUX
-        if((addr == 0xC050) || (addr == 0xC051)) {
-            bool page1 = (PAGE2 && !STORE80) ? false : true;
-
-            // 65 bytes per line, 262 lines per frame (aka "field")
-            int byte_in_frame = clk.clock_cpu % 17030;
-            int line_in_frame = byte_in_frame / 65;
-
-            if(1)printf("TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
-                TEXT ? "true" : "false",
-                HIRES ? "true" : "false",
-                MIXED ? "true" : "false",
-                line_in_frame);
-
-            bool mixed_text_scanout = 
-                ((line_in_frame >= 160) && (line_in_frame < 192)) || 
-                (line_in_frame >= 224);
-            if(TEXT || !HIRES || (MIXED && mixed_text_scanout)) {
-                // TEXT or GR mode; they read the same addresses.
-                int addr2 = get_text_scanout_address(byte_in_frame) + (page1 ? 0 : 0x0400);
-                printf("got text scanout address $%04X\n", addr2);
-                if(addr2 > 0xC00) {
-                    printf("read 0C00 floating bus\n");
-                    ram_0C00.read(addr2, data);
-                } else {
-                    if(page1) {
-                        printf("read text page1 floating bus\n");
-                        text_page1.read(addr2, data);
-                        return true;
-                    } else {
-                        printf("read text page2 floating bus\n");
-                        text_page2.read(addr2, data);
-                        return true;
-                    }
-                }
-            } else {
-                // HGR mode and not in text region if MIXED
-                int addr2 = get_hires_scanout_address(byte_in_frame) + (page1 ? 0 : 0x2000);
-                printf("got hires scanout address $%04X\n", addr2);
-                if(page1) {
-                    printf("read hires page1 floating bus\n");
-                    hires_page1.read(addr2, data);
-                    return true;
-                } else {
-                    printf("read hires page2 floating bus\n");
-                    hires_page2.read(addr2, data);
-                    return true;
-                }
-            }
-        }
-
         if(debug & DEBUG_RW) printf("MAIN board read\n");
         for(auto b : boards) {
             if(b->read(addr, data)) {
@@ -880,21 +856,74 @@ struct MAINboard : board_base
             }
             SoftSwitch* sw = switches_by_address[addr - 0xC000];
             if(sw != NULL) {
+
+                unsigned char result = 0xFF;
+
+                // Special case for floating bus for reading video scanout 
+                // XXX doesn't handle 80-column nor AUX
+                if((addr == 0xC050) || (addr == 0xC051)) {
+                    bool page1 = (PAGE2 && !STORE80) ? false : true;
+
+                    // 65 bytes per line, 262 lines per frame (aka "field")
+                    int byte_in_frame = clk.clock_cpu % 17030;
+                    int line_in_frame = byte_in_frame / 65;
+
+                    if(0)printf("TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
+                        TEXT ? "true" : "false",
+                        HIRES ? "true" : "false",
+                        MIXED ? "true" : "false",
+                        line_in_frame);
+
+                    bool mixed_text_scanout = 
+                        ((line_in_frame >= 160) && (line_in_frame < 192)) || 
+                        (line_in_frame >= 224);
+                    if(TEXT || !HIRES || (MIXED && mixed_text_scanout)) {
+                        // TEXT or GR mode; they read the same addresses.
+                        int addr2 = get_text_scanout_address(byte_in_frame) + (page1 ? 0 : 0x0400);
+                        printf("got text scanout address $%04X\n", addr2);
+                        if(addr2 > 0xC00) {
+                            printf("read 0C00 floating bus\n");
+                            ram_0C00.read(addr2, result);
+                        } else {
+                            if(page1) {
+                                printf("read text page1 floating bus\n");
+                                text_page1.read(addr2, result);
+                            } else {
+                                printf("read text page2 floating bus\n");
+                                text_page2.read(addr2, result);
+                            }
+                        }
+                    } else {
+                        // HGR mode and not in text region if MIXED
+                        int addr2 = get_hires_scanout_address(byte_in_frame) + (page1 ? 0 : 0x2000);
+                        printf("got hires scanout address $%04X\n", addr2);
+                        if(page1) {
+                            printf("read hires page1 floating bus\n");
+                            hires_page1.read(addr2, result);
+                        } else {
+                            printf("read hires page2 floating bus\n");
+                            hires_page2.read(addr2, result);
+                        }
+                    }
+                }
+
                 if(addr == sw->read_address) {
                     data = sw->enabled ? 0x80 : 0x00;
                     if(debug & DEBUG_SWITCH) printf("Read status of %s = %02X\n", sw->name.c_str(), data);
                     return true;
                 } else if(sw->read_also_changes && addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
-                    data = 0xff;
+                    data = result;
                     sw->enabled = true;
                     if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
+                    post_soft_switch_mode_change();
                     return true;
                 } else if(sw->read_also_changes && addr == sw->clear_address) {
                     if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
-                    data = 0xff;
+                    data = result;
                     sw->enabled = false;
                     if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
+                    post_soft_switch_mode_change();
                     return true;
                 }
             }
@@ -1035,12 +1064,14 @@ struct MAINboard : board_base
                     data = 0xff;
                     sw->enabled = true;
                     if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
+                    post_soft_switch_mode_change();
                     return true;
                 } else if(addr == sw->clear_address) {
                     // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
                     sw->enabled = false;
                     if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
+                    post_soft_switch_mode_change();
                     return true;
                 }
             }
@@ -3007,12 +3038,8 @@ int main(int argc, char **argv)
             }
             mainboard->sync();
 
-            APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
-            int page = (mainboard->PAGE2 && !mainboard->STORE80) ? 1 : 0;
-            APPLE2Einterface::ModeSettings settings(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
-            APPLE2Einterface::ModeHistory history;
-            history.push_back(make_tuple(0, settings));
-            APPLE2Einterface::iterate(history);
+            APPLE2Einterface::iterate(mode_history);
+            mode_history.clear();
 
             chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
 
@@ -3075,12 +3102,8 @@ int main(int argc, char **argv)
             }
             mainboard->sync();
 
-            APPLE2Einterface::DisplayMode mode = mainboard->TEXT ? APPLE2Einterface::TEXT : (mainboard->HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
-            int page = (mainboard->PAGE2 && !mainboard->STORE80) ? 1 : 0;
-            APPLE2Einterface::ModeSettings settings(mode, mainboard->MIXED, page, mainboard->VID80, mainboard->ALTCHAR);
-            APPLE2Einterface::ModeHistory history;
-            history.push_back(make_tuple(0, settings));
-            APPLE2Einterface::iterate(history);
+            APPLE2Einterface::iterate(mode_history);
+            mode_history.clear();
         }
     }
 

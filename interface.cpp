@@ -1939,8 +1939,9 @@ void iterate(const ModeHistory& history)
     for(auto& h: history) {
         unsigned int byte_in_frame = get<0>(h);
         const ModeSettings& settings = get<1>(h);
-        int line_in_frame = byte_in_frame / 65;
-        if(0)printf("%u, TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
+        int line_in_frame = (byte_in_frame % 17030) / 65;
+
+        if(1)printf("%u, TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
                 byte_in_frame, 
                 (settings.mode == TEXT) ? "true" : "false",
                 (settings.mode == HIRES) ? "true" : "false",

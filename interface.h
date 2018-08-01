@@ -52,6 +52,13 @@ struct ModeSettings
     int page;
     bool vid80;
     bool altchar;
+    ModeSettings() :
+        mode(TEXT),
+        mixed(false),
+        page(0),
+        vid80(false),
+        altchar(false)
+    {}
     ModeSettings(DisplayMode mode_, bool mixed_, int page_, bool vid80_, bool altchar_) :
         mode(mode_),
         mixed(mixed_),
@@ -59,6 +66,15 @@ struct ModeSettings
         vid80(vid80_),
         altchar(altchar_)
     {}
+    bool operator !=(const ModeSettings& ms)
+    {
+        return
+            (ms.mode != mode) || 
+            (ms.mixed != mixed) || 
+            (ms.page != page) || 
+            (ms.vid80 != vid80) || 
+            (ms.altchar != altchar);
+    }
 };
 
 typedef std::vector<std::tuple<unsigned int, ModeSettings> > ModeHistory;
