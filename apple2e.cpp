@@ -880,28 +880,28 @@ struct MAINboard : board_base
                     if(TEXT || !HIRES || (MIXED && mixed_text_scanout)) {
                         // TEXT or GR mode; they read the same addresses.
                         int addr2 = get_text_scanout_address(byte_in_frame) + (page1 ? 0 : 0x0400);
-                        printf("got text scanout address $%04X\n", addr2);
+                        if(0)printf("got text scanout address $%04X\n", addr2);
                         if(addr2 > 0xC00) {
-                            printf("read 0C00 floating bus\n");
+                            if(0)printf("read 0C00 floating bus\n");
                             ram_0C00.read(addr2, result);
                         } else {
                             if(page1) {
-                                printf("read text page1 floating bus\n");
+                                if(0)printf("read text page1 floating bus\n");
                                 text_page1.read(addr2, result);
                             } else {
-                                printf("read text page2 floating bus\n");
+                                if(0)printf("read text page2 floating bus\n");
                                 text_page2.read(addr2, result);
                             }
                         }
                     } else {
                         // HGR mode and not in text region if MIXED
                         int addr2 = get_hires_scanout_address(byte_in_frame) + (page1 ? 0 : 0x2000);
-                        printf("got hires scanout address $%04X\n", addr2);
+                        if(0)printf("got hires scanout address $%04X\n", addr2);
                         if(page1) {
-                            printf("read hires page1 floating bus\n");
+                            if(0)printf("read hires page1 floating bus\n");
                             hires_page1.read(addr2, result);
                         } else {
-                            printf("read hires page2 floating bus\n");
+                            if(0)printf("read hires page2 floating bus\n");
                             hires_page2.read(addr2, result);
                         }
                     }

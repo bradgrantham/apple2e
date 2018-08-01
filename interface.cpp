@@ -110,6 +110,7 @@ bool force_caps_on = true;
 bool draw_using_color = false;
 
 ModeSettings line_to_mode[192];
+ModePoint most_recent_modepoint;
 vertex_array line_to_area[192];
 
 bool event_waiting()
@@ -1874,6 +1875,7 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
 {
     for(int i = 0; i < 192; i++)
         line_to_mode[i] = ModeSettings(TEXT, false, 1, false, false);
+    most_recent_modepoint = make_tuple(0, ModeSettings(TEXT, false, 1, false, false));
 
     aodev = open_ao();
     if(aodev == NULL)
@@ -1930,41 +1932,47 @@ void apply_writes(void);
 // Someone could probably optimize this so that every line is only touched once, but it's also likely
 // that this function will be called every 16ms of simulation time and so will only contain a couple
 // of frames worth of mode changes anyway.
-void map_modes_to_lines(const ModeHistory& history, unsigned long long current_byte)
+void map_mode_to_lines(const ModePoint& p, unsigned long long to_byte)
 {
-    for(size_t i = 0; i < history.size(); i++) {
-        auto& h = history[i];
+    unsigned int byte = get<0>(p);
+    const ModeSettings& settings = get<1>(p);
+    int line = (byte + 17029) / 65;
 
-        unsigned int byte = get<0>(h);
-        const ModeSettings& settings = get<1>(h);
-        int line = (byte + 17029) / 65;
+    int to_line = (to_byte + 17029) / 65;
 
-        int next_line;
-        if(i < history.size() - 1) {
-            auto& h2 = history[i + 1];
-            unsigned int byte2 = get<0>(h2);
-            next_line = (byte2 + 17029) / 65;
-        } else {
-            next_line = (current_byte + 17029) / 65;
-        }
-
-        for(int l = line; l < next_line; l++) {
-            int line_in_frame = l % 262;
-            if(0)printf("line %d : mode %s\n", line_in_frame, (settings.mode == APPLE2Einterface::TEXT) ? "TEXT" : ((settings.mode == APPLE2Einterface::LORES) ? "LORES" : "HIRES"));
-            if(line_in_frame < 192)
-                line_to_mode[line_in_frame] = settings;
-        }
-
-        if(0)printf("%u, TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
-                byte % 17030, 
-                (settings.mode == TEXT) ? "true" : "false",
-                (settings.mode == HIRES) ? "true" : "false",
-                settings.mixed ? "true" : "false",
-                line % 262);
+    for(int l = line; l < to_line; l++) {
+        int line_in_frame = l % 262;
+        if(0)printf("to_byte %llu, line %d : mode %s\n", to_byte, line_in_frame, (settings.mode == APPLE2Einterface::TEXT) ? "TEXT" : ((settings.mode == APPLE2Einterface::LORES) ? "LORES" : "HIRES"));
+        if(line_in_frame < 192)
+            line_to_mode[line_in_frame] = settings;
     }
 }
 
-void iterate(const ModeHistory& history, unsigned long long current_byte_in_frame)
+// All the "lines" in this function are from the beginning of time, to properly set the mode for
+// scanlines as they are scanned out and persisted.  E.g. frame N, line 191 through frame N+2, line 0
+// should actually set the entire frame to the provided display mode.  I'm being lazy at the moment
+// and just touching every line the first history record touches through the next.
+// Someone could probably optimize this so that every line is only touched once, but it's also likely
+// that this function will be called every 16ms of simulation time and so will only contain a couple
+// of frames worth of mode changes anyway.
+void map_history_to_lines(const ModeHistory& history, unsigned long long current_byte)
+{
+    for(size_t i = 0; (i + 1) < history.size(); i++) {
+        auto& current = history[i];
+        auto& next = history[i + 1];
+
+        unsigned int byte2 = get<0>(next);
+
+        map_mode_to_lines(current, byte2);
+    }
+
+    if(!history.empty())
+        most_recent_modepoint = history[history.size() - 1];
+
+    map_mode_to_lines(most_recent_modepoint, current_byte);
+}
+
+void iterate(const ModeHistory& history, unsigned long long current_byte)
 {
     apply_writes();
 
@@ -1973,7 +1981,7 @@ void iterate(const ModeHistory& history, unsigned long long current_byte_in_fram
         event_queue.push_back({QUIT, 0});
     }
 
-    map_modes_to_lines(history, current_byte_in_frame);
+    map_history_to_lines(history, current_byte);
 
     CheckOpenGL(__FILE__, __LINE__);
     redraw(my_window);

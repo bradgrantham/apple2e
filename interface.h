@@ -77,7 +77,8 @@ struct ModeSettings
     }
 };
 
-typedef std::vector<std::tuple<unsigned long long, ModeSettings> > ModeHistory;
+typedef std::tuple<unsigned long long, ModeSettings> ModePoint;
+typedef std::vector<ModePoint> ModeHistory;
 
 bool write(int addr, bool aux, unsigned char data);
 
