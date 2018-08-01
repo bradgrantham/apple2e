@@ -33,16 +33,57 @@ using namespace std;
 namespace APPLE2Einterface
 {
 
+static void CheckOpenGL(const char *filename, int line)
+{
+    int glerr;
+    bool stored_exit_flag = false;
+    bool exit_on_error;
+
+    if(!stored_exit_flag) {
+        exit_on_error = getenv("EXIT_ON_OPENGL_ERROR") != NULL;
+        stored_exit_flag = true;
+    }
+
+    while((glerr = glGetError()) != GL_NO_ERROR) {
+        printf("GL Error: %04X at %s:%d\n", glerr, filename, line);
+        if(exit_on_error)
+            exit(1);
+    }
+}
+
+struct vertex_attribute_buffer
+{
+    GLuint buffer;
+    GLuint which;
+    GLuint count;
+    GLenum type;
+    GLboolean normalized;
+    GLsizei stride;
+    void bind() const 
+    {
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+        CheckOpenGL(__FILE__, __LINE__);
+        glVertexAttribPointer(which, count, type, normalized, stride, 0);
+        CheckOpenGL(__FILE__, __LINE__);
+        glEnableVertexAttribArray(which);
+        CheckOpenGL(__FILE__, __LINE__);
+    }
+};
+
+struct vertex_array : public vector<vertex_attribute_buffer>
+{
+    void bind()
+    {
+        for(auto attr : *this) {
+            attr.bind();
+        }
+    }
+};
+
 chrono::time_point<chrono::system_clock> start_time;
 
 static GLFWwindow* my_window;
 ao_device *aodev;
-
-DisplayMode display_mode = TEXT;
-int display_page = 0; // Apple //e page minus 1 (so 0,1 not 1,2)
-bool mixed_mode = false;
-bool vid80 = false;
-bool altchar = false;
 
 bool use_joystick = false;
 int joystick_axis0 = 0;
@@ -66,7 +107,10 @@ static int gButtonPressed = -1;
 deque<event> event_queue;
 
 bool force_caps_on = true;
-bool draw_using_color = false; // XXX implement!
+bool draw_using_color = false;
+
+ModeSettings line_to_mode[192];
+vertex_array line_to_area[192];
 
 bool event_waiting()
 {
@@ -81,24 +125,6 @@ event dequeue_event()
         return e;
     } else
         return {NONE, 0};
-}
-
-static void CheckOpenGL(const char *filename, int line)
-{
-    int glerr;
-    bool stored_exit_flag = false;
-    bool exit_on_error;
-
-    if(!stored_exit_flag) {
-        exit_on_error = getenv("EXIT_ON_OPENGL_ERROR") != NULL;
-        stored_exit_flag = true;
-    }
-
-    while((glerr = glGetError()) != GL_NO_ERROR) {
-        printf("GL Error: %04X at %s:%d\n", glerr, filename, line);
-        if(exit_on_error)
-            exit(1);
-    }
 }
 
 struct opengl_texture
@@ -198,36 +224,6 @@ tuple<float,bool> get_paddle(int num)
         return make_tuple(-1, false);
     return make_tuple(paddle_values[num], paddle_buttons[num]);
 }
-
-
-struct vertex_attribute_buffer
-{
-    GLuint buffer;
-    GLuint which;
-    GLuint count;
-    GLenum type;
-    GLboolean normalized;
-    GLsizei stride;
-    void bind() const 
-    {
-        glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        CheckOpenGL(__FILE__, __LINE__);
-        glVertexAttribPointer(which, count, type, normalized, stride, 0);
-        CheckOpenGL(__FILE__, __LINE__);
-        glEnableVertexAttribArray(which);
-        CheckOpenGL(__FILE__, __LINE__);
-    }
-};
-
-struct vertex_array : public vector<vertex_attribute_buffer>
-{
-    void bind()
-    {
-        for(auto attr : *this) {
-            attr.bind();
-        }
-    }
-};
 
 const int raster_coords_attrib = 0;
  
@@ -621,9 +617,6 @@ static GLuint GenerateProgram(const string& shader_name, const string& vertex_sh
     return program;
 }
 
-vertex_array upper_screen_area;
-vertex_array lower_screen_area;
-
 vertex_array make_rectangle_vertex_array(float x, float y, float w, float h)
 {
     vertex_array array;
@@ -649,8 +642,9 @@ vertex_array make_rectangle_vertex_array(float x, float y, float w, float h)
 
 void initialize_screen_areas()
 {
-    upper_screen_area = make_rectangle_vertex_array(0, 0, 280, 160);
-    lower_screen_area = make_rectangle_vertex_array(0, 160, 280, 32);
+    for(int i = 0; i < 192; i++) {
+        line_to_area[i] = make_rectangle_vertex_array(0, i, 280, 1);
+    }
 }
 
 void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
@@ -752,7 +746,7 @@ void set_textport80_shader(float to_screen[9], const opengl_texture& textport80,
     CheckOpenGL(__FILE__, __LINE__);
 }
 
-void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, bool vid80, int blink, float x, float y)
+void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, int display_page, bool vid80, int blink, float x, float y)
 {
     if(mixed_mode || (display_mode == TEXT)) {
 
@@ -1064,20 +1058,19 @@ struct apple2screen : public widget
         w = w_;
         h = h_;
         long long elapsed_millis = now * 1000;
-        set_shader(to_screen, display_mode, false, vid80, (elapsed_millis / 300) % 2, x, y);
-        CheckOpenGL(__FILE__, __LINE__);
 
-        upper_screen_area.bind();
-        CheckOpenGL(__FILE__, __LINE__);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        CheckOpenGL(__FILE__, __LINE__);
+        for(int i = 0; i < 192; i++) {
+            const ModeSettings& settings = line_to_mode[i];
 
-        set_shader(to_screen, display_mode, mixed_mode, vid80, (elapsed_millis / 300) % 2, x, y);
+            set_shader(to_screen, settings.mode, (i < 160) ? false : settings.mixed, settings.page, settings.vid80, (elapsed_millis / 300) % 2, x, y);
+            CheckOpenGL(__FILE__, __LINE__);
 
-        lower_screen_area.bind();
-        CheckOpenGL(__FILE__, __LINE__);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        CheckOpenGL(__FILE__, __LINE__);
+            line_to_area[i].bind();
+            CheckOpenGL(__FILE__, __LINE__);
+
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            CheckOpenGL(__FILE__, __LINE__);
+        }
     }
 
     virtual bool click(double now, float x, float y)
@@ -1879,6 +1872,9 @@ ao_device *open_ao()
 
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted)
 {
+    for(int i = 0; i < 192; i++)
+        line_to_mode[i] = ModeSettings(TEXT, false, 1, false, false);
+
     aodev = open_ao();
     if(aodev == NULL)
         exit(EXIT_FAILURE);
@@ -1927,7 +1923,48 @@ void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1
 
 void apply_writes(void);
 
-void iterate(const ModeHistory& history, unsigned long long current_clock)
+// All the "lines" in this function are from the beginning of time, to properly set the mode for
+// scanlines as they are scanned out and persisted.  E.g. frame N, line 191 through frame N+2, line 0
+// should actually set the entire frame to the provided display mode.  I'm being lazy at the moment
+// and just touching every line the first history record touches through the next.
+// Someone could probably optimize this so that every line is only touched once, but it's also likely
+// that this function will be called every 16ms of simulation time and so will only contain a couple
+// of frames worth of mode changes anyway.
+void map_modes_to_lines(const ModeHistory& history, unsigned long long current_byte)
+{
+    for(size_t i = 0; i < history.size(); i++) {
+        auto& h = history[i];
+
+        unsigned int byte = get<0>(h);
+        const ModeSettings& settings = get<1>(h);
+        int line = (byte + 17029) / 65;
+
+        int next_line;
+        if(i < history.size() - 1) {
+            auto& h2 = history[i + 1];
+            unsigned int byte2 = get<0>(h2);
+            next_line = (byte2 + 17029) / 65;
+        } else {
+            next_line = (current_byte + 17029) / 65;
+        }
+
+        for(int l = line; l < next_line; l++) {
+            int line_in_frame = l % 262;
+            if(0)printf("line %d : mode %s\n", line_in_frame, (settings.mode == APPLE2Einterface::TEXT) ? "TEXT" : ((settings.mode == APPLE2Einterface::LORES) ? "LORES" : "HIRES"));
+            if(line_in_frame < 192)
+                line_to_mode[line_in_frame] = settings;
+        }
+
+        if(0)printf("%u, TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
+                byte % 17030, 
+                (settings.mode == TEXT) ? "true" : "false",
+                (settings.mode == HIRES) ? "true" : "false",
+                settings.mixed ? "true" : "false",
+                line % 262);
+    }
+}
+
+void iterate(const ModeHistory& history, unsigned long long current_byte_in_frame)
 {
     apply_writes();
 
@@ -1936,24 +1973,7 @@ void iterate(const ModeHistory& history, unsigned long long current_clock)
         event_queue.push_back({QUIT, 0});
     }
 
-    for(auto& h: history) {
-        unsigned int byte_in_frame = get<0>(h);
-        const ModeSettings& settings = get<1>(h);
-        int line_in_frame = (byte_in_frame % 17030) / 65;
-
-        if(1)printf("%u, TEXT %s, HIRES %s, MIXED %s, line_in_frame = %d\n",
-                byte_in_frame, 
-                (settings.mode == TEXT) ? "true" : "false",
-                (settings.mode == HIRES) ? "true" : "false",
-                settings.mixed ? "true" : "false",
-                line_in_frame);
-        // XXX for now just set whole frame to last mode setting
-        display_mode = settings.mode;
-        mixed_mode = settings.mixed;
-        display_page = settings.page;
-        vid80 = settings.vid80;
-        altchar = settings.altchar;
-    }
+    map_modes_to_lines(history, current_byte_in_frame);
 
     CheckOpenGL(__FILE__, __LINE__);
     redraw(my_window);
@@ -2007,24 +2027,6 @@ void shutdown()
 {
     glfwTerminate();
 }
-
-#if 0
-void set_switches(DisplayMode mode_, bool mixed, int page, bool vid80_, bool altchar_)
-{
-    display_mode = mode_;
-    mixed_mode = mixed;
-    display_page = page;
-    vid80 = vid80_;
-    altchar = altchar_;
-
-    // XXX
-    static bool altchar_warned = false;
-    if(altchar && !altchar_warned) {
-        fprintf(stderr, "Warning: ALTCHAR activated, is not implemented\n");
-        altchar_warned = true;
-    }
-}
-#endif
 
 static const int text_page1_base = 0x400;
 static const int text_page2_base = 0x800;

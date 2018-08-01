@@ -49,7 +49,7 @@ struct ModeSettings
 {
     DisplayMode mode;
     bool mixed;
-    int page;
+    int page; // Apple //e page minus 1 (so 0,1 not 1,2)
     bool vid80;
     bool altchar;
     ModeSettings() :
@@ -88,7 +88,7 @@ void show_floppy_activity(int number, bool activity);
 void enqueue_audio_samples(char *buf, size_t sz);
 
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted);
-void iterate(const ModeHistory& history, unsigned long long current_clock); // display
+void iterate(const ModeHistory& history, unsigned long long current_byte_in_frame); // display
 void shutdown();
 
 };
