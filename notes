@@ -1,59 +1,32 @@
-per-scanline modes
-    Actual Apple II TEXT/GR and HGR video address patterns are in Understanding the Apple II
-        Not for DHGR or 80-col but they're probably just same address twice alternating banks
-    tracking clock and reporting video memory contents
-        clock
-            one tick of ~1MHz clock maps to one tick of address counter
-                so is 7 HGR bits or one GR/TEXT horizontal cell
-                "most 6502 cycles are 978 nS long [14 14mhz clocks], but every 65th cycle is 1117 nS long [16 14mhz clocks]."
-            source clock is 14.31818MHz
-                unsigned long would overflow after 20 minutes
-                    Could modulo byteclock by 14318180 at iterate() and not overflow
-                    as long as it doesn't take longer than 20 minutes between calls to APPLE2Einterface::iterate than 20 minutes...)
-                Could have clk be in 14MHz ticks.
-                    unsigned long long will last 40853 years (could be slow on embedded systems)
-                    Keep track of phase at clk delta time, and add 14 usually but 16 every 65th
-                    Then wall clock is just always ticks / 14318180.0
-                    phase_hpe initially 0
-                    add_cpu_cycles(elapsed_cpu) {
-                        clock_cpu += elapsed_cpu
-                        clock_14mhz = elapsed_cpu * 14 + (elapsed_cpu + phase_hpe) / 65 * 16
-                        phase_hpe = (phase_hpe + elapsed_cpu) % 65
-                    }
-            clock_14mhz is 14mhz ticks
-            clock_cpu is CPU clocks, averaging 1.023MHz
-            phase_hpe is clock_cpu within horizontal line
-            Current CPU clk (in 1MHz CPU cycles) is used for
-                which audio sample (at libAO sample rate) in the audio waveform we should fill
-                    OK - should work with higher fixed rate
-                mark after how many cycles the open apple key should be raised
-                    OK - should work with higher fixed rate
-                mark paddle timer
-                    OK - should work with higher fixed rate
-                incrementing CPU instruction cycles
-                    OK - call add_cpu_cycles()
-        address generator
-            every line is 65 bytes, there are 262 lines, so there are 17030 bytes per field
-            honor softswitches
-            convert clock_cpu to address
-            blanking and offscreen addressing during HIRES MIXED
-                160 through 191 and 224 through 261
-                TEXT addressing at 160, HPE' + 1 through at 192, HPE'
-                argh
-        read empty memory address on bus no longer fails but instead
-            generate address, get byte from RAM and return it
-    recording softswitch mode changes
-        store vector of switch or mode change and byteclock
-        instead of setting before APPLE2Einterface::iterate, pass into iterate
-    honoring softswitch change in APPLE2Einterface
-        initialize scanline mode array to text
-        receive vector of tuple of byteclock and modes
-        fill scanline mode array from passed in vector
-        draw framebuffer by scanline
+cleanup:
+    use board::sync() to batch up and send display writes, audio updates, and display mode changes
+    separate out APPLE2Einterface from board
+        pass just mode flags in vector presized to, let's say, 16?
+        translate in lambda before passing to APPLE2Einterface
+    templatize Board?
+    deglobalize where possible
+    lower and underscores throughout
+    audio popping
+    Mockingboard
+    DHGR
+    colors bleed incorrectly
+        probably could convert color on CPU to make it slightly easier
+Run this software then purge fake6502:
+    ProDOS
+    LodeRunner
+    ChopLifter
+    Digitizer
+    Plasmania
+    Christmas Carols
+    Data Capture //e
+    Contiki no network
+    Idiom Translator
+    Pascal - Brad's Disk
+    ...?
 
 final release:
-    help screen
-    gamepad calibration screen (for desktop GLFW anyway)
+    help screen?
+    gamepad calibration screen (for desktop GLFW anyway)?
         need to handle asynchronous gamepad arrival (a la HTML5)
     screenshots for README.md
     link to emscripten version
@@ -75,25 +48,6 @@ emscripten:
         limit to integer-zoomed pixels?
     GLFW - gamepad using HTML5 gamepad interface
         note that it doesn't show up until initially used
-
-cleanup:
-    deglobalize where possible
-    lower and underscores throughout
-    exceptions?
-    tableize 6502?
-
-Run this software, purge fake6502:
-    ProDOS
-    LodeRunner
-    ChopLifter
-    Digitizer
-    Plasmania
-    Christmas Carols
-    Data Capture //e
-    Contiki no network
-    Idiom Translator
-    Pascal - Brad's Disk
-    ...?
 
 apple2e -diskII diskII.c600.c67f.bin ~/Downloads/LodeRunner.dsk none apple2e.rom < /dev/null
 
