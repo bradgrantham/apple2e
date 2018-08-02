@@ -22,6 +22,8 @@ using namespace std;
 #include "dis6502.h"
 #include "interface.h"
 
+#define LK_HACK 1
+
 const unsigned int DEBUG_ERROR = 0x01;
 const unsigned int DEBUG_WARN = 0x02;
 const unsigned int DEBUG_DECODE = 0x04;
@@ -720,6 +722,12 @@ struct MAINboard : board_base
     bool speaker_transitioning_to_high = false; 
     int where_in_waveform = 0;
 
+#if LK_HACK
+    unsigned char *disassemble_buffer = 0;
+    int disassemble_index = 0;
+    int disassemble_size = 0;
+#endif
+
     void fill_flush_audio()
     {
         long long current_sample = clk * sample_rate / machine_clock_rate;
@@ -1032,6 +1040,39 @@ struct MAINboard : board_base
     }
     virtual bool write(int addr, unsigned char data)
     {
+#if LK_HACK
+        if(addr == 0xBFFE) {
+            // Specify size of upcoming disassembly buffer.
+            if (disassemble_buffer != 0) {
+                delete[] disassemble_buffer;
+                disassemble_buffer = 0;
+            }
+            if (data != 0) {
+                disassemble_buffer = new unsigned char[data];
+                disassemble_size = data;
+                disassemble_index = 0;
+            }
+            return true;
+        } else if (addr == 0xBFFF) {
+            // Add byte to disassembly buffer. Disassemble if full.
+            if (disassemble_buffer != 0) {
+                disassemble_buffer[disassemble_index++] = data;
+
+                if (disassemble_index == disassemble_size) {
+                    int bytes;
+                    string dis;
+                    for (int i = 0; i < disassemble_size; i += bytes) {
+                        tie(bytes, dis) = disassemble_6502(i, disassemble_buffer + i);
+                        printf("%s\n", dis.c_str());
+                    }
+                    printf("---\n");
+                    delete[] disassemble_buffer;
+                    disassemble_buffer = 0;
+                }
+            }
+            return true;
+        }
+#endif
 #if 0
         if(text_page1.write(addr, data) ||
             text_page1x.write(addr, data) ||
