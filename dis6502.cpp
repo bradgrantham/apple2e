@@ -68,7 +68,7 @@ tuple<int, string> disassemble_6502(int address, const unsigned char* buffer)
             sprintf(p, "%04X   %n", address, &stored);                             //Display current address at beginning of line
             p += stored;
             paramcount = opcode_props[currentbyte][0];              //Get instruction length
-            bytelength = 1 + paramcount;
+            bytelength = paramcount;
             opcode = instruction[opcode_props[currentbyte][1]];     //Get opcode name
             addrmode = opcode_props[currentbyte][2];                //Get info required to display addressing mode
             pre = modes[addrmode][0];                               //Look up pre-operand formatting text
