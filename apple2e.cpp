@@ -1249,24 +1249,24 @@ struct bus_frontend
     unsigned char read(int addr)
     {
         unsigned char data = 0xaa;
-        if(board->read(addr, data)) {
-            if(debug & DEBUG_BUS) printf("read %04X returned %02X\n", addr, data);
-            // reads[addr].push_back(data);
+        if(board->read(addr & 0xFFFF, data)) {
+            if(debug & DEBUG_BUS) printf("read %04X returned %02X\n", addr & 0xFFFF, data);
+            // reads[addr & 0xFFFF].push_back(data);
             return data;
         }
         if(debug & DEBUG_ERROR)
-            fprintf(stderr, "no ownership of read at %04X\n", addr);
+            fprintf(stderr, "no ownership of read at %04X\n", addr & 0xFFFF);
         return 0xAA;
     }
     void write(int addr, unsigned char data)
     {
-        if(board->write(addr, data)) {
-            if(debug & DEBUG_BUS) printf("write %04X %02X\n", addr, data);
-            // writes[addr].push_back(data);
+        if(board->write(addr & 0xFFFF, data)) {
+            if(debug & DEBUG_BUS) printf("write %04X %02X\n", addr & 0xFFFF, data);
+            // writes[addr & 0xFFFF].push_back(data);
             return;
         }
         if(debug & DEBUG_ERROR)
-            fprintf(stderr, "no ownership of write %02X at %04X\n", data, addr);
+            fprintf(stderr, "no ownership of write %02X at %04X\n", data, addr & 0xFFFF);
     }
 
     void reset()
@@ -3002,23 +3002,20 @@ extern uint16_t pc;
 
 int main(int argc, char **argv)
 {
-    if(0) {
-        for(int i = 0; i < 262; i++) {
-            int addr = i * 65;
-            printf("hires scanout address for %d = $%04X\n", addr, get_hires_scanout_address(addr));
-            printf("hires scanout address for %d = $%04X\n", addr + 25, get_hires_scanout_address(addr + 25));
-        }
-        exit(0);
-    }
     char *progname = argv[0];
     argc -= 1;
     argv += 1;
     char *diskII_rom_name = NULL, *floppy1_name = NULL, *floppy2_name = NULL;
     char *map_name = NULL;
+    bool mute = false;
 
     while((argc > 0) && (argv[0][0] == '-')) {
-	if(strcmp(argv[0], "-debugger") == 0) {
-            debugging = true;
+	if(strcmp(argv[0], "-mute") == 0) {
+            mute = true;
+            argv++;
+            argc--;
+	} else if(strcmp(argv[0], "-debugger") == 0) {
+            mute = true;
             argv++;
             argc--;
 	} else if(strcmp(argv[0], "-diskII") == 0) {
@@ -3099,7 +3096,11 @@ int main(int argc, char **argv)
 
     MAINboard::get_paddle_func paddle = [](int num)->tuple<float, bool>{return APPLE2Einterface::get_paddle(num);};
 
-    MAINboard::audio_flush_func audio = [](char *buf, size_t sz){ if(!run_fast) APPLE2Einterface::enqueue_audio_samples(buf, sz); };
+    MAINboard::audio_flush_func audio;
+    if(mute)
+        audio = [](char *buf, size_t sz){ };
+    else
+        audio = [](char *buf, size_t sz){ if(!run_fast) APPLE2Einterface::enqueue_audio_samples(buf, sz); };
 
     mainboard = new MAINboard(clk, b, display, audio, paddle);
     bus.board = mainboard;
