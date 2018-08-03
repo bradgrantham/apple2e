@@ -1873,9 +1873,7 @@ ao_device *open_ao()
 
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted)
 {
-    for(int i = 0; i < 192; i++)
-        line_to_mode[i] = ModeSettings(TEXT, false, 1, false, false);
-    most_recent_modepoint = make_tuple(0, ModeSettings(TEXT, false, 1, false, false));
+    most_recent_modepoint = make_tuple(0, ModeSettings());
 
     aodev = open_ao();
     if(aodev == NULL)
