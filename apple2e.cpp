@@ -1121,7 +1121,8 @@ struct MAINboard : board_base
                 disassemble_buffer = new unsigned char[data];
                 disassemble_size = data;
                 disassemble_index = 0;
-                printf("Size of buffer: %d bytes\n", disassemble_size);
+                // Subtract two for initial address.
+                printf("Size of buffer: %d bytes\n", disassemble_size - 2);
             }
             return true;
         } else if (addr == 0xBFFF) {
@@ -1130,16 +1131,17 @@ struct MAINboard : board_base
                 disassemble_buffer[disassemble_index++] = data;
 
                 if (disassemble_index == disassemble_size) {
+                    int address = disassemble_buffer[0] + (disassemble_buffer[1] << 8);
                     int bytes;
                     string dis;
-                    for (int i = 0; i < disassemble_size; i += bytes) {
-                        tie(bytes, dis) = disassemble_6502(i, disassemble_buffer + i);
+                    for (int i = 2; i < disassemble_size; i += bytes, address += bytes) {
+                        tie(bytes, dis) = disassemble_6502(address, disassemble_buffer + i);
                         printf("%-32s", dis.c_str());
                         if (bytes == 3) {
                             // Print function name if we have it.
-                            int address = disassemble_buffer[i + 1] +
+                            int jump_address = disassemble_buffer[i + 1] +
                                 (disassemble_buffer[i + 2] << 8);
-                            auto search = address_to_function_name.find(address);
+                            auto search = address_to_function_name.find(jump_address);
                             if (search != address_to_function_name.end()) {
                                 printf(" ; %s", search->second.c_str());
                             }
