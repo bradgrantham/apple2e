@@ -784,7 +784,7 @@ struct MAINboard : board_base
     deque<unsigned char> keyboard_buffer;
 
     static const int sample_rate = 44100;
-    static const size_t audio_buffer_size = sample_rate / 10;
+    static const size_t audio_buffer_size = sample_rate / 100;
     char audio_buffer[audio_buffer_size];
     long long audio_buffer_start_sample = 0;
     long long audio_buffer_next_sample = 0;
