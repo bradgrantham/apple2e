@@ -794,8 +794,10 @@ struct MAINboard : board_base
 
 #if LK_HACK
     unsigned char *disassemble_buffer = 0;
+    int disassemble_state = 0;
     int disassemble_index = 0;
     int disassemble_size = 0;
+    int disassemble_addr = 0;
 #endif
 
     void fill_flush_audio()
@@ -1112,46 +1114,76 @@ struct MAINboard : board_base
     {
 #if LK_HACK
         if(addr == 0xBFFE) {
-            // Specify size of upcoming disassembly buffer.
+            // Reset protocol.
             if (disassemble_buffer != 0) {
                 delete[] disassemble_buffer;
                 disassemble_buffer = 0;
             }
-            if (data != 0) {
-                disassemble_buffer = new unsigned char[data];
-                disassemble_size = data;
-                disassemble_index = 0;
-                // Subtract two for initial address.
-                printf("Size of buffer: %d bytes\n", disassemble_size - 2);
-            }
+            disassemble_state = 0;
             return true;
         } else if (addr == 0xBFFF) {
-            // Add byte to disassembly buffer. Disassemble if full.
-            if (disassemble_buffer != 0) {
-                disassemble_buffer[disassemble_index++] = data;
+            // We dribble our meta-data in one byte at a time.
+            switch (disassemble_state) {
+                case 0:
+                    // LSB of size.
+                    disassemble_size = data;
+                    disassemble_state++;
+                    break;
 
-                if (disassemble_index == disassemble_size) {
-                    int address = disassemble_buffer[0] + (disassemble_buffer[1] << 8);
-                    int bytes;
-                    string dis;
-                    for (int i = 2; i < disassemble_size; i += bytes, address += bytes) {
-                        tie(bytes, dis) = disassemble_6502(address, disassemble_buffer + i);
-                        printf("%-32s", dis.c_str());
-                        if (bytes == 3) {
-                            // Print function name if we have it.
-                            int jump_address = disassemble_buffer[i + 1] +
-                                (disassemble_buffer[i + 2] << 8);
-                            auto search = address_to_function_name.find(jump_address);
-                            if (search != address_to_function_name.end()) {
-                                printf(" ; %s", search->second.c_str());
+                case 1:
+                    // MSB of size.
+                    disassemble_size |= data << 8;
+                    disassemble_buffer = new unsigned char[disassemble_size];
+                    disassemble_index = 0;
+                    printf("Size of buffer: %d bytes\n", disassemble_size);
+
+                    disassemble_state++;
+                    break;
+
+                case 2:
+                    // LSB of address.
+                    disassemble_addr = data;
+                    disassemble_state++;
+                    break;
+
+                case 3:
+                    // MSB of address.
+                    disassemble_addr |= data << 8;
+                    disassemble_state++;
+                    break;
+
+                case 4:
+                    // Add byte to disassembly buffer. Disassemble if full.
+                    if (disassemble_buffer != 0) {
+                        disassemble_buffer[disassemble_index++] = data;
+
+                        if (disassemble_index == disassemble_size) {
+                            int bytes;
+                            string dis;
+                            for (int i = 2; i < disassemble_size;
+                                    i += bytes, disassemble_addr += bytes) {
+
+                                tie(bytes, dis) = disassemble_6502(disassemble_addr,
+                                        disassemble_buffer + i);
+
+                                printf("%-32s", dis.c_str());
+                                if (bytes == 3) {
+                                    // Print function name if we have it.
+                                    int jump_address = disassemble_buffer[i + 1] +
+                                        (disassemble_buffer[i + 2] << 8);
+                                    auto search = address_to_function_name.find(jump_address);
+                                    if (search != address_to_function_name.end()) {
+                                        printf(" ; %s", search->second.c_str());
+                                    }
+                                }
+                                printf("\n");
                             }
+                            printf("---\n");
+                            delete[] disassemble_buffer;
+                            disassemble_buffer = 0;
                         }
-                        printf("\n");
                     }
-                    printf("---\n");
-                    delete[] disassemble_buffer;
-                    disassemble_buffer = 0;
-                }
+                    break;
             }
             return true;
         }
