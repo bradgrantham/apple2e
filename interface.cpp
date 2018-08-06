@@ -1121,7 +1121,7 @@ struct apple2screen : public widget
             long length = ftell(fp);
             fseek(fp, 0, SEEK_SET);
             char *text = (char *)malloc(length + 1);
-            fread(text, 1, length, fp);
+            length = fread(text, 1, length, fp);
             text[length] = '\0';
             event_queue.push_back({PASTE, 0, text});
             fclose(fp);
