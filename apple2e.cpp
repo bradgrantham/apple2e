@@ -2190,6 +2190,14 @@ struct CPU6502
                 break;
             }
 
+            case 0x12: { // ORA (ind), 65C02 instruction
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                m = bus.read(addr);
+                set_flags(N | Z, a = a | m);
+                break;
+            }
+
             case 0x05: { // ORA zpg
                 unsigned char zpg = read_pc_inc(bus);
                 m = bus.read(zpg);
@@ -2750,7 +2758,7 @@ struct CPU6502
             }
 
             default:
-                printf("unhandled instruction %02X\n", inst);
+                printf("unhandled instruction %02X at %04X\n", inst, pc - 1);
                 fflush(stdout); exit(1);
         }
         if(debug & DEBUG_STATE) {
