@@ -24,7 +24,7 @@ tuple<int, string> disassemble_6502(int address, const unsigned char* buffer)
     static const char *padding[3] = {"      ","   ",""};
 
  // 58 Instructions + Undefined ("???")
-    static const char *instruction[59] = {
+    static const char *instruction[] = {
  //       0     1     2     3     4     5     6     7     8     9
         "ADC","AND","ASL","BCC","BCS","BEQ","BIT","BMI","BNE","BPL", // 0
         "BRK","BVC","BVS","CLC","CLD","CLI","CLV","CMP","CPX","CPY", // 1
