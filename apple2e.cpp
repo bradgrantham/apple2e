@@ -1161,7 +1161,7 @@ struct MAINboard : board_base
                         if (disassemble_index == disassemble_size) {
                             int bytes;
                             string dis;
-                            for (int i = 2; i < disassemble_size;
+                            for (int i = 0; i < disassemble_size;
                                     i += bytes, disassemble_addr += bytes) {
 
                                 tie(bytes, dis) = disassemble_6502(disassemble_addr,
