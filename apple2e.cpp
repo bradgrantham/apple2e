@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <cassert>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -2828,6 +2829,7 @@ struct CPU6502
             printf("%s ", (p & C) ? "C" : "c");
             printf("S:%02X (%02X %02X %02X ...) PC:%04X (%02X %02X %02X ...)\n", s, s0, s1, s2, pc, pc0, pc1, pc2);
         }
+        assert(cycles[inst] > 0);
         clk.add_cpu_cycles(cycles[inst]);
     }
 };
