@@ -176,6 +176,9 @@ render_target::render_target(int w, int h)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+const int apple2_screen_width = 280;
+const int apple2_screen_height = 192;
+const int recording_scale = 2;
 
 chrono::time_point<chrono::system_clock> start_time;
 
@@ -206,9 +209,9 @@ deque<event> event_queue;
 bool force_caps_on = true;
 bool draw_using_color = false;
 
-ModeSettings line_to_mode[192];
+ModeSettings line_to_mode[apple2_screen_height];
 ModePoint most_recent_modepoint;
-vertex_array line_to_area[192];
+vertex_array line_to_area[apple2_screen_height];
 
 render_target *rendertarget_for_recording;
 
@@ -742,8 +745,8 @@ vertex_array make_rectangle_vertex_array(float x, float y, float w, float h)
 
 void initialize_screen_areas()
 {
-    for(int i = 0; i < 192; i++) {
-        line_to_area[i] = make_rectangle_vertex_array(0, i, 280, 1);
+    for(int i = 0; i < apple2_screen_height; i++) {
+        line_to_area[i] = make_rectangle_vertex_array(0, i, apple2_screen_width, 1);
     }
 }
 
@@ -1150,7 +1153,7 @@ struct apple2screen : public widget
 
     virtual width_height get_min_dimensions() const
     {
-        return {280, 192};
+        return {apple2_screen_width, apple2_screen_height};
     }
 
     virtual void draw(double now, float to_screen[9], float x, float y, float w_, float h_)
@@ -1159,7 +1162,7 @@ struct apple2screen : public widget
         h = h_;
         long long elapsed_millis = now * 1000;
 
-        for(int i = 0; i < 192; i++) {
+        for(int i = 0; i < apple2_screen_height; i++) {
             const ModeSettings& settings = line_to_mode[i];
 
             set_shader(to_screen, settings.mode, (i < 160) ? false : settings.mixed, settings.page, settings.vid80, (elapsed_millis / 300) % 2, x, y);
@@ -1763,10 +1766,10 @@ static void start_record()
     }
 
     if(!rendertarget_for_recording) {
-        rendertarget_for_recording = new render_target(280, 192);
+        rendertarget_for_recording = new render_target(apple2_screen_width * recording_scale, apple2_screen_height * recording_scale);
     }
 
-    GifBegin(&gif_writer, "out.gif", 280, 192, 5);
+    GifBegin(&gif_writer, "out.gif", apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, 5);
     gif_recording = true;
 }
 
@@ -1828,11 +1831,11 @@ void make_to_screen_transform()
     to_screen_transform[2 * 3 + 1] = 1;
     to_screen_transform[2 * 3 + 2] = 1;
 
-    recording_transform[0 * 3 + 0] = 2.0 / 280.0;
+    recording_transform[0 * 3 + 0] = 2.0 / apple2_screen_width;
     recording_transform[0 * 3 + 1] = 0;
     recording_transform[0 * 3 + 2] = 0;
     recording_transform[1 * 3 + 0] = 0;
-    recording_transform[1 * 3 + 1] = 2.0 / 192.0;
+    recording_transform[1 * 3 + 1] = 2.0 / apple2_screen_height;
     recording_transform[1 * 3 + 2] = 0;
     recording_transform[2 * 3 + 0] = -1;
     recording_transform[2 * 3 + 1] = -1;
@@ -1864,26 +1867,26 @@ void save_rgba_to_ppm(const unsigned char *rgba8_pixels, int width, int height, 
 
 void add_rendertarget_to_gif(double now, render_target *rt)
 {
-    static unsigned char image_recorded[280 * 192 * 4];
+    static unsigned char image_recorded[apple2_screen_width * recording_scale * apple2_screen_height * recording_scale * 4];
     
     rt->start_rendering();
 
-        glViewport(0, 0, 280, 192);
+        glViewport(0, 0, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        screen_only->draw(now, recording_transform, 0, 0, 280, 192);
+        screen_only->draw(now, recording_transform, 0, 0, apple2_screen_width, apple2_screen_height);
 
     rt->stop_rendering();
 
     rt->start_reading();
 
-        glReadPixels(0, 0, 280, 192, GL_RGBA, GL_UNSIGNED_BYTE, image_recorded);
+        glReadPixels(0, 0, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, GL_RGBA, GL_UNSIGNED_BYTE, image_recorded);
 
         // Enable to debug framebuffer operations by writing result to screen.ppm.
         if(false) {
-            save_rgba_to_ppm(image_recorded, 280, 192, "screen.ppm");
+            save_rgba_to_ppm(image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, "screen.ppm");
         }
 
-        GifWriteFrame(&gif_writer, image_recorded, 280, 192, 5, 8, true);
+        GifWriteFrame(&gif_writer, image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, 5, 8, true);
 
     rt->stop_reading();
 }
