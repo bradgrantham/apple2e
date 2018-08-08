@@ -1889,7 +1889,7 @@ void add_rendertarget_to_gif(double now, render_target *rt)
             save_rgba_to_ppm(image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, "screen.ppm");
         }
 
-        GifWriteFrame(&gif_writer, image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, recording_frame_duration_hundredths, 8, true);
+        GifWriteFrame(&gif_writer, image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, recording_frame_duration_hundredths, 8, false);
 
     rt->stop_reading();
 }
