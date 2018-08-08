@@ -1747,7 +1747,7 @@ static bool gif_recording = false;
  */
 static void stop_record()
 {
-    if (!gif_recording) {
+    if (gif_recording) {
         GifEnd(&gif_writer);
         gif_recording = false;
     }
