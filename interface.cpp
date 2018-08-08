@@ -13,6 +13,8 @@
 #include <cassert>
 #include <ao/ao.h>
 
+#include "gif.h"
+
 // implicit centering in widget? Or special centering widget?
 // lines (for around toggle and momentary)
 // widget which is graphics/text/lores screen
@@ -1379,10 +1381,28 @@ struct toggle : public text_widget
         }
         on = !on;
     }
+
+    /**
+     * Sets the boolean value, updates the UI, and calls the appropriate callback.
+     */
+    void set_value(bool value) {
+        on = value;
+
+        if(on) {
+            set(fg, 0, 0, 0, 1);
+            set(bg, 1, 1, 1, 1);
+            action_on();
+        } else {
+            set(fg, 1, 1, 1, 1);
+            set(bg, 0, 0, 0, 1);
+            action_off();
+        }
+    }
 };
 
 widget *ui;
 toggle *caps_toggle;
+toggle *record_toggle;
 
 void initialize_gl(void)
 {
@@ -1620,6 +1640,34 @@ struct floppy_icon : public widget
     }
 };
 
+// Globals for GIF recording.
+static GifWriter gif_writer;
+static bool gif_recording = false;
+
+/**
+ * Stop recording all frames to a GIF file.
+ */
+static void stop_record()
+{
+    if (!gif_recording) {
+        GifEnd(&gif_writer);
+        gif_recording = false;
+    }
+}
+
+/**
+ * Start recording all frames to a GIF file.
+ */
+static void start_record()
+{
+    if (gif_recording) {
+        stop_record();
+    }
+
+    GifBegin(&gif_writer, "out.gif", 100, 100, 33);
+    gif_recording = true;
+}
+
 
 floppy_icon *floppy0_icon;
 floppy_icon *floppy1_icon;
@@ -1632,8 +1680,9 @@ void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted,
     caps_toggle = new toggle("CAPS", true, [](){force_caps_on = true;}, [](){force_caps_on = false;});
     toggle *color_toggle = new toggle("COLOR", false, [](){draw_using_color = true;}, [](){draw_using_color = false;});
     toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
+    record_toggle = new toggle("RECORD", false, [](){start_record();}, [](){stop_record();});
 
-    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle};
+    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle};
     if(add_floppies) {
         floppy0_icon = new floppy_icon(0, floppy0_inserted);
         floppy1_icon = new floppy_icon(1, floppy1_inserted);
@@ -1724,6 +1773,11 @@ static void key(GLFWwindow *window, int key, int scancode, int action, int mods)
             const char* text = glfwGetClipboardString(window);
             if (text)
                 event_queue.push_back({PASTE, 0, strdup(text)});
+        } else if(super_down && key == GLFW_KEY_R) {
+            if (action == GLFW_PRESS) {
+                // Toggle UI, which calls the callbacks.
+                record_toggle->set_value(!record_toggle->on);
+            }
         } else {
             if(key == GLFW_KEY_CAPS_LOCK) {
                 force_caps_on = true;
