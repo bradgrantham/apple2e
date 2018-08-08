@@ -3,7 +3,13 @@
 
 namespace APPLE2Einterface
 {
-enum EventType {NONE, KEYDOWN, KEYUP, RESET, REBOOT, PASTE, SPEED, QUIT, PAUSE, EJECT_FLOPPY, INSERT_FLOPPY};
+
+enum EventType
+{
+    NONE, KEYDOWN, KEYUP, RESET, REBOOT, PASTE, SPEED, QUIT, PAUSE, EJECT_FLOPPY, INSERT_FLOPPY,
+    REQUEST_ITERATION_PERIOD_IN_MILLIS,         /* request fixed simulation time period between calls to iterate() */
+    WITHDRAW_ITERATION_PERIOD_REQUEST,          /* withdraw request for fixed simulation time */
+};
 
 const int LEFT_SHIFT = 340;
 const int LEFT_CONTROL = 341;

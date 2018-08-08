@@ -41,6 +41,9 @@ volatile bool exit_on_memory_fallthrough = true;
 volatile bool run_fast = false;
 volatile bool pause_cpu = false;
 
+bool run_rate_limited = false;
+int rate_limit_millis;
+
 // XXX - this should be handled through a function passed to MAINboard
 APPLE2Einterface::ModeHistory mode_history;
 
@@ -3053,8 +3056,14 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
             pause_cpu = e.value;
         } else if(e.type == APPLE2Einterface::SPEED) {
             run_fast = e.value;
-        } else if(e.type == APPLE2Einterface::QUIT)
-            return e.type;
+        } else if(e.type == APPLE2Einterface::QUIT) {
+            return e.type; 
+        } else if(e.type == APPLE2Einterface::REQUEST_ITERATION_PERIOD_IN_MILLIS) {
+            run_rate_limited = true;
+            rate_limit_millis = e.value;
+        } else if(e.type == APPLE2Einterface::WITHDRAW_ITERATION_PERIOD_REQUEST) {
+            run_rate_limited = false;
+        }
     }
     return APPLE2Einterface::NONE;
 }
@@ -3215,10 +3224,13 @@ int main(int argc, char **argv)
             if(pause_cpu)
                 clocks_per_slice = 0;
             else {
-                if(run_fast)
+                if(run_rate_limited) {
+                    clocks_per_slice = machine_clock_rate / 1000 * rate_limit_millis; 
+                } else if(run_fast) {
                     clocks_per_slice = machine_clock_rate / 5; 
-                else
+                } else {
                     clocks_per_slice = millis_per_slice * machine_clock_rate / 1000 * 1.05;
+                }
             }
             clk_t prev_clock = clk;
             while(clk - prev_clock < clocks_per_slice) {
@@ -3243,7 +3255,7 @@ int main(int argc, char **argv)
 
             auto elapsed_millis = chrono::duration_cast<chrono::milliseconds>(now - then);
             if(!run_fast || pause_cpu)
-                this_thread::sleep_for(chrono::milliseconds(millis_per_slice) - elapsed_millis);
+                this_thread::sleep_for(chrono::milliseconds(clocks_per_slice * 1000 / machine_clock_rate) - elapsed_millis);
 
             then = now;
             

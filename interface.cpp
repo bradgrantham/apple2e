@@ -179,6 +179,7 @@ render_target::render_target(int w, int h)
 const int apple2_screen_width = 280;
 const int apple2_screen_height = 192;
 const int recording_scale = 2;
+const int recording_frame_duration_hundredths = 5;
 
 chrono::time_point<chrono::system_clock> start_time;
 
@@ -1753,6 +1754,7 @@ static void stop_record()
     if (gif_recording) {
         GifEnd(&gif_writer);
         gif_recording = false;
+        event_queue.push_back({WITHDRAW_ITERATION_PERIOD_REQUEST, 0});
     }
 }
 
@@ -1769,7 +1771,8 @@ static void start_record()
         rendertarget_for_recording = new render_target(apple2_screen_width * recording_scale, apple2_screen_height * recording_scale);
     }
 
-    GifBegin(&gif_writer, "out.gif", apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, 5);
+    GifBegin(&gif_writer, "out.gif", apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, recording_frame_duration_hundredths);
+    event_queue.push_back({REQUEST_ITERATION_PERIOD_IN_MILLIS, recording_frame_duration_hundredths * 10});
     gif_recording = true;
 }
 
@@ -1886,7 +1889,7 @@ void add_rendertarget_to_gif(double now, render_target *rt)
             save_rgba_to_ppm(image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, "screen.ppm");
         }
 
-        GifWriteFrame(&gif_writer, image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, 5, 8, true);
+        GifWriteFrame(&gif_writer, image_recorded, apple2_screen_width * recording_scale, apple2_screen_height * recording_scale, recording_frame_duration_hundredths, 8, true);
 
     rt->stop_reading();
 }
