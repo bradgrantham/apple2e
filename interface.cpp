@@ -82,6 +82,101 @@ struct vertex_array : public vector<vertex_attribute_buffer>
     }
 };
 
+/*
+ * OpenGL Render Target ; creates a framebuffer that can be used as a
+ * rendering target and as a texture color source.
+ */
+struct render_target
+{
+    GLuint framebuffer;
+    GLuint color;
+    GLuint depth;
+
+    render_target(int w, int h);
+    ~render_target();
+
+    // Start rendering; Draw()s will draw to this framebuffer
+    void start_rendering()
+    {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+    }
+
+    // Stop rendering; Draw()s will draw to the back buffer
+    void stop_rendering()
+    {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    }
+
+    // Start reading; Read()s will read from this framebuffer
+    void start_reading()
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+    }
+
+    // Stop reading; Read()s will read from the back buffer
+    void stop_reading()
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadBuffer(GL_BACK);
+    }
+
+    // Use this color as the currently bound texture source
+    void use_color()
+    {
+        glBindTexture(GL_TEXTURE_2D, color);
+    }
+};
+
+// Destroy render target resources
+render_target::~render_target()
+{
+    glDeleteTextures(1, &color);
+    glDeleteRenderbuffers(1, &depth);
+    glDeleteFramebuffers(1, &framebuffer);
+}
+
+// Create render target resources if possible
+render_target::render_target(int w, int h)
+{
+    GLenum status;
+
+    // Create color texture
+    glGenTextures(1, &color);
+    glBindTexture(GL_TEXTURE_2D, color);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+    CheckOpenGL(__FILE__, __LINE__);
+
+    // Create depth texture
+    glGenTextures(1, &depth);
+    glBindTexture(GL_TEXTURE_2D, depth);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, w, h, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if(status != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "framebuffer status was %04X\n", status);
+        throw "Couldn't create OpenGL framebuffer";
+    }
+    CheckOpenGL(__FILE__, __LINE__);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+
 chrono::time_point<chrono::system_clock> start_time;
 
 static GLFWwindow* my_window;
@@ -114,6 +209,8 @@ bool draw_using_color = false;
 ModeSettings line_to_mode[192];
 ModePoint most_recent_modepoint;
 vertex_array line_to_area[192];
+
+render_target *rendertarget_for_recording;
 
 bool event_waiting()
 {
@@ -1401,6 +1498,7 @@ struct toggle : public text_widget
 };
 
 widget *ui;
+widget *screen_only;
 toggle *caps_toggle;
 toggle *record_toggle;
 
@@ -1664,7 +1762,11 @@ static void start_record()
         stop_record();
     }
 
-    GifBegin(&gif_writer, "out.gif", 100, 100, 33);
+    if(!rendertarget_for_recording) {
+        rendertarget_for_recording = new render_target(280, 192);
+    }
+
+    GifBegin(&gif_writer, "out.gif", 280, 192, 5);
     gif_recording = true;
 }
 
@@ -1693,9 +1795,9 @@ void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted,
     for(auto b : controls)
         controls_centered.push_back(new centering(b));
 
-    widget *screen = new apple2screen();
+    screen_only = new apple2screen();
     widget *buttonpanel = new centering(new widgetbox(widgetbox::VERTICAL, controls_centered));
-    vector<widget*> panels_centered = {new spacer(10, 0), new centering(screen), new spacer(10, 0), new centering(buttonpanel), new spacer(10, 0)};
+    vector<widget*> panels_centered = {new spacer(10, 0), new centering(screen_only), new spacer(10, 0), new centering(buttonpanel), new spacer(10, 0)};
 
     ui = new centering(new widgetbox(widgetbox::HORIZONTAL, panels_centered));
 }
@@ -1712,6 +1814,7 @@ void show_floppy_activity(int number, bool activity)
 
 float pixel_to_ui_scale;
 float to_screen_transform[9];
+float recording_transform[9];
 
 void make_to_screen_transform()
 {
@@ -1724,6 +1827,16 @@ void make_to_screen_transform()
     to_screen_transform[2 * 3 + 0] = -1;
     to_screen_transform[2 * 3 + 1] = 1;
     to_screen_transform[2 * 3 + 2] = 1;
+
+    recording_transform[0 * 3 + 0] = 2.0 / 280.0;
+    recording_transform[0 * 3 + 1] = 0;
+    recording_transform[0 * 3 + 2] = 0;
+    recording_transform[1 * 3 + 0] = 0;
+    recording_transform[1 * 3 + 1] = 2.0 / 192.0;
+    recording_transform[1 * 3 + 2] = 0;
+    recording_transform[2 * 3 + 0] = -1;
+    recording_transform[2 * 3 + 1] = -1;
+    recording_transform[2 * 3 + 2] = 1;
 }
 
 tuple<float, float> window_to_widget(float x, float y)
@@ -1735,16 +1848,63 @@ tuple<float, float> window_to_widget(float x, float y)
     return make_tuple(wx, wy);
 }
 
+void save_rgba_to_ppm(const unsigned char *rgba8_pixels, int width, int height, const char *filename)
+{
+    int row_bytes = width * 4;
+
+    FILE *fp = fopen(filename, "w");
+    fprintf(fp, "P6 %d %d 255\n", width, height);
+    for(int row = 0; row < height; row++) {
+        for(int col = 0; col < width; col++) {
+            fwrite(rgba8_pixels + row_bytes * row + col * 4, 1, 3, fp);
+        }
+    }
+    fclose(fp);
+}
+
+void add_rendertarget_to_gif(double now, render_target *rt)
+{
+    static unsigned char image_recorded[280 * 192 * 4];
+    
+    rt->start_rendering();
+
+        glViewport(0, 0, 280, 192);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        screen_only->draw(now, recording_transform, 0, 0, 280, 192);
+
+    rt->stop_rendering();
+
+    rt->start_reading();
+
+        glReadPixels(0, 0, 280, 192, GL_RGBA, GL_UNSIGNED_BYTE, image_recorded);
+
+        // Enable to debug framebuffer operations by writing result to screen.ppm.
+        if(false) {
+            save_rgba_to_ppm(image_recorded, 280, 192, "screen.ppm");
+        }
+
+        GifWriteFrame(&gif_writer, image_recorded, 280, 192, 5, 8, true);
+
+    rt->stop_reading();
+}
+
 static void redraw(GLFWwindow *window)
 {
     chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
     chrono::duration<double> elapsed = now - start_time;
 
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    glViewport(0, 0, fbw, fbh);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     ui->draw(elapsed.count(), to_screen_transform, 0, 0, gWindowWidth / pixel_to_ui_scale, gWindowHeight / pixel_to_ui_scale);
 
     CheckOpenGL(__FILE__, __LINE__);
+
+    if(gif_recording) {
+        add_rendertarget_to_gif(elapsed.count(), rendertarget_for_recording);
+    }
 }
 
 static void error_callback(int error, const char* description)
@@ -2094,7 +2254,6 @@ void iterate(const ModeHistory& history, unsigned long long current_byte)
     } else {
         use_joystick = false;
     }
-
 
     glfwPollEvents();
 }
