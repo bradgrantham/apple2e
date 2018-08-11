@@ -1526,11 +1526,6 @@ struct CPU6502
                 break;
             }
 
-            case 0x80: { // NOP imm (Choplifter?)
-                read_pc_inc(bus);
-                break;
-            }
-
             case 0x8A: { // TXA
                 set_flags(N | Z, a = x);
                 break;
@@ -2155,11 +2150,6 @@ struct CPU6502
                 break;
             }
 
-            case 0xDA: { // PHX
-                stack_push(bus, x);
-                break;
-            }
-
             case 0x01: { // ORA (ind, X)
                 unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
@@ -2205,14 +2195,6 @@ struct CPU6502
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
-                m = bus.read(addr);
-                set_flags(N | Z, a = a | m);
-                break;
-            }
-
-            case 0x12: { // ORA (ind), 65C02 instruction
-                unsigned char zpg = read_pc_inc(bus);
-                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
                 break;
@@ -2701,18 +2683,6 @@ struct CPU6502
                 break;
             }
 
-            case 0x9C: { // STZ abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
-                bus.write(addr, 0x0);
-                break;
-            }
-
-            case 0x64: { // STZ zpg
-                unsigned char zpg = read_pc_inc(bus);
-                bus.write(zpg, 0);
-                break;
-            }
-
             case 0x8E: { // STX abs
                 int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
                 bus.write(addr, x);
@@ -2745,21 +2715,48 @@ struct CPU6502
                 break;
             }
 
-            case 0xB2: { // LDA (zpg), 65C02 instruction
+            // 65C02 instructions
+
+            case 0x80: { // BRA imm, 65C02
+                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                if((pc + rel) / 256 != pc / 256)
+                    clk.add_cpu_cycles(1);
+                pc += rel;
+                break;
+            }
+
+            case 0x64: { // STZ zpg, 65C02
+                unsigned char zpg = read_pc_inc(bus);
+                bus.write(zpg, 0);
+                break;
+            }
+
+            case 0x9C: { // STZ abs, 65C02
+                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                bus.write(addr, 0x0);
+                break;
+            }
+
+            case 0xDA: { // PHX, 65C02
+                stack_push(bus, x);
+                break;
+            }
+
+            case 0xB2: { // LDA (zpg), 65C02
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
-            case 0x92: { // STA (zpg), 65C02 instruction
+            case 0x92: { // STA (zpg), 65C02
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 bus.write(addr, a);
                 break;
             }
 
-            case 0x72: { // ADC (zpg), 65C02 instruction
+            case 0x72: { // ADC (zpg), 65C02
                 unsigned char zpg = read_pc_inc(bus);
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
 
@@ -2779,13 +2776,30 @@ struct CPU6502
                 break;
             }
 
-            case 0x3A: { // DEC, 65C02 instruction
+            case 0x3A: { // DEC, 65C02
                 set_flags(N | Z, a = a - 1);
                 break;
             }
 
-            case 0x1A: { // INC, 65C02 instruction
+            case 0x1A: { // INC, 65C02
                 set_flags(N | Z, a = a + 1);
+                break;
+            }
+
+            case 0x12: { // ORA (ind), 65C02
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                m = bus.read(addr);
+                set_flags(N | Z, a = a | m);
+                break;
+            }
+
+            case 0xD2: { // CMP (zpg), 65C02 instruction
+                unsigned char zpg = read_pc_inc(bus);
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                m = bus.read(addr);
+                flag_change(C, m <= a);
+                set_flags(N | Z, m = a - m);
                 break;
             }
 
@@ -2831,7 +2845,7 @@ int CPU6502::cycles[256] =
     /* 0xA- */ 2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, -1,
     /* 0xB- */ 2, 5, 5, -1, 4, 4, 4, -1, 2, 4, 2, -1, 4, 4, 4, -1,
     /* 0xC- */ 2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 3, -1,
-    /* 0xD- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, 3, -1, -1, 4, 7, -1,
+    /* 0xD- */ 2, 5, 5, -1, -1, 4, 6, -1, 2, 4, 3, -1, -1, 4, 7, -1,
     /* 0xE- */ 2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 6, -1,
     /* 0xF- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
 };
