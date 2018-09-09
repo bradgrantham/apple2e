@@ -1431,25 +1431,25 @@ struct CPU6502
     }
     void irq()
     {
-        stack_push(bus, (pc + 0) >> 8);
-        stack_push(bus, (pc + 0) & 0xFF);
-        stack_push(bus, p);
+        stack_push((pc + 0) >> 8);
+        stack_push((pc + 0) & 0xFF);
+        stack_push(p);
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
     void brk()
     {
-        stack_push(bus, (pc - 1) >> 8);
-        stack_push(bus, (pc - 1) & 0xFF);
-        stack_push(bus, p | B); // | B says the Synertek 6502 reference
+        stack_push((pc - 1) >> 8);
+        stack_push((pc - 1) & 0xFF);
+        stack_push(p | B); // | B says the Synertek 6502 reference
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
     void nmi()
     {
-        stack_push(bus, (pc + 0) >> 8);
-        stack_push(bus, (pc + 0) & 0xFF);
-        stack_push(bus, p);
+        stack_push((pc + 0) >> 8);
+        stack_push((pc + 0) & 0xFF);
+        stack_push(p);
         pc = bus.read(0xFFFA) + bus.read(0xFFFB) * 256;
         exception = NONE;
     }
@@ -1508,23 +1508,23 @@ struct CPU6502
     {
         if(exception == RESET) {
             if(debug & DEBUG_STATE) printf("RESET\n");
-            reset(bus);
+            reset();
         } if(exception == NMI) {
             if(debug & DEBUG_STATE) printf("NMI\n");
-            nmi(bus);
+            nmi();
         } if(exception == INT) {
             if(debug & DEBUG_STATE) printf("INT\n");
-            irq(bus);
+            irq();
         }
         // BRK is a special case caused directly by an instruction
 
-        unsigned char inst = read_pc_inc(bus);
+        unsigned char inst = read_pc_inc();
 
         unsigned char m;
 
         switch(inst) {
             case 0x00: { // BRK
-                brk(bus);
+                brk();
                 break;
             }
 
@@ -1598,21 +1598,21 @@ struct CPU6502
             }
 
             case 0xC6: { // DEC zpg
-                int zpg = read_pc_inc(bus);
+                int zpg = read_pc_inc();
                 set_flags(N | Z, m = bus.read(zpg) - 1);
                 bus.write(zpg, m);
                 break;
             }
 
             case 0xDE: { // DEC abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                int addr = read_pc_inc() + read_pc_inc() * 256 + x;
                 set_flags(N | Z, m = bus.read(addr) - 1);
                 bus.write(addr, m);
                 break;
             }
 
             case 0xCE: { // DEC abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, m = bus.read(addr) - 1);
                 bus.write(addr, m);
                 break;
@@ -1624,7 +1624,7 @@ struct CPU6502
             }
 
             case 0xFE: { // INC abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                int addr = read_pc_inc() + read_pc_inc() * 256 + x;
                 if((addr - x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 set_flags(N | Z, m = bus.read(addr) + 1);
@@ -1633,21 +1633,21 @@ struct CPU6502
             }
 
             case 0xEE: { // INC abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, m = bus.read(addr) + 1);
                 bus.write(addr, m);
                 break;
             }
 
             case 0xE6: { // INC zpg
-                int zpg = read_pc_inc(bus);
+                int zpg = read_pc_inc();
                 set_flags(N | Z, m = bus.read(zpg) + 1);
                 bus.write(zpg, m);
                 break;
             }
 
             case 0xF6: { // INC zpg, X
-                int zpg = (read_pc_inc(bus) + x) & 0xFF;
+                int zpg = (read_pc_inc() + x) & 0xFF;
                 set_flags(N | Z, m = bus.read(zpg) + 1);
                 bus.write(zpg, m);
                 break;
@@ -1664,7 +1664,7 @@ struct CPU6502
             }
 
             case 0x10: { // BPL
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(!isset(N)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1675,7 +1675,7 @@ struct CPU6502
             }
 
             case 0x50: { // BVC
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(!isset(V)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1686,7 +1686,7 @@ struct CPU6502
             }
 
             case 0x70: { // BVS
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(isset(V)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1697,7 +1697,7 @@ struct CPU6502
             }
 
             case 0x30: { // BMI
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(isset(N)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1708,7 +1708,7 @@ struct CPU6502
             }
 
             case 0x90: { // BCC
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(!isset(C)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1719,7 +1719,7 @@ struct CPU6502
             }
 
             case 0xB0: { // BCS
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(isset(C)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1730,7 +1730,7 @@ struct CPU6502
             }
 
             case 0xD0: { // BNE
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(!isset(Z)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1741,7 +1741,7 @@ struct CPU6502
             }
 
             case 0xF0: { // BEQ
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if(isset(Z)) {
                     clk.add_cpu_cycles(1);
                     if((pc + rel) / 256 != pc / 256)
@@ -1753,21 +1753,21 @@ struct CPU6502
 
 
             case 0xA1: { // LDA (ind, X)
-                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
             case 0xB5: { // LDA zpg, X
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = zpg + x;
                 set_flags(N | Z, a = bus.read(addr & 0xFF));
                 break;
             }
 
             case 0xB1: { // LDA ind, Y
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1776,13 +1776,13 @@ struct CPU6502
             }
 
             case 0xA5: { // LDA zpg
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 set_flags(N | Z, a = bus.read(zpg));
                 break;
             }
 
             case 0xDD: { // CMP abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1792,7 +1792,7 @@ struct CPU6502
             }
 
             case 0xD9: { // CMP abs, Y
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1802,7 +1802,7 @@ struct CPU6502
             }
 
             case 0xB9: { // LDA abs, Y
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, a = bus.read(addr + y));
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1810,7 +1810,7 @@ struct CPU6502
             }
 
             case 0xBC: { // LDY abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, y = bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1818,7 +1818,7 @@ struct CPU6502
             }
 
             case 0xBD: { // LDA abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, a = bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1826,7 +1826,7 @@ struct CPU6502
             }
 
             case 0xF5: { // SBC zpg, X
-                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
@@ -1844,7 +1844,7 @@ struct CPU6502
             }
 
             case 0xE5: { // SBC zpg
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 int borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
@@ -1862,7 +1862,7 @@ struct CPU6502
             }
 
             case 0xF1: { // SBC ind, Y
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xff) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1883,7 +1883,7 @@ struct CPU6502
             }
 
             case 0xF9: { // SBC abs, Y
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                int addr = read_pc_inc() + read_pc_inc() * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 unsigned char m = bus.read(addr);
@@ -1903,7 +1903,7 @@ struct CPU6502
             }
 
             case 0xFD: { // SBC abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                int addr = read_pc_inc() + read_pc_inc() * 256 + x;
                 if((addr - x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 unsigned char m = bus.read(addr);
@@ -1923,7 +1923,7 @@ struct CPU6502
             }
 
             case 0xED: { // SBC abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 unsigned char m = bus.read(addr);
                 int borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
@@ -1941,7 +1941,7 @@ struct CPU6502
             }
 
             case 0xE9: { // SBC imm
-                unsigned char m = read_pc_inc(bus);
+                unsigned char m = read_pc_inc();
                 int borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
                     unsigned char bcd = a / 16 * 10 + a % 16;
@@ -1958,7 +1958,7 @@ struct CPU6502
             }
 
             case 0x71: { // ADC (ind), Y
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1979,7 +1979,7 @@ struct CPU6502
             }
 
             case 0x6D: { // ADC abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 int carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -1997,7 +1997,7 @@ struct CPU6502
             }
 
             case 0x65: { // ADC
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 int carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -2015,7 +2015,7 @@ struct CPU6502
             }
 
             case 0x7D: { // ADC abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + x;
+                int addr = read_pc_inc() + read_pc_inc() * 256 + x;
                 if((addr - x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -2035,7 +2035,7 @@ struct CPU6502
             }
 
             case 0x79: { // ADC abs, Y
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                int addr = read_pc_inc() + read_pc_inc() * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -2055,7 +2055,7 @@ struct CPU6502
             }
 
             case 0x69: { // ADC
-                m = read_pc_inc(bus);
+                m = read_pc_inc();
                 int carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
                     unsigned char bcd = a / 16 * 10 + a % 16;
@@ -2072,7 +2072,7 @@ struct CPU6502
             }
 
             case 0x0E: { // ASL abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = m << 1);
@@ -2081,7 +2081,7 @@ struct CPU6502
             }
 
             case 0x06: { // ASL
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = m << 1);
@@ -2090,7 +2090,7 @@ struct CPU6502
             }
 
             case 0x16: { // ASL
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read((zpg + x) & 0xFF);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = m << 1);
@@ -2105,7 +2105,7 @@ struct CPU6502
             }
 
             case 0x5E: { // LSR abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + x);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
@@ -2114,7 +2114,7 @@ struct CPU6502
             }
 
             case 0x46: { // LSR
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
@@ -2123,7 +2123,7 @@ struct CPU6502
             }
 
             case 0x56: { // LSR zpg, X
-                unsigned char zpg = read_pc_inc(bus) + x;
+                unsigned char zpg = read_pc_inc() + x;
                 m = bus.read(zpg & 0xFF);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
@@ -2132,7 +2132,7 @@ struct CPU6502
             }
 
             case 0x4E: { // LSR
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
@@ -2147,17 +2147,17 @@ struct CPU6502
             }
 
             case 0x68: { // PLA
-                set_flags(N | Z, a = stack_pull(bus));
+                set_flags(N | Z, a = stack_pull());
                 break;
             }
 
             case 0x48: { // PHA
-                stack_push(bus, a);
+                stack_push(a);
                 break;
             }
 
             case 0x01: { // ORA (ind, X)
-                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
@@ -2165,21 +2165,21 @@ struct CPU6502
             }
 
             case 0x15: { // ORA zpg, X
-                int zpg = (read_pc_inc(bus) + x) & 0xFF;
+                int zpg = (read_pc_inc() + x) & 0xFF;
                 m = bus.read(zpg);
                 set_flags(N | Z, a = a | m);
                 break;
             }
 
             case 0x0D: { // ORA abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
                 break;
             }
 
             case 0x19: { // ORA abs, Y
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2188,7 +2188,7 @@ struct CPU6502
             }
 
             case 0x1D: { // ORA abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2197,7 +2197,7 @@ struct CPU6502
             }
 
             case 0x11: { // ORA (ind), Y
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2207,26 +2207,26 @@ struct CPU6502
             }
 
             case 0x05: { // ORA zpg
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 set_flags(N | Z, a = a | m);
                 break;
             }
 
             case 0x09: { // ORA imm
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 set_flags(N | Z, a = a | imm);
                 break;
             }
 
             case 0x35: { // AND zpg, X
-                int zpg = (read_pc_inc(bus) + x) & 0xFF;
+                int zpg = (read_pc_inc() + x) & 0xFF;
                 set_flags(N | Z, a = a & bus.read(zpg));
                 break;
             }
 
             case 0x31: { // AND (ind), y
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2235,7 +2235,7 @@ struct CPU6502
             }
 
             case 0x3D: { // AND abs, x
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, a = a & bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2243,7 +2243,7 @@ struct CPU6502
             }
 
             case 0x39: { // AND abs, y
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, a = a & bus.read(addr + y));
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2251,19 +2251,19 @@ struct CPU6502
             }
 
             case 0x2D: { // AND abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, a = a & bus.read(addr));
                 break;
             }
 
             case 0x25: { // AND zpg
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 set_flags(N | Z, a = a & bus.read(zpg));
                 break;
             }
 
             case 0x29: { // AND imm
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 set_flags(N | Z, a = a & imm);
                 break;
             }
@@ -2274,7 +2274,7 @@ struct CPU6502
             }
 
             case 0x7E: { // ROR abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + x);
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
@@ -2284,7 +2284,7 @@ struct CPU6502
             }
 
             case 0x36: { // ROL zpg,X
-                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 m = bus.read(zpg);
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
@@ -2295,7 +2295,7 @@ struct CPU6502
 
 
             case 0x3E: { // ROL abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + x);
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
@@ -2319,7 +2319,7 @@ struct CPU6502
             }
 
             case 0x6E: { // ROR abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
@@ -2329,7 +2329,7 @@ struct CPU6502
             }
 
             case 0x66: { // ROR
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
@@ -2339,7 +2339,7 @@ struct CPU6502
             }
 
             case 0x76: { // ROR
-                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 m = bus.read(zpg);
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
@@ -2349,7 +2349,7 @@ struct CPU6502
             }
 
             case 0x2E: { // ROL abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
@@ -2360,7 +2360,7 @@ struct CPU6502
 
 
             case 0x26: { // ROL
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 bool c = isset(C);
                 m = bus.read(zpg);
                 flag_change(C, m & 0x80);
@@ -2370,13 +2370,13 @@ struct CPU6502
             }
 
             case 0x4C: { // JMP
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 pc = addr;
                 break;
             }
 
             case 0x6C: { // JMP
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 unsigned char addrl = bus.read(addr);
                 unsigned char addrh = bus.read(addr + 1);
                 addr = addrl + addrh * 256;
@@ -2385,49 +2385,49 @@ struct CPU6502
             }
 
             case 0x9D: { // STA abs, x
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 bus.write(addr + x, a);
                 break;
             }
 
             case 0x99: { // STA
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 bus.write(addr + y, a);
                 break;
             }
 
             case 0x91: { // STA (ind), Y
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 bus.write(addr, a);
                 break;
             }
 
             case 0x81: { // STA (ind, X)
-                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 bus.write(addr, a);
                 break;
             }
 
             case 0x8D: { // STA
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 bus.write(addr, a);
                 break;
             }
 
             case 0x08: { // PHP
-                stack_push(bus, p);
+                stack_push(p);
                 break;
             }
 
             case 0x28: { // PLP
-                p = stack_pull(bus);
+                p = stack_pull();
                 break;
             }
 
             case 0x24: { // BIT
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 flag_change(Z, (a & m) == 0);
                 flag_change(N, m & 0x80);
@@ -2436,7 +2436,7 @@ struct CPU6502
             }
 
             case 0x2C: { // BIT
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 flag_change(Z, (a & m) == 0);
                 flag_change(N, m & 0x80);
@@ -2445,19 +2445,19 @@ struct CPU6502
             }
 
             case 0xB4: { // LDY
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 set_flags(N | Z, y = bus.read((zpg + x) & 0xFF));
                 break;
             }
 
             case 0xAE: { // LDX abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, x = bus.read(addr));
                 break;
             }
 
             case 0xBE: { // LDX
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256 + y;
+                int addr = read_pc_inc() + read_pc_inc() * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 set_flags(N | Z, x = bus.read(addr));
@@ -2465,49 +2465,49 @@ struct CPU6502
             }
 
             case 0xA6: { // LDX
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 set_flags(N | Z, x = bus.read(zpg));
                 break;
             }
 
             case 0xA4: { // LDY
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 set_flags(N | Z, y = bus.read(zpg));
                 break;
             }
 
             case 0xAC: { // LDY
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, y = bus.read(addr));
                 break;
             }
 
             case 0xA2: { // LDX
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 set_flags(N | Z, x = imm);
                 break;
             }
 
             case 0xA0: { // LDY
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 set_flags(N | Z, y = imm);
                 break;
             }
 
             case 0xA9: { // LDA
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 set_flags(N | Z, a = imm);
                 break;
             }
 
             case 0xAD: { // LDA
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
             case 0xCC: { // CPY abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= y);
                 set_flags(N | Z, m = y - m);
@@ -2515,7 +2515,7 @@ struct CPU6502
             }
 
             case 0xEC: { // CPX abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= x);
                 set_flags(N | Z, m = x - m);
@@ -2523,28 +2523,28 @@ struct CPU6502
             }
 
             case 0xE0: { // CPX
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 flag_change(C, imm <= x);
                 set_flags(N | Z, imm = x - imm);
                 break;
             }
 
             case 0xC0: { // CPY
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 flag_change(C, imm <= y);
                 set_flags(N | Z, imm = y - imm);
                 break;
             }
 
             case 0x55: { // EOR zpg, X
-                unsigned char zpg = read_pc_inc(bus) + x;
+                unsigned char zpg = read_pc_inc() + x;
                 m = bus.read(zpg & 0xFF);
                 set_flags(N | Z, a = a ^ m);
                 break;
             }
             
             case 0x41: { // EOR (ind, X)
-                unsigned char zpg = (read_pc_inc(bus) + x) & 0xFF;
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a ^ m);
@@ -2552,14 +2552,14 @@ struct CPU6502
             }
 
             case 0x4D: { // EOR abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a ^ m);
                 break;
             }
 
             case 0x5D: { // EOR abs, X
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2568,7 +2568,7 @@ struct CPU6502
             }
 
             case 0x59: { // EOR abs, Y
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2577,19 +2577,19 @@ struct CPU6502
             }
 
             case 0x45: { // EOR
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 set_flags(N | Z, a = a ^ bus.read(zpg));
                 break;
             }
 
             case 0x49: { // EOR
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 set_flags(N | Z, a = a ^ imm);
                 break;
             }
 
             case 0x51: { // EOR
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2599,7 +2599,7 @@ struct CPU6502
             }
 
             case 0xD1: { // CMP
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -2610,7 +2610,7 @@ struct CPU6502
             }
 
             case 0xC5: { // CMP
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
@@ -2618,7 +2618,7 @@ struct CPU6502
             }
 
             case 0xCD: { // CMP
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
@@ -2626,14 +2626,14 @@ struct CPU6502
             }
 
             case 0xC9: { // CMP
-                unsigned char imm = read_pc_inc(bus);
+                unsigned char imm = read_pc_inc();
                 flag_change(C, imm <= a);
                 set_flags(N | Z, imm = a - imm);
                 break;
             }
 
             case 0xD5: { // CMP
-                unsigned char zpg = read_pc_inc(bus) + x;
+                unsigned char zpg = read_pc_inc() + x;
                 m = bus.read(zpg & 0xFF);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
@@ -2641,7 +2641,7 @@ struct CPU6502
             }
             
             case 0xE4: { // CPX
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 flag_change(C, m <= x);
                 set_flags(N | Z, m = x - m);
@@ -2649,7 +2649,7 @@ struct CPU6502
             }
 
             case 0xC4: { // CPY
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
                 flag_change(C, m <= y);
                 set_flags(N | Z, m = y - m);
@@ -2657,66 +2657,66 @@ struct CPU6502
             }
 
             case 0x85: { // STA
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 bus.write(zpg, a);
                 break;
             }
 
             case 0x40: { // RTI
-                p = stack_pull(bus);
-                unsigned char pcl = stack_pull(bus);
-                unsigned char pch = stack_pull(bus);
+                p = stack_pull();
+                unsigned char pcl = stack_pull();
+                unsigned char pch = stack_pull();
                 pc = pcl + pch * 256 + 1;
                 break;
             }
 
             case 0x60: { // RTS
-                unsigned char pcl = stack_pull(bus);
-                unsigned char pch = stack_pull(bus);
+                unsigned char pcl = stack_pull();
+                unsigned char pch = stack_pull();
                 pc = pcl + pch * 256 + 1;
                 break;
             }
 
             case 0x95: { // STA
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 bus.write((zpg + x) & 0xFF, a);
                 break;
             }
 
             case 0x94: { // STY
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 bus.write((zpg + x) & 0xFF, y);
                 break;
             }
 
             case 0x8E: { // STX abs
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 bus.write(addr, x);
                 break;
             }
 
             case 0x86: { // STX
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 bus.write(zpg, x);
                 break;
             }
 
             case 0x84: { // STY
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 bus.write(zpg, y);
                 break;
             }
 
             case 0x8C: { // STY
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 bus.write(addr, y);
                 break;
             }
 
             case 0x20: { // JSR
-                stack_push(bus, (pc + 1) >> 8);
-                stack_push(bus, (pc + 1) & 0xFF);
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                stack_push((pc + 1) >> 8);
+                stack_push((pc + 1) & 0xFF);
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 pc = addr;
                 break;
             }
@@ -2724,7 +2724,7 @@ struct CPU6502
             // 65C02 instructions
 
             case 0x80: { // BRA imm, 65C02
-                int rel = (read_pc_inc(bus) + 128) % 256 - 128;
+                int rel = (read_pc_inc() + 128) % 256 - 128;
                 if((pc + rel) / 256 != pc / 256)
                     clk.add_cpu_cycles(1);
                 pc += rel;
@@ -2732,38 +2732,38 @@ struct CPU6502
             }
 
             case 0x64: { // STZ zpg, 65C02
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 bus.write(zpg, 0);
                 break;
             }
 
             case 0x9C: { // STZ abs, 65C02
-                int addr = read_pc_inc(bus) + read_pc_inc(bus) * 256;
+                int addr = read_pc_inc() + read_pc_inc() * 256;
                 bus.write(addr, 0x0);
                 break;
             }
 
             case 0xDA: { // PHX, 65C02
-                stack_push(bus, x);
+                stack_push(x);
                 break;
             }
 
             case 0xB2: { // LDA (zpg), 65C02
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
             case 0x92: { // STA (zpg), 65C02
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 bus.write(addr, a);
                 break;
             }
 
             case 0x72: { // ADC (zpg), 65C02
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
 
                 m = bus.read(addr);
@@ -2793,7 +2793,7 @@ struct CPU6502
             }
 
             case 0x12: { // ORA (ind), 65C02
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
@@ -2801,7 +2801,7 @@ struct CPU6502
             }
 
             case 0xD2: { // CMP (zpg), 65C02 instruction
-                unsigned char zpg = read_pc_inc(bus);
+                unsigned char zpg = read_pc_inc();
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= a);
@@ -3064,14 +3064,14 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
             if(use_fake6502)
                 reset6502();
             else
-                cpu.reset(bus);
+                cpu.reset();
         } else if(e.type == APPLE2Einterface::REBOOT) {
             bus.reset();
             board->momentary_open_apple(machine_clock_rate / (5 * 14));
             if(use_fake6502)
                 reset6502();
             else
-                cpu.reset(bus);
+                cpu.reset();
         } else if(e.type == APPLE2Einterface::PAUSE) {
             pause_cpu = e.value;
         } else if(e.type == APPLE2Einterface::SPEED) {
@@ -3220,7 +3220,7 @@ int main(int argc, char **argv)
         }
     }
 
-    CPU6502<system_clock, bus_frontend> cpu(clk, bus_frontend);
+    CPU6502<system_clock, bus_frontend> cpu(clk, bus);
 
     atexit(cleanup);
 
@@ -3263,7 +3263,7 @@ int main(int argc, char **argv)
                     step6502();
                     clk.add_cpu_cycles(clockticks6502);
                 } else {
-                    cpu.cycle(bus);
+                    cpu.cycle();
                 }
             }
             mainboard->sync();
@@ -3310,12 +3310,12 @@ int main(int argc, char **argv)
             } else if(strcmp(line, "reset") == 0) {
                 printf("machine reset.\n");
                 bus.reset();
-                cpu.reset(bus);
+                cpu.reset();
                 continue;
             } else if(strcmp(line, "reboot") == 0) {
                 printf("CPU rebooted (NMI).\n");
                 bus.reset();
-                cpu.nmi(bus);
+                cpu.nmi();
                 continue;
             }
             if(debug & DEBUG_DECODE) {
@@ -3328,7 +3328,7 @@ int main(int argc, char **argv)
                 step6502();
                 clk.add_cpu_cycles(clockticks6502);
             } else {
-                cpu.cycle(bus);
+                cpu.cycle();
             }
             mainboard->sync();
 
