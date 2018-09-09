@@ -93,7 +93,6 @@ struct CPU6502
 
     static bool sbc_overflow_d(unsigned char a, unsigned char b, int borrow)
     { 
-        // ??
         signed char a_ = a; 
         signed char b_ = b;
         signed short c = a_ - (b_ + borrow);
@@ -102,7 +101,6 @@ struct CPU6502
 
     static bool adc_overflow_d(unsigned char a, unsigned char b, int carry)
     { 
-        // ??
         signed char a_ = a;
         signed char b_ = b;
         signed short c = a_ + b_ + carry;
@@ -161,25 +159,6 @@ struct CPU6502
         pc = bus.read(0xFFFA) + bus.read(0xFFFB) * 256;
         exception = NONE;
     }
-
-#if 0
-    enum Operand {
-        A,
-        IMPL,
-        REL,
-        ABS,
-        ABS_X,
-        ABS_Y,
-        IND,
-        X_IND,
-        IND_Y,
-        ZPG,
-        ZPG_X,
-        ZPG_Y,
-        IMM,
-        UND,
-    };
-#endif
 
     void cycle()
     {
