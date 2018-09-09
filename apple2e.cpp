@@ -1363,9 +1363,10 @@ bool adc_overflow(unsigned char a, unsigned char b, int carry)
     return (c < -128) || (c > 127);
 }
 
+template<class CLK, class BUS>
 struct CPU6502
 {
-    system_clock &clk;
+    CLK &clk;
 
     unsigned char a, x, y, s, p;
     static const unsigned char N = 0x80;
@@ -1383,7 +1384,7 @@ struct CPU6502
         BRK,
         INT,
     } exception;
-    CPU6502(system_clock& clk_) :
+    CPU6502(CLK& clk_) :
         clk(clk_),
         a(0),
         x(0),
@@ -1393,15 +1394,15 @@ struct CPU6502
         exception(RESET)
     {
     }
-    void stack_push(bus_frontend& bus, unsigned char d)
+    void stack_push(BUS& bus, unsigned char d)
     {
         bus.write(0x100 + s--, d);
     }
-    unsigned char stack_pull(bus_frontend& bus)
+    unsigned char stack_pull(BUS& bus)
     {
         return bus.read(0x100 + ++s);
     }
-    unsigned char read_pc_inc(bus_frontend& bus)
+    unsigned char read_pc_inc(BUS& bus)
     {
         return bus.read(pc++);
     }
@@ -1420,13 +1421,13 @@ struct CPU6502
     {
         p &= ~flag;
     }
-    void reset(bus_frontend& bus)
+    void reset(BUS& bus)
     {
         s = 0xFD;
         pc = bus.read(0xFFFC) + bus.read(0xFFFD) * 256;
         exception = NONE;
     }
-    void irq(bus_frontend& bus)
+    void irq(BUS& bus)
     {
         stack_push(bus, (pc + 0) >> 8);
         stack_push(bus, (pc + 0) & 0xFF);
@@ -1434,7 +1435,7 @@ struct CPU6502
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
-    void brk(bus_frontend& bus)
+    void brk(BUS& bus)
     {
         stack_push(bus, (pc - 1) >> 8);
         stack_push(bus, (pc - 1) & 0xFF);
@@ -1442,7 +1443,7 @@ struct CPU6502
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
-    void nmi(bus_frontend& bus)
+    void nmi(BUS& bus)
     {
         stack_push(bus, (pc + 0) >> 8);
         stack_push(bus, (pc + 0) & 0xFF);
@@ -1476,7 +1477,7 @@ struct CPU6502
         return (p & flag) != 0;
     }
 #if 0
-    int get_operand(bus_frontend& bus, Operand oper)
+    int get_operand(BUS& bus, Operand oper)
     {
         switch(oper)
         {
@@ -1501,7 +1502,7 @@ struct CPU6502
         if(flags & N)
             flag_change(N, v & 0x80);
     }
-    void cycle(bus_frontend& bus)
+    void cycle(BUS& bus)
     {
         if(exception == RESET) {
             if(debug & DEBUG_STATE) printf("RESET\n");
@@ -2833,7 +2834,8 @@ struct CPU6502
     }
 };
 
-int CPU6502::cycles[256] = 
+template<class CLK, class BUS>
+int CPU6502<CLK, BUS>::cycles[256] = 
 {
     /* 0x0- */ 7, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, -1, 4, 6, -1,
     /* 0x1- */ 2, 5, 5, -1, -1, 4, 6, -1, 2, 4, 2, -1, -1, 4, 7, -1,
@@ -2980,7 +2982,7 @@ map<int, key_to_ascii> interface_key_to_apple2e =
 DISKIIboard *diskIIboard;
 Mockingboard *mockingboard;
 
-enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& bus, CPU6502& cpu)
+enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& bus, CPU6502<system_clock, bus_frontend>& cpu)
 {
     static bool shift_down = false;
     static bool control_down = false;
@@ -3216,7 +3218,7 @@ int main(int argc, char **argv)
         }
     }
 
-    CPU6502 cpu(clk);
+    CPU6502<system_clock, bus_frontend> cpu(clk);
 
     atexit(cleanup);
 
