@@ -1,37 +1,3 @@
-static bool sbc_overflow_d(unsigned char a, unsigned char b, int borrow)
-{ 
-    // ??
-    signed char a_ = a; 
-    signed char b_ = b;
-    signed short c = a_ - (b_ + borrow);
-    return (c < 0) || (c > 99);
-}
-
-static bool adc_overflow_d(unsigned char a, unsigned char b, int carry)
-{ 
-    // ??
-    signed char a_ = a;
-    signed char b_ = b;
-    signed short c = a_ + b_ + carry;
-    return (c < 0) || (c > 99);
-}
-
-static bool sbc_overflow(unsigned char a, unsigned char b, int borrow)
-{
-    signed char a_ = a;
-    signed char b_ = b;
-    signed short c = a_ - (b_ + borrow);
-    return (c < -128) || (c > 127);
-}
-
-static bool adc_overflow(unsigned char a, unsigned char b, int carry)
-{
-    signed char a_ = a;
-    signed char b_ = b;
-    signed short c = a_ + b_ + carry;
-    return (c < -128) || (c > 127);
-}
-
 /*
     Public methods:
         CPU6502(CLK& clk, BUS& bus); - construct using clk and bus
@@ -123,6 +89,40 @@ struct CPU6502
             flag_change(Z, v == 0x00);
         if(flags & N)
             flag_change(N, v & 0x80);
+    }
+
+    static bool sbc_overflow_d(unsigned char a, unsigned char b, int borrow)
+    { 
+        // ??
+        signed char a_ = a; 
+        signed char b_ = b;
+        signed short c = a_ - (b_ + borrow);
+        return (c < 0) || (c > 99);
+    }
+
+    static bool adc_overflow_d(unsigned char a, unsigned char b, int carry)
+    { 
+        // ??
+        signed char a_ = a;
+        signed char b_ = b;
+        signed short c = a_ + b_ + carry;
+        return (c < 0) || (c > 99);
+    }
+
+    static bool sbc_overflow(unsigned char a, unsigned char b, int borrow)
+    {
+        signed char a_ = a;
+        signed char b_ = b;
+        signed short c = a_ - (b_ + borrow);
+        return (c < -128) || (c > 127);
+    }
+
+    static bool adc_overflow(unsigned char a, unsigned char b, int carry)
+    {
+        signed char a_ = a;
+        signed char b_ = b;
+        signed short c = a_ + b_ + carry;
+        return (c < -128) || (c > 127);
     }
 
     CPU6502(CLK& clk_, BUS& bus_) :
