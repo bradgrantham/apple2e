@@ -32,6 +32,22 @@ static bool adc_overflow(unsigned char a, unsigned char b, int carry)
     return (c < -128) || (c > 127);
 }
 
+/*
+    Public methods:
+        CPU6502(CLK& clk, BUS& bus); - construct using clk and bus
+        cycle() - issue one instruction and add necessary cycles to clk 
+        reset() - reset CPU state
+        irq() - put CPU in IRQ
+        nmi() - put CPU in NMI
+   
+    CLK template parameter must support methods:
+        void add_cpu_cycles(int N); - add N CPU cycles to the clock
+
+    BUS template parameter support methods:
+        unsigned char read(int addr);
+        void read(int addr, unsigned char data);
+*/
+
 template<class CLK, class BUS>
 struct CPU6502
 {
@@ -57,18 +73,6 @@ struct CPU6502
         BRK,
         INT,
     } exception;
-
-    CPU6502(CLK& clk_, BUS& bus_) :
-        clk(clk_),
-        bus(bus_),
-        a(0),
-        x(0),
-        y(0),
-        s(0),
-        p(0x20),
-        exception(RESET)
-    {
-    }
 
     void stack_push(unsigned char d)
     {
@@ -103,6 +107,36 @@ struct CPU6502
         p &= ~flag;
     }
 
+    int carry()
+    {
+        return (p & C) ? 1 : 0;
+    }
+
+    bool isset(unsigned char flag)
+    {
+        return (p & flag) != 0;
+    }
+
+    void set_flags(unsigned char flags, unsigned char v)
+    {
+        if(flags & Z)
+            flag_change(Z, v == 0x00);
+        if(flags & N)
+            flag_change(N, v & 0x80);
+    }
+
+    CPU6502(CLK& clk_, BUS& bus_) :
+        clk(clk_),
+        bus(bus_),
+        a(0),
+        x(0),
+        y(0),
+        s(0),
+        p(0x20),
+        exception(RESET)
+    {
+    }
+
     void reset()
     {
         s = 0xFD;
@@ -115,15 +149,6 @@ struct CPU6502
         stack_push((pc + 0) >> 8);
         stack_push((pc + 0) & 0xFF);
         stack_push(p);
-        pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
-        exception = NONE;
-    }
-
-    void brk()
-    {
-        stack_push((pc - 1) >> 8);
-        stack_push((pc - 1) & 0xFF);
-        stack_push(p | B); // | B says the Synertek 6502 reference
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
@@ -156,24 +181,6 @@ struct CPU6502
     };
 #endif
 
-    int carry()
-    {
-        return (p & C) ? 1 : 0;
-    }
-
-    bool isset(unsigned char flag)
-    {
-        return (p & flag) != 0;
-    }
-
-    void set_flags(unsigned char flags, unsigned char v)
-    {
-        if(flags & Z)
-            flag_change(Z, v == 0x00);
-        if(flags & N)
-            flag_change(N, v & 0x80);
-    }
-
     void cycle()
     {
         if(exception == RESET) {
@@ -191,7 +198,11 @@ struct CPU6502
 
         switch(inst) {
             case 0x00: { // BRK
-                brk();
+                stack_push((pc - 1) >> 8);
+                stack_push((pc - 1) & 0xFF);
+                stack_push(p | B); // | B says the Synertek 6502 reference
+                pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
+                exception = NONE;
                 break;
             }
 
