@@ -1367,6 +1367,7 @@ template<class CLK, class BUS>
 struct CPU6502
 {
     CLK &clk;
+    BUS &bus;
 
     unsigned char a, x, y, s, p;
     static const unsigned char N = 0x80;
@@ -1384,8 +1385,9 @@ struct CPU6502
         BRK,
         INT,
     } exception;
-    CPU6502(CLK& clk_) :
+    CPU6502(CLK& clk_, BUS& bus_) :
         clk(clk_),
+        bus(bus_),
         a(0),
         x(0),
         y(0),
@@ -1394,15 +1396,15 @@ struct CPU6502
         exception(RESET)
     {
     }
-    void stack_push(BUS& bus, unsigned char d)
+    void stack_push(unsigned char d)
     {
         bus.write(0x100 + s--, d);
     }
-    unsigned char stack_pull(BUS& bus)
+    unsigned char stack_pull()
     {
         return bus.read(0x100 + ++s);
     }
-    unsigned char read_pc_inc(BUS& bus)
+    unsigned char read_pc_inc()
     {
         return bus.read(pc++);
     }
@@ -1421,13 +1423,13 @@ struct CPU6502
     {
         p &= ~flag;
     }
-    void reset(BUS& bus)
+    void reset()
     {
         s = 0xFD;
         pc = bus.read(0xFFFC) + bus.read(0xFFFD) * 256;
         exception = NONE;
     }
-    void irq(BUS& bus)
+    void irq()
     {
         stack_push(bus, (pc + 0) >> 8);
         stack_push(bus, (pc + 0) & 0xFF);
@@ -1435,7 +1437,7 @@ struct CPU6502
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
-    void brk(BUS& bus)
+    void brk()
     {
         stack_push(bus, (pc - 1) >> 8);
         stack_push(bus, (pc - 1) & 0xFF);
@@ -1443,7 +1445,7 @@ struct CPU6502
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
     }
-    void nmi(BUS& bus)
+    void nmi()
     {
         stack_push(bus, (pc + 0) >> 8);
         stack_push(bus, (pc + 0) & 0xFF);
@@ -1477,7 +1479,7 @@ struct CPU6502
         return (p & flag) != 0;
     }
 #if 0
-    int get_operand(BUS& bus, Operand oper)
+    int get_operand(Operand oper)
     {
         switch(oper)
         {
@@ -1502,7 +1504,7 @@ struct CPU6502
         if(flags & N)
             flag_change(N, v & 0x80);
     }
-    void cycle(BUS& bus)
+    void cycle()
     {
         if(exception == RESET) {
             if(debug & DEBUG_STATE) printf("RESET\n");
@@ -3218,7 +3220,7 @@ int main(int argc, char **argv)
         }
     }
 
-    CPU6502<system_clock, bus_frontend> cpu(clk);
+    CPU6502<system_clock, bus_frontend> cpu(clk, bus_frontend);
 
     atexit(cleanup);
 
