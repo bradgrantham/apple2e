@@ -6,10 +6,10 @@
         irq() - put CPU in IRQ
         nmi() - put CPU in NMI
    
-    CLK template parameter must support methods:
+    CLK template parameter must provide methods:
         void add_cpu_cycles(int N); - add N CPU cycles to the clock
 
-    BUS template parameter support methods:
+    BUS template parameter must provide methods:
         unsigned char read(int addr);
         void read(int addr, unsigned char data);
 */
