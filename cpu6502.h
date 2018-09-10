@@ -14,6 +14,12 @@
         void read(int addr, unsigned char data);
 */
 
+#ifndef CPU6502_H
+#define CPU6502_H
+
+#include <stdlib.h>
+#include <assert.h>
+
 template<class CLK, class BUS>
 struct CPU6502
 {
@@ -1468,7 +1474,8 @@ struct CPU6502
 
             default:
                 printf("unhandled instruction %02X at %04X\n", inst, pc - 1);
-                fflush(stdout); exit(1);
+                fflush(stdout);
+                exit(1);
         }
         assert(cycles[inst] > 0);
         clk.add_cpu_cycles(cycles[inst]);
@@ -1495,4 +1502,6 @@ int CPU6502<CLK, BUS>::cycles[256] =
     /* 0xE- */ 2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 6, -1,
     /* 0xF- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, -1, -1, -1, 4, 7, -1,
 };
+
+#endif // CPU6502_H
 
