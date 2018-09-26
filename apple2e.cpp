@@ -1335,7 +1335,16 @@ void write6502(uint16_t address, uint8_t value)
 void usage(char *progname)
 {
     printf("\n");
-    printf("usage: %s [-debugger] [-fast] [-map ld65.map] ROM.bin\n", progname);
+    printf("usage: %s [options] ROM.bin\n", progname);
+    printf("options:\n");
+    printf("    -mute                   disable audio output\n");
+    printf("    -debugger               start in the debugger\n");
+    printf("    -d MASK                 enable various debug states\n");
+    printf("    -fast                   run full speed (not real time)\n");
+    printf("    -diskII ROM.bin floppy1 floppy2\n");
+    printf("                            insert two floppies (or \"-\" for none)\n");
+    printf("    -map ld65.map           specify ld65 map file for debug output\n");
+    printf("    -backspace-is-delete    map delete key to backspace instead of left arrow\n");
     printf("\n");
     printf("\n");
 }
@@ -1606,7 +1615,7 @@ int main(int argc, char **argv)
             argc--;
 	} else if(strcmp(argv[0], "-diskII") == 0) {
             if(argc < 4) {
-                fprintf(stderr, "-diskII option requires a ROM image filename and two floppy image names (or \"-\") for no floppy image.\n");
+                fprintf(stderr, "-diskII option requires a ROM image filename and two floppy image names (or \"-\" for no floppy image).\n");
                 exit(EXIT_FAILURE);
             }
             diskII_rom_name = argv[1];
