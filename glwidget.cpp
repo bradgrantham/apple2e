@@ -141,3 +141,62 @@ opengl_texture initialize_texture(int w, int h, unsigned char *pixels)
     return {w, h, tex};
 }
 
+GLuint GenerateProgram(const std::string& shader_name, const std::string& vertex_shader_text, const std::string& fragment_shader_text)
+{
+    std::string spec_string;
+
+    spec_string = "#version 140\n";
+
+    // reset line number so that I can view errors with the line number
+    // they have in the base shaders.
+    spec_string += "#line 0\n";
+
+    std::string vertex_shader_string = spec_string + vertex_shader_text;
+    std::string fragment_shader_string = spec_string + fragment_shader_text;
+
+    GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    const char *string = vertex_shader_string.c_str();
+    glShaderSource(vertex_shader, 1, &string, NULL);
+    glCompileShader(vertex_shader);
+    if(!CheckShaderCompile(vertex_shader, shader_name + " vertex shader"))
+	return 0;
+
+    GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    string = fragment_shader_string.c_str();
+    glShaderSource(fragment_shader, 1, &string, NULL);
+    glCompileShader(fragment_shader);
+    if(!CheckShaderCompile(fragment_shader, shader_name + " fragment shader"))
+	return 0;
+    CheckOpenGL(__FILE__, __LINE__);
+
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertex_shader);
+    glAttachShader(program, fragment_shader);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    glLinkProgram(program);
+    CheckOpenGL(__FILE__, __LINE__);
+    if(!CheckProgramLink(program))
+	return 0;
+
+    return program;
+}
+
+GLuint make_rectangle_array_buffer(float x, float y, float w, float h)
+{
+    /* just x, y, also pixel coords */
+    GLuint vertices;
+
+    glGenBuffers(1, &vertices);
+    glBindBuffer(GL_ARRAY_BUFFER, vertices);
+    float coords[4][2] = {
+        {x, y},
+        {x + w, y},
+        {x, y + h},
+        {x + w, y + h},
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(coords[0]) * 4, coords, GL_STATIC_DRAW);
+    CheckOpenGL(__FILE__, __LINE__);
+
+    return vertices;
+}

@@ -464,74 +464,6 @@ static const char *lores_fragment_shader = "\n\
         }\n\
     }\n";
 
-static GLuint GenerateProgram(const string& shader_name, const string& vertex_shader_text, const string& fragment_shader_text)
-{
-    std::string spec_string;
-
-    spec_string = "#version 140\n";
-
-    // reset line number so that I can view errors with the line number
-    // they have in the base shaders.
-    spec_string += "#line 0\n";
-
-    std::string vertex_shader_string = spec_string + vertex_shader_text;
-    std::string fragment_shader_string = spec_string + fragment_shader_text;
-
-    GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-    const char *string = vertex_shader_string.c_str();
-    glShaderSource(vertex_shader, 1, &string, NULL);
-    glCompileShader(vertex_shader);
-    if(!CheckShaderCompile(vertex_shader, shader_name + " vertex shader"))
-	return 0;
-
-    GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-    string = fragment_shader_string.c_str();
-    glShaderSource(fragment_shader, 1, &string, NULL);
-    glCompileShader(fragment_shader);
-    if(!CheckShaderCompile(fragment_shader, shader_name + " fragment shader"))
-	return 0;
-    CheckOpenGL(__FILE__, __LINE__);
-
-    GLuint program = glCreateProgram();
-    glAttachShader(program, vertex_shader);
-    glAttachShader(program, fragment_shader);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    // XXX Really need to do this generically
-    glBindAttribLocation(program, raster_coords_attrib, "vertex_coords");
-    CheckOpenGL(__FILE__, __LINE__);
-
-    glLinkProgram(program);
-    CheckOpenGL(__FILE__, __LINE__);
-    if(!CheckProgramLink(program))
-	return 0;
-
-    return program;
-}
-
-vertex_array make_rectangle_vertex_array(float x, float y, float w, float h)
-{
-    vertex_array array;
-
-    /* just x, y, also pixel coords */
-    GLuint vertices;
-
-    glGenBuffers(1, &vertices);
-    glBindBuffer(GL_ARRAY_BUFFER, vertices);
-    float coords[4][2] = {
-        {x, y},
-        {x + w, y},
-        {x, y + h},
-        {x + w, y + h},
-    };
-    glBufferData(GL_ARRAY_BUFFER, sizeof(coords[0]) * 4, coords, GL_STATIC_DRAW);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    array.push_back({vertices, raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
-
-    return array;
-}
-
 void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
 {
     glUseProgram(image_program);
@@ -547,7 +479,7 @@ void set_image_shader(float to_screen[9], const opengl_texture& texture, float x
 void initialize_screen_areas()
 {
     for(int i = 0; i < apple2_screen_height; i++) {
-        line_to_area[i] = make_rectangle_vertex_array(0, i, apple2_screen_width, 1);
+        line_to_area[i].push_back({make_rectangle_array_buffer(0, i, apple2_screen_width, 1), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
     }
 }
 
@@ -1050,7 +982,7 @@ struct image_widget : public widget
         h(h_)
     {
         image = initialize_texture(w, h, buffer);
-        rectangle = make_rectangle_vertex_array(0, 0, w, h);
+        rectangle.push_back({make_rectangle_array_buffer(0, 0, w, h), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
     }
 
     virtual width_height get_min_dimensions() const
@@ -1097,7 +1029,7 @@ struct text_widget : public widget
             i++;
         }
         string_texture = initialize_texture(i, 1, bytes.get());
-        rectangle = make_rectangle_vertex_array(0, 0, i * 7, 8);
+        rectangle.push_back({make_rectangle_array_buffer(0, 0, i * 7, 8), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
     }
 
     virtual width_height get_min_dimensions() const
@@ -1318,6 +1250,9 @@ void initialize_gl(void)
 
     image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
     assert(image_program != 0);
+    glBindAttribLocation(image_program, raster_coords_attrib, "vertex_coords");
+    CheckOpenGL(__FILE__, __LINE__);
+
     image_texture_location = glGetUniformLocation(image_program, "image");
     image_texture_coord_scale_location = glGetUniformLocation(image_program, "image_coord_scale");
     image_to_screen_location = glGetUniformLocation(image_program, "to_screen");
@@ -1325,6 +1260,7 @@ void initialize_gl(void)
     image_y_offset_location = glGetUniformLocation(image_program, "y_offset");
 
     hires_program = GenerateProgram("hires", hires_vertex_shader, hires_fragment_shader);
+    glBindAttribLocation(hires_program, raster_coords_attrib, "vertex_coords");
     assert(hires_program != 0);
     hires_texture_location = glGetUniformLocation(hires_program, "hires_texture");
     hires_texture_coord_scale_location = glGetUniformLocation(hires_program, "hires_texture_coord_scale");
@@ -1333,6 +1269,7 @@ void initialize_gl(void)
     hires_y_offset_location = glGetUniformLocation(hires_program, "y_offset");
 
     hirescolor_program = GenerateProgram("hirescolor", hires_vertex_shader, hirescolor_fragment_shader);
+    glBindAttribLocation(hirescolor_program, raster_coords_attrib, "vertex_coords");
     assert(hirescolor_program != 0);
     hirescolor_texture_location = glGetUniformLocation(hirescolor_program, "hires_texture");
     hirescolor_texture_coord_scale_location = glGetUniformLocation(hirescolor_program, "hires_texture_coord_scale");
@@ -1341,6 +1278,7 @@ void initialize_gl(void)
     hirescolor_y_offset_location = glGetUniformLocation(hirescolor_program, "y_offset");
 
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
+    glBindAttribLocation(text_program, raster_coords_attrib, "vertex_coords");
     assert(text_program != 0);
     textport_texture_location = glGetUniformLocation(text_program, "textport_texture");
     textport_texture_coord_scale_location = glGetUniformLocation(text_program, "textport_texture_coord_scale");
@@ -1355,6 +1293,7 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 
     text80_program = GenerateProgram("textport80", text_vertex_shader, text80_fragment_shader);
+    glBindAttribLocation(text80_program, raster_coords_attrib, "vertex_coords");
     assert(text80_program != 0);
     textport80_texture_location = glGetUniformLocation(text80_program, "textport_texture");
     textport80_texture_coord_scale_location = glGetUniformLocation(text80_program, "textport_texture_coord_scale");
@@ -1370,6 +1309,7 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 
     lores_program = GenerateProgram("lores", text_vertex_shader, lores_fragment_shader);
+    glBindAttribLocation(lores_program, raster_coords_attrib, "vertex_coords");
     assert(lores_program != 0);
     lores_texture_location = glGetUniformLocation(lores_program, "lores_texture");
     lores_texture_coord_scale_location = glGetUniformLocation(lores_program, "lores_texture_coord_scale");

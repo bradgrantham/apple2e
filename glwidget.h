@@ -100,4 +100,8 @@ struct opengl_texture
 
 opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL);
 
+GLuint GenerateProgram(const std::string& shader_name, const std::string& vertex_shader_text, const std::string& fragment_shader_text);
+
+GLuint make_rectangle_array_buffer(float x, float y, float w, float h);
+
 #endif /* __GLWIDGET_H__ */
