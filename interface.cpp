@@ -90,29 +90,6 @@ event dequeue_event()
         return {NONE, 0};
 }
 
-struct opengl_texture
-{
-    int w;
-    int h;
-    GLuint t;
-    operator GLuint() const { return t; }
-};
-
-opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL)
-{
-    GLuint tex;
-
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    CheckOpenGL(__FILE__, __LINE__);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
-    CheckOpenGL(__FILE__, __LINE__);
-    return {w, h, tex};
-}
-
 opengl_texture font_texture;
 const int fonttexture_w = 7;
 const int fonttexture_h = 8 * 96;

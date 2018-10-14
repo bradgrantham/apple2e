@@ -126,3 +126,18 @@ bool CheckProgramLink(GLuint program)
     return false;
 }
 
+opengl_texture initialize_texture(int w, int h, unsigned char *pixels)
+{
+    GLuint tex;
+
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    CheckOpenGL(__FILE__, __LINE__);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    CheckOpenGL(__FILE__, __LINE__);
+    return {w, h, tex};
+}
+

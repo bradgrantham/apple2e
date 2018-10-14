@@ -90,4 +90,14 @@ struct render_target
     }
 };
 
+struct opengl_texture
+{
+    int w;
+    int h;
+    GLuint t;
+    operator GLuint() const { return t; }
+};
+
+opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL);
+
 #endif /* __GLWIDGET_H__ */
