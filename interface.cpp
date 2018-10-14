@@ -28,153 +28,14 @@
 #define GLFW_INCLUDE_GLCOREARB
 #include <GLFW/glfw3.h>
 
+#include "glwidget.h"
+
 #include "interface.h"
 
 using namespace std;
 
 namespace APPLE2Einterface
 {
-
-static void CheckOpenGL(const char *filename, int line)
-{
-    int glerr;
-    bool stored_exit_flag = false;
-    bool exit_on_error;
-
-    if(!stored_exit_flag) {
-        exit_on_error = getenv("EXIT_ON_OPENGL_ERROR") != NULL;
-        stored_exit_flag = true;
-    }
-
-    while((glerr = glGetError()) != GL_NO_ERROR) {
-        printf("GL Error: %04X at %s:%d\n", glerr, filename, line);
-        if(exit_on_error)
-            exit(1);
-    }
-}
-
-struct vertex_attribute_buffer
-{
-    GLuint buffer;
-    GLuint which;
-    GLuint count;
-    GLenum type;
-    GLboolean normalized;
-    GLsizei stride;
-    void bind() const 
-    {
-        glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        CheckOpenGL(__FILE__, __LINE__);
-        glVertexAttribPointer(which, count, type, normalized, stride, 0);
-        CheckOpenGL(__FILE__, __LINE__);
-        glEnableVertexAttribArray(which);
-        CheckOpenGL(__FILE__, __LINE__);
-    }
-};
-
-struct vertex_array : public vector<vertex_attribute_buffer>
-{
-    void bind()
-    {
-        for(auto attr : *this) {
-            attr.bind();
-        }
-    }
-};
-
-/*
- * OpenGL Render Target ; creates a framebuffer that can be used as a
- * rendering target and as a texture color source.
- */
-struct render_target
-{
-    GLuint framebuffer;
-    GLuint color;
-    GLuint depth;
-
-    render_target(int w, int h);
-    ~render_target();
-
-    // Start rendering; Draw()s will draw to this framebuffer
-    void start_rendering()
-    {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
-    }
-
-    // Stop rendering; Draw()s will draw to the back buffer
-    void stop_rendering()
-    {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    }
-
-    // Start reading; Read()s will read from this framebuffer
-    void start_reading()
-    {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-    }
-
-    // Stop reading; Read()s will read from the back buffer
-    void stop_reading()
-    {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-        glReadBuffer(GL_BACK);
-    }
-
-    // Use this color as the currently bound texture source
-    void use_color()
-    {
-        glBindTexture(GL_TEXTURE_2D, color);
-    }
-};
-
-// Destroy render target resources
-render_target::~render_target()
-{
-    glDeleteTextures(1, &color);
-    glDeleteRenderbuffers(1, &depth);
-    glDeleteFramebuffers(1, &framebuffer);
-}
-
-// Create render target resources if possible
-render_target::render_target(int w, int h)
-{
-    GLenum status;
-
-    // Create color texture
-    glGenTextures(1, &color);
-    glBindTexture(GL_TEXTURE_2D, color);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-    CheckOpenGL(__FILE__, __LINE__);
-
-    // Create depth texture
-    glGenTextures(1, &depth);
-    glBindTexture(GL_TEXTURE_2D, depth);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, w, h, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    glGenFramebuffers(1, &framebuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
-    CheckOpenGL(__FILE__, __LINE__);
-
-    status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    if(status != GL_FRAMEBUFFER_COMPLETE) {
-        fprintf(stderr, "framebuffer status was %04X\n", status);
-        throw "Couldn't create OpenGL framebuffer";
-    }
-    CheckOpenGL(__FILE__, __LINE__);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
 
 const int apple2_screen_width = 280;
 const int apple2_screen_height = 192;
@@ -196,8 +57,6 @@ extern int font_offset;
 extern unsigned char font_bytes[96 * 7 * 8];
 
 static int gWindowWidth, gWindowHeight;
-
-bool gPrintShaderLog = true;
 
 // to handle https://github.com/glfw/glfw/issues/161
 static double gMotionReported = false;
@@ -330,54 +189,6 @@ tuple<float,bool> get_paddle(int num)
 }
 
 const int raster_coords_attrib = 0;
- 
-static bool CheckShaderCompile(GLuint shader, const std::string& shader_name)
-{
-    int status;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-    if(status == GL_TRUE)
-	return true;
-
-    if(gPrintShaderLog) {
-        int length;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-
-        if (length > 0) {
-            char log[length];
-            glGetShaderInfoLog(shader, length, NULL, log);
-            fprintf(stderr, "%s shader error log:\n%s\n", shader_name.c_str(), log);
-        }
-
-        fprintf(stderr, "%s compile failure.\n", shader_name.c_str());
-        fprintf(stderr, "shader text:\n");
-        glGetShaderiv(shader, GL_SHADER_SOURCE_LENGTH, &length);
-        char source[length];
-        glGetShaderSource(shader, length, NULL, source);
-        fprintf(stderr, "%s\n", source);
-    }
-    return false;
-}
-
-static bool CheckProgramLink(GLuint program)
-{
-    int status;
-    glGetProgramiv(program, GL_LINK_STATUS, &status);
-    if(status == GL_TRUE)
-	return true;
-
-    if(gPrintShaderLog) {
-        int log_length;
-        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &log_length);
-
-        if (log_length > 0) {
-            char log[log_length];
-            glGetProgramInfoLog(program, log_length, NULL, log);
-            fprintf(stderr, "program error log: %s\n",log);
-        }
-    }
-
-    return false;
-}
 
 static const char *hires_vertex_shader = "\n\
     uniform mat3 to_screen;\n\
@@ -744,13 +555,6 @@ vertex_array make_rectangle_vertex_array(float x, float y, float w, float h)
     return array;
 }
 
-void initialize_screen_areas()
-{
-    for(int i = 0; i < apple2_screen_height; i++) {
-        line_to_area[i] = make_rectangle_vertex_array(0, i, apple2_screen_width, 1);
-    }
-}
-
 void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
 {
     glUseProgram(image_program);
@@ -762,6 +566,14 @@ void set_image_shader(float to_screen[9], const opengl_texture& texture, float x
     glUniform1f(image_x_offset_location, x);
     glUniform1f(image_y_offset_location, y);
 }
+
+void initialize_screen_areas()
+{
+    for(int i = 0; i < apple2_screen_height; i++) {
+        line_to_area[i] = make_rectangle_vertex_array(0, i, apple2_screen_width, 1);
+    }
+}
+
 
 void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool color, float x, float y)
 {
