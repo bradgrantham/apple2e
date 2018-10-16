@@ -30,7 +30,7 @@
 
 #include "ui_widgets.h"
 
-#include "glwidget.h"
+#include "gl_utility.h"
 
 #include "interface.h"
 
