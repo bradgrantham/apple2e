@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#define SUPPORT_65C02 1
+
 template<class CLK, class BUS>
 struct CPU6502
 {
@@ -1384,6 +1386,7 @@ struct CPU6502
                 break;
             }
 
+#if SUPPORT_65C02
             // 65C02 instructions
 
             case 0x80: { // BRA imm, 65C02
@@ -1471,6 +1474,7 @@ struct CPU6502
                 set_flags(N | Z, m = a - m);
                 break;
             }
+#endif // SUPPORT_65C02
 
             default:
                 printf("unhandled instruction %02X at %04X\n", inst, pc - 1);
