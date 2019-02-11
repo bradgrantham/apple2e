@@ -1,35 +1,10 @@
-cleanup:
-    use board::sync() to batch up and send display writes, audio updates, and display mode changes
-    separate out APPLE2Einterface from board
-        pass just mode flags in vector presized to, let's say, 16?
-        translate in lambda before passing to APPLE2Einterface
-    templatize Board?
-    deglobalize where possible
-    lower and underscores throughout
-    audio popping
-    Mockingboard
-    DHGR
-    colors bleed incorrectly
-        probably could convert color on CPU to make it slightly easier
-Run this software then purge fake6502:
-    ProDOS
-    LodeRunner
-    ChopLifter
-    Digitizer
-    Plasmania
-    Christmas Carols
-    Data Capture //e
-    Contiki no network
-    Idiom Translator
-    Pascal - Brad's Disk
-    ...?
-
 final release:
-    help screen?
-    gamepad calibration screen (for desktop GLFW anyway)?
+    help screen
+    gamepad calibration screen (for desktop GLFW anyway)
         need to handle asynchronous gamepad arrival (a la HTML5)
     screenshots for README.md
     link to emscripten version
+    Linux build
 
 emscripten:
     safari misses 'V' for some reason
@@ -49,11 +24,30 @@ emscripten:
     GLFW - gamepad using HTML5 gamepad interface
         note that it doesn't show up until initially used
 
-apple2e -diskII diskII.c600.c67f.bin ~/Downloads/LodeRunner.dsk none apple2e.rom < /dev/null
+cleanup:
+    deglobalize where possible
+    lower and underscores throughout
+    exceptions?
+    tableize 6502?
+
+Run this software, purge fake6502:
+    ProDOS
+    LodeRunner
+    ChopLifter
+    Digitizer
+    Plasmania
+    Christmas Carols
+    Data Capture //e
+    Contiki no network
+    Idiom Translator
+    Pascal - Brad's Disk
+    ...?
+
+apple2e -diskII diskII.c600.c6ff.bin ~/Downloads/LodeRunner.dsk none apple2e.rom < /dev/null
 
 Actual ROM files that are in our Apple IIe, and run Brad's sound digitizer:
     wget http://www.applelogic.org/files/3420135A.BIN
     wget http://www.applelogic.org/files/3420134A.bin
     cat 3420135A.BIN 3420134A.bin > apple2e_a.rom
     (dd if=/dev/zero bs=16384 count=1 ; cat 3420135A.BIN 3420134A.bin) > apple2e_a.rom
-    apple2e -diskII diskII.c600.c67f.bin ~/packages/Disk\ Images/Brad\'s\ Handwriting/Sound\ Digitizer\ Original\ 1.2.dsk none apple2e_a.rom
+    apple2e -diskII diskII.c600.c6ff.bin ~/packages/Disk\ Images/Brad\'s\ Handwriting/Sound\ Digitizer\ Original\ 1.2.dsk none apple2e_a.rom
