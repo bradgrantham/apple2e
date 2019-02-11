@@ -71,9 +71,6 @@ struct system_clock
     }
 } clk;
 
-// was 1023000
-// 3.579545 * 4 / 14
-// 1.02272714285714285714
 const int machine_clock_rate = 14318180;
 
 
