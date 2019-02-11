@@ -1,6 +1,8 @@
 #if !defined(__GLWIDGET_H__)
 #define __GLWIDGET_H__
 
+#define GL_SILENCE_DEPRECATION
+
 #if defined(__linux__)
 #include <GL/glew.h>
 #endif // defined(__linux__)

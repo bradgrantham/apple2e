@@ -1,6 +1,8 @@
 #include <cstdlib>
 #include <cstdio>
 
+#define GL_SILENCE_DEPRECATION
+
 #if defined(__linux__)
 #include <GL/glew.h>
 #endif // defined(__linux__)
