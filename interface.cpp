@@ -973,6 +973,7 @@ toggle *record_toggle;
 void initialize_gl(void)
 {
 #if defined(__linux__)
+    glewExperimental = true; // Needed this on NVIDIA for glGenVertexArrays?!
     glewInit();
 #endif // defined(__linux__)
     GLuint va;
