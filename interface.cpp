@@ -21,6 +21,8 @@
 // hbox
 // what is window resize / shrink policy?
 
+#define GL_SILENCE_DEPRECATION
+
 #if defined(__linux__)
 #include <GL/glew.h>
 #endif // defined(__linux__)
@@ -50,10 +52,10 @@ static GLFWwindow* my_window;
 ao_device *aodev;
 
 bool use_joystick = false;
-int joystick_axis0 = 0;
-int joystick_axis1 = 1;
-int joystick_button0 = 0;
-int joystick_button1 = 1;
+int joystick_axis0 = -1;
+int joystick_axis1 = -1;
+int joystick_button0 = -1;
+int joystick_button1 = -1;
 
 extern int font_offset;
 extern unsigned char font_bytes[96 * 7 * 8];
@@ -1525,17 +1527,20 @@ const int pixel_scale = 3;
 void load_joystick_setup()
 {
     FILE *fp = fopen("joystick.ini", "r");
+
     if(fp == NULL) {
-        fprintf(stderr,"no joystick.ini file found, assuming defaults\n");
+        fprintf(stderr,"no joystick.ini file found, assuming no joystick.\n");
         fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
         fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
         return;
     }
+
     if(fscanf(fp, "%d %d %d %d", &joystick_axis0, &joystick_axis1, &joystick_button0, &joystick_button1) != 4) {
         fprintf(stderr,"couldn't parse joystick.ini\n");
         fprintf(stderr,"store GLFW joystick axis 0 and 1 and button 0 and 1 in joystick.ini\n");
         fprintf(stderr,"e.g. \"3 4 12 11\" for Samsung EI-GP20\n");
     }
+
     fclose(fp);
 }
 
@@ -1720,7 +1725,7 @@ void iterate(const ModeHistory& history, unsigned long long current_byte)
             fprintf(stderr, "mapped buttons are %d and %d, but maximum button is %d\n", joystick_button0, joystick_button1, button_count);
             use_joystick = false;
 
-        } else  {
+        } else if(joystick_axis0 > -1) {
 
             paddle_values[0] = (axes[joystick_axis0] + 1) / 2;
             paddle_values[1] = (axes[joystick_axis1] + 1) / 2;
