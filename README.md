@@ -6,6 +6,8 @@ Yet another Apple //e emulator.
 
 I wrote this not because the world needed another //e emulator, but because I wanted to have the fun of building a thing from scratch to run my old Apple //e software.
 
+NOTE: I'm pretty sure I copied the disk image nybblization code.  However, now I can't find a reference to the original, nor did I keep the copyright.  If you have any references to or information about the nybblization routine, please let me know and I'll update the attribution.
+
 I wrote a little about my motivation and the process of writing this emulator [on my personal web page](http://plunk.org/~grantham/apple2e.html).
 
 There are several AppleSoft files in this project (`*.A`) that can be copied into the clipboard and then pasted into the emulator window with CMD-V.
