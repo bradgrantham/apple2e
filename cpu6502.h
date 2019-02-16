@@ -456,6 +456,15 @@ struct CPU6502
                 break;
             }
 
+            case 0xC1: { // CMP (ind, X)
+                unsigned char zpg = (read_pc_inc() + x) & 0xFF;
+                int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                m = bus.read(addr);
+                flag_change(C, m <= a);
+                set_flags(N | Z, m = a - m);
+                break;
+            }
+
             case 0xD9: { // CMP abs, Y
                 int addr = read_pc_inc() + read_pc_inc() * 256;
                 m = bus.read(addr + y);
@@ -1131,6 +1140,12 @@ struct CPU6502
 
             case 0xA6: { // LDX
                 unsigned char zpg = read_pc_inc();
+                set_flags(N | Z, x = bus.read(zpg));
+                break;
+            }
+
+            case 0xB6: { // LDX zpg, Y
+                int zpg = (read_pc_inc() + y) & 0xFF;
                 set_flags(N | Z, x = bus.read(zpg));
                 break;
             }
