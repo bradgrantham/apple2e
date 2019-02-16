@@ -1,11 +1,11 @@
 /*
     Public methods:
         CPU6502(CLK& clk, BUS& bus); - construct using clk and bus
-        cycle() - issue one instruction and add necessary cycles to clk 
+        cycle() - issue one instruction and add necessary cycles to clk
         reset() - reset CPU state
         irq() - put CPU in IRQ
         nmi() - put CPU in NMI
-   
+
     CLK template parameter must provide methods:
         void add_cpu_cycles(int N); - add N CPU cycles to the clock
 
@@ -100,15 +100,15 @@ struct CPU6502
     }
 
     static bool sbc_overflow_d(unsigned char a, unsigned char b, int borrow)
-    { 
-        signed char a_ = a; 
+    {
+        signed char a_ = a;
         signed char b_ = b;
         signed short c = a_ - (b_ + borrow);
         return (c < 0) || (c > 99);
     }
 
     static bool adc_overflow_d(unsigned char a, unsigned char b, int carry)
-    { 
+    {
         signed char a_ = a;
         signed char b_ = b;
         signed short c = a_ + b_ + carry;
@@ -152,8 +152,8 @@ struct CPU6502
 
     void irq()
     {
-        stack_push((pc + 0) >> 8);
-        stack_push((pc + 0) & 0xFF);
+        stack_push((pc - 1) >> 8);
+        stack_push((pc - 1) & 0xFF);
         stack_push(p);
         pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
         exception = NONE;
@@ -161,8 +161,8 @@ struct CPU6502
 
     void nmi()
     {
-        stack_push((pc + 0) >> 8);
-        stack_push((pc + 0) & 0xFF);
+        stack_push((pc - 1) >> 8);
+        stack_push((pc - 1) & 0xFF);
         stack_push(p);
         pc = bus.read(0xFFFA) + bus.read(0xFFFB) * 256;
         exception = NONE;
@@ -1222,7 +1222,7 @@ struct CPU6502
                 set_flags(N | Z, a = a ^ m);
                 break;
             }
-            
+
             case 0x41: { // EOR (ind, X)
                 unsigned char zpg = (read_pc_inc() + x) & 0xFF;
                 int addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
@@ -1319,7 +1319,7 @@ struct CPU6502
                 set_flags(N | Z, m = a - m);
                 break;
             }
-            
+
             case 0xE4: { // CPX
                 unsigned char zpg = read_pc_inc();
                 m = bus.read(zpg);
@@ -1502,7 +1502,7 @@ struct CPU6502
 };
 
 template<class CLK, class BUS>
-int CPU6502<CLK, BUS>::cycles[256] = 
+int CPU6502<CLK, BUS>::cycles[256] =
 {
     /* 0x0- */ 7, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, -1, 4, 6, -1,
     /* 0x1- */ 2, 5, 5, -1, -1, 4, 6, -1, 2, 4, 2, -1, -1, 4, 7, -1,
