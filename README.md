@@ -2,7 +2,11 @@
 
 Yet another Apple //e emulator.
 
+![Lode Runner](http://plunk.org/~grantham/apple2e_loderunner.gif "Lode Runner")
+
 I wrote this not because the world needed another //e emulator, but because I wanted to have the fun of building a thing from scratch to run my old Apple //e software.
+
+I wrote a little about my motivation and the process of writing this emulator [on my personal web page](http://plunk.org/~grantham/apple2e.html).
 
 There are several AppleSoft files in this project (`*.A`) that can be copied into the clipboard and then pasted into the emulator window with CMD-V.
 
@@ -14,7 +18,7 @@ Requirements for building:
 
 * GLFW
 * libao
-* OpenGL 3.2-compatible system
+* OpenGL 3.2
 * C++11
 * Builds on MacOS using "Makefile" and Linux (tested on Ubuntu only) using "Makefile.linux"
 
