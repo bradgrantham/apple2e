@@ -95,7 +95,7 @@ void show_floppy_activity(int number, bool activity);
 void enqueue_audio_samples(char *buf, size_t sz);
 
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted);
-void iterate(const ModeHistory& history, unsigned long long current_byte_in_frame); // display
+void iterate(const ModeHistory& history, unsigned long long current_byte_in_frame, float megahertz); // display
 void shutdown();
 
 };

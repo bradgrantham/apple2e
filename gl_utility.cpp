@@ -128,19 +128,31 @@ bool CheckProgramLink(GLuint program)
     return false;
 }
 
+void opengl_texture::load(int w_, int h_, unsigned char *pixels)
+{
+    w = w_;
+    h = h_;
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    glBindTexture(GL_TEXTURE_2D, GL_NONE);
+}
+
 opengl_texture initialize_texture(int w, int h, unsigned char *pixels)
 {
     GLuint tex;
 
     glGenTextures(1, &tex);
+
+    opengl_texture t = {w, h, tex};
+
     glBindTexture(GL_TEXTURE_2D, tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     CheckOpenGL(__FILE__, __LINE__);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    t.load(w, h, pixels);
     CheckOpenGL(__FILE__, __LINE__);
-    return {w, h, tex};
+    return t;
 }
 
 GLuint GenerateProgram(const std::string& shader_name, const std::string& vertex_shader_text, const std::string& fragment_shader_text)

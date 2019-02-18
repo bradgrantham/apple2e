@@ -1592,6 +1592,42 @@ void print_cpu_state(const CPU6502<CLK, BUS>& cpu)
     printf("S:%02X (%02X %02X %02X ...) PC:%04X (%02X %02X %02X ...)\n", cpu.s, s0, s1, s2, cpu.pc, pc0, pc1, pc2);
 }
 
+template <class TYPE, unsigned int LENGTH>
+struct averaged_sequence
+{
+    int where;
+    TYPE sum;
+    TYPE list[LENGTH];
+
+    averaged_sequence() :
+        where(-1)
+    {
+        for(int i = 0; i < LENGTH; i++)
+            list[i] = 0;
+        sum = 0;
+    }
+
+    void add(TYPE value)
+    {
+        if(where == -1) {
+            for(int i = 0; i < LENGTH; i++)
+                list[i] = value;
+            sum = value * LENGTH;
+            where = 0;
+        } else {
+            sum -= list[where];
+            list[where] = value;
+            sum += list[where];
+            where = (where + 1) % LENGTH;
+        }
+    }
+
+    TYPE get() const
+    {
+        return sum / LENGTH;
+    }
+};
+
 int main(int argc, char **argv)
 {
     char *progname = argv[0];
@@ -1734,6 +1770,9 @@ int main(int argc, char **argv)
     APPLE2Einterface::start(run_fast, diskII_rom_name != NULL, floppy1_name != NULL, floppy2_name != NULL);
 
     chrono::time_point<chrono::system_clock> then = std::chrono::system_clock::now();
+    chrono::time_point<chrono::system_clock> cpu_speed_then = std::chrono::system_clock::now();
+    clk_t cpu_previous_cycles = 0;
+    averaged_sequence<float, 20> cpu_speed_averaged;
 
     while(1) {
         if(!debugging) {
@@ -1772,7 +1811,18 @@ int main(int argc, char **argv)
             }
             mainboard->sync();
 
-            APPLE2Einterface::iterate(mode_history, clk.clock_cpu);
+            chrono::time_point<chrono::system_clock> cpu_speed_now = std::chrono::system_clock::now();
+
+            auto cpu_elapsed_seconds = chrono::duration_cast<chrono::duration<float> >(cpu_speed_now - cpu_speed_then);
+            cpu_speed_then = cpu_speed_now;
+
+            clk_t cpu_elapsed_cycles = clk.clock_cpu - cpu_previous_cycles;
+            cpu_previous_cycles = clk.clock_cpu;
+
+            float cpu_speed = cpu_elapsed_cycles / cpu_elapsed_seconds.count();
+            cpu_speed_averaged.add(cpu_speed);
+
+            APPLE2Einterface::iterate(mode_history, clk.clock_cpu, cpu_speed_averaged.get() / 1000000.0f);
             mode_history.clear();
 
             chrono::time_point<chrono::system_clock> now = std::chrono::system_clock::now();
@@ -1838,7 +1888,7 @@ int main(int argc, char **argv)
             }
             mainboard->sync();
 
-            APPLE2Einterface::iterate(mode_history, clk.clock_cpu);
+            APPLE2Einterface::iterate(mode_history, clk.clock_cpu, 1.023);
             mode_history.clear();
         }
     }

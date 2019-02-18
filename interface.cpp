@@ -753,12 +753,9 @@ struct text_widget : public widget
     float fg[4];
     float bg[4];
 
-    text_widget(const string& content_) :
-        content(content_)
+    void set_content(const string& content_)
     {
-        set(fg, 1, 1, 1, 0);
-        set(bg, 0, 0, 0, 0);
-
+        content = content_;
         // construct string texture
         unique_ptr<unsigned char> bytes(new unsigned char[content.size() + 1]);
         int i = 0;
@@ -773,8 +770,19 @@ struct text_widget : public widget
                 bytes.get()[i] = 255;
             i++;
         }
-        string_texture = initialize_texture(i, 1, bytes.get());
+        string_texture.load(i, 1, bytes.get());
+        rectangle.clear();
         rectangle.push_back({make_rectangle_array_buffer(0, 0, i * 7, 8), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
+    }
+
+    text_widget(const string& content_) :
+        content(content_)
+    {
+        set(fg, 1, 1, 1, 0);
+        set(bg, 0, 0, 0, 0);
+
+        string_texture = initialize_texture(1, 1, NULL);
+        set_content(content_);
     }
 
     virtual width_height get_min_dimensions() const
@@ -967,10 +975,50 @@ struct toggle : public text_widget
     }
 };
 
+struct textbox : public text_widget
+{
+    textbox(const string& content_):
+        text_widget(content_)
+    {
+        set(fg, 1, 1, 1, 1);
+        set(bg, 0, 0, 0, 1);
+    }
+
+    virtual width_height get_min_dimensions() const
+    {
+        float w, h;
+        tie(w, h) = text_widget::get_min_dimensions();
+        return {w + 3 * 2, h + 3 * 2};
+    }
+
+    virtual void draw(double now, float to_screen[9], float x, float y, float w, float h)
+    {
+        // draw lines 2 pixels around
+        // draw lines 1 pixels around
+        // blank area 0 pixels around
+
+        text_widget::draw(now, to_screen, x + 3, y + 3, w - 6, h - 6);
+    }
+
+    virtual bool click(double now, float x, float y)
+    {
+        return false;
+    }
+
+    virtual void drag(double now, float x, float y)
+    {
+    }
+
+    virtual void release(double now, float x, float y)
+    {
+    }
+};
+
 widget *ui;
 widget *screen_only;
 toggle *caps_toggle;
 toggle *record_toggle;
+textbox *speed_textbox;
 
 void initialize_gl(void)
 {
@@ -1264,8 +1312,9 @@ void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted,
     toggle *color_toggle = new toggle("COLOR", false, [](){draw_using_color = true;}, [](){draw_using_color = false;});
     toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
     record_toggle = new toggle("RECORD", false, [](){start_record();}, [](){stop_record();});
+    speed_textbox = new textbox("X.YYY MHz");
 
-    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle};
+    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle, speed_textbox};
     if(add_floppies) {
         floppy0_icon = new floppy_icon(0, floppy0_inserted);
         floppy1_icon = new floppy_icon(1, floppy1_inserted);
@@ -1684,8 +1733,24 @@ void map_history_to_lines(const ModeHistory& history, unsigned long long current
     map_mode_to_lines(most_recent_modepoint, current_byte);
 }
 
-void iterate(const ModeHistory& history, unsigned long long current_byte)
+void iterate(const ModeHistory& history, unsigned long long current_byte, float megahertz)
 {
+    static char speed_cstr[10];
+    if(megahertz >= 100000.0) {
+        sprintf(speed_cstr, "very fast");
+    } else if(megahertz >= 10000.0) {
+        sprintf(speed_cstr, "%5.2f GHz", megahertz);
+    } else if(megahertz >= 1000.0) {
+        sprintf(speed_cstr, "%5.3f GHz", megahertz);
+    } else if(megahertz >= 100.0) {
+        sprintf(speed_cstr, "%5.1f MHz", megahertz);
+    } else if(megahertz >= 10.0) {
+        sprintf(speed_cstr, "%5.2f MHz", megahertz);
+    } else { 
+        sprintf(speed_cstr, "%5.3f MHz", megahertz);
+    }
+    speed_textbox->set_content(speed_cstr);
+
     apply_writes();
 
     CheckOpenGL(__FILE__, __LINE__);

@@ -98,6 +98,7 @@ struct opengl_texture
     int h;
     GLuint t;
     operator GLuint() const { return t; }
+    void load(int w, int h, unsigned char *pixels = NULL);
 };
 
 opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL);
