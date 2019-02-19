@@ -771,8 +771,8 @@ struct text_widget : public widget
             i++;
         }
         string_texture.load(i, 1, bytes.get());
-        rectangle.clear();
-        rectangle.push_back({make_rectangle_array_buffer(0, 0, i * 7, 8), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
+        glDeleteBuffers(1, &rectangle[0].buffer); // XXX Sooo sloppy, vertex_array should Delete in dtor
+        rectangle[0] = {make_rectangle_array_buffer(0, 0, i * 7, 8), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0};
     }
 
     text_widget(const string& content_) :
@@ -782,6 +782,7 @@ struct text_widget : public widget
         set(bg, 0, 0, 0, 0);
 
         string_texture = initialize_texture(1, 1, NULL);
+        rectangle.push_back({make_rectangle_array_buffer(0, 0, 7, 8), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
         set_content(content_);
     }
 
@@ -1312,9 +1313,14 @@ void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted,
     toggle *color_toggle = new toggle("COLOR", false, [](){draw_using_color = true;}, [](){draw_using_color = false;});
     toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
     record_toggle = new toggle("RECORD", false, [](){start_record();}, [](){stop_record();});
-    speed_textbox = new textbox("X.YYY MHz");
 
-    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle, speed_textbox};
+    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle};
+    
+    if(false) {
+        speed_textbox = new textbox("X.YYY MHz");
+        controls.push_back(speed_textbox);
+    }
+
     if(add_floppies) {
         floppy0_icon = new floppy_icon(0, floppy0_inserted);
         floppy1_icon = new floppy_icon(1, floppy1_inserted);
@@ -1735,21 +1741,24 @@ void map_history_to_lines(const ModeHistory& history, unsigned long long current
 
 void iterate(const ModeHistory& history, unsigned long long current_byte, float megahertz)
 {
-    static char speed_cstr[10];
-    if(megahertz >= 100000.0) {
-        sprintf(speed_cstr, "very fast");
-    } else if(megahertz >= 10000.0) {
-        sprintf(speed_cstr, "%5.2f GHz", megahertz);
-    } else if(megahertz >= 1000.0) {
-        sprintf(speed_cstr, "%5.3f GHz", megahertz);
-    } else if(megahertz >= 100.0) {
-        sprintf(speed_cstr, "%5.1f MHz", megahertz);
-    } else if(megahertz >= 10.0) {
-        sprintf(speed_cstr, "%5.2f MHz", megahertz);
-    } else { 
-        sprintf(speed_cstr, "%5.3f MHz", megahertz);
+    if(speed_textbox != nullptr)
+    {
+        static char speed_cstr[10];
+        if(megahertz >= 100000.0) {
+            sprintf(speed_cstr, "very fast");
+        } else if(megahertz >= 10000.0) {
+            sprintf(speed_cstr, "%5.2f GHz", megahertz);
+        } else if(megahertz >= 1000.0) {
+            sprintf(speed_cstr, "%5.3f GHz", megahertz);
+        } else if(megahertz >= 100.0) {
+            sprintf(speed_cstr, "%5.1f MHz", megahertz);
+        } else if(megahertz >= 10.0) {
+            sprintf(speed_cstr, "%5.2f MHz", megahertz);
+        } else { 
+            sprintf(speed_cstr, "%5.3f MHz", megahertz);
+        }
+        speed_textbox->set_content(speed_cstr);
     }
-    speed_textbox->set_content(speed_cstr);
 
     apply_writes();
 
