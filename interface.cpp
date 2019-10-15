@@ -1783,20 +1783,30 @@ void iterate(const ModeHistory& history, unsigned long long current_byte, float 
         const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &axis_count);
         const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
 
-        if(false) {
-            static bool printedProbing = false;
-            if(!printedProbing) {
-                printf("Joystick probing:\n");
-                printedProbing = true;
+        {
+            static bool checkedJoystickProbing = false;
+            static bool doJoystickProbe = false;
+
+            if(!checkedJoystickProbing) {
+                doJoystickProbe = (getenv("PROBE_JOYSTICKS") != NULL);
+                checkedJoystickProbing = true;
             }
-            for(int i = 0; i < axis_count; i++) {
-                if(fabsf(axes[i]) > 0.01) {
-                    printf("Axis %d: %f\n", i, axes[i]);
+
+            if(doJoystickProbe) {
+                static bool printedJoystickProbing = false;
+                if(!printedJoystickProbing) {
+                    printf("Joystick probing:\n");
+                    printedJoystickProbing = true;
                 }
-            }
-            for(int i = 0; i < button_count; i++) {
-                if(buttons[i] == GLFW_PRESS) {
-                    printf("Button %d: pressed\n", i);
+                for(int i = 0; i < axis_count; i++) {
+                    if(fabsf(axes[i]) > 0.01) {
+                        printf("Axis %d: %f\n", i, axes[i]);
+                    }
+                }
+                for(int i = 0; i < button_count; i++) {
+                    if(buttons[i] == GLFW_PRESS) {
+                        printf("Button %d: pressed\n", i);
+                    }
                 }
             }
         }
