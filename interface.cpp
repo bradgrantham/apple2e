@@ -11,6 +11,7 @@
 #include <functional>
 #include <cstring>
 #include <cassert>
+#include <cmath>
 #include <ao/ao.h>
 
 #include "gif.h"
@@ -1782,10 +1783,23 @@ void iterate(const ModeHistory& history, unsigned long long current_byte, float 
         const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &axis_count);
         const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
 
-        if(false) for(int i = 0; i < axis_count; i++)
-            printf("Axis %d: %f\n", i, axes[i]);
-        if(false)for(int i = 0; i < button_count; i++)
-            printf("Button %d: %s\n", i, (buttons[i] == GLFW_PRESS) ? "pressed" : "not pressed");
+        if(false) {
+            static bool printedProbing = false;
+            if(!printedProbing) {
+                printf("Joystick probing:\n");
+                printedProbing = true;
+            }
+            for(int i = 0; i < axis_count; i++) {
+                if(fabsf(axes[i]) > 0.01) {
+                    printf("Axis %d: %f\n", i, axes[i]);
+                }
+            }
+            for(int i = 0; i < button_count; i++) {
+                if(buttons[i] == GLFW_PRESS) {
+                    printf("Button %d: pressed\n", i);
+                }
+            }
+        }
 
         if(axis_count <= joystick_axis0 || axis_count <= joystick_axis1) {
 
