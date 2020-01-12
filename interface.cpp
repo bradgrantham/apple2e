@@ -172,122 +172,122 @@ tuple<float,bool> get_paddle(int num)
 
 const int raster_coords_attrib = 0;
 
-static const char *hires_vertex_shader = "\n\
-    uniform mat3 to_screen;\n\
-    in vec2 vertex_coords;\n\
-    out vec2 raster_coords;\n\
-    uniform float x_offset;\n\
-    uniform float y_offset;\n\
-    \n\
-    void main()\n\
-    {\n\
-        raster_coords = vertex_coords;\n\
-        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);\n\
-        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
-    }\n";
+static const char *hires_vertex_shader = R"(
+    uniform mat3 to_screen;
+    in vec2 vertex_coords;
+    out vec2 raster_coords;
+    uniform float x_offset;
+    uniform float y_offset;
+    
+    void main()
+    {
+        raster_coords = vertex_coords;
+        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);
+        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);
+    })";
 
-static const char *image_fragment_shader = "\n\
-    in vec2 raster_coords;\n\
-    uniform vec2 image_coord_scale;\n\
-    uniform sampler2D image;\n\
-    \n\
-    out vec4 color;\n\
-    \n\
-    void main()\n\
-    {\n\
-        ivec2 tc = ivec2(raster_coords.x, raster_coords.y);\n\
-        float pixel = texture(image, raster_coords * image_coord_scale).x;\n\
-        color = vec4(pixel, pixel, pixel, 1);\n\
-    }\n";
+static const char *image_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform vec2 image_coord_scale;
+    uniform sampler2D image;
+    
+    out vec4 color;
+    
+    void main()
+    {
+        ivec2 tc = ivec2(raster_coords.x, raster_coords.y);
+        float pixel = texture(image, raster_coords * image_coord_scale).x;
+        color = vec4(pixel, pixel, pixel, 1);
+    })";
 
-static const char *hires_fragment_shader = "\n\
-    in vec2 raster_coords;\n\
-    uniform vec2 hires_texture_coord_scale;\n\
-    uniform sampler2D hires_texture;\n\
-    \n\
-    out vec4 color;\n\
-    \n\
-    void main()\n\
-    {\n\
-        int byte = int(raster_coords.x) / 7;\n\
-        int bit = int(raster_coords.x) % 7;\n\
-        int texturex = byte * 8 + bit;\n\
-        ivec2 tc = ivec2(texturex, raster_coords.y);\n\
-        float pixel = texture(hires_texture, (tc + vec2(.01f, .01f)) * hires_texture_coord_scale).x;\n\
-        color = vec4(pixel, pixel, pixel, 1);\n\
-    }\n";
+static const char *hires_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform vec2 hires_texture_coord_scale;
+    uniform sampler2D hires_texture;
+    
+    out vec4 color;
+    
+    void main()
+    {
+        int byte = int(raster_coords.x) / 7;
+        int bit = int(raster_coords.x) % 7;
+        int texturex = byte * 8 + bit;
+        ivec2 tc = ivec2(texturex, raster_coords.y);
+        float pixel = texture(hires_texture, (tc + vec2(.01f, .01f)) * hires_texture_coord_scale).x;
+        color = vec4(pixel, pixel, pixel, 1);
+    })";
 
-static const char *hirescolor_fragment_shader = "\n\
-    in vec2 raster_coords;\n\
-    uniform vec2 hires_texture_coord_scale;\n\
-    uniform sampler2D hires_texture;\n\
-    \n\
-    out vec4 color;\n\
-    \n\
-    vec2 raster_to_texture(int x, int y)\n\
-    {\n\
-        int byte = x / 7;\n\
-        int bit = x % 7;\n\
-        int texturex = byte * 8 + bit;\n\
-        return vec2(texturex + .01f, y + .01f) * hires_texture_coord_scale; \n\
-    }\n\
-    void main()\n\
-    {\n\
-        int x = int(raster_coords.x); \n\
-        int y = int(raster_coords.y); \n\
- \n\
-        uint left = (x < 1) ? 0u : uint(255 * texture(hires_texture, raster_to_texture(x - 1, y)).x);\n\
-        uint pixel = uint(255 * texture(hires_texture, raster_to_texture(x, y)).x);\n\
-        uint right = (x > 278) ? 0u : uint(255 * texture(hires_texture, raster_to_texture(x + 1, y)).x);\n\
- \n\
-        if((pixel == 255u) && ((left == 255u) || (right == 255u))) { \n\
-            /* Okay, first of all, if this pixel's on and its left or right are on, it's white. */ \n\
-            color = vec4(1.0, 1.0, 1.0, 1.0);\n\
-        } else if((pixel == 0u) && (left == 0u) && (right == 0u)) { \n\
-            /* If none are on, it's black */ \n\
-            color = vec4(0.0, 0.0, 0.0, 1.0);\n\
-        } else { \n\
-            uint even = (x % 2 == 1) ? left : pixel; \n\
-            uint odd = (x % 2 == 1) ? pixel : right; \n\
-            uint palette = uint(texture(hires_texture, vec2((x / 7) * 8 + 7 + .01f, raster_coords.y + .01f) * hires_texture_coord_scale).x); \n\
- \n\
-            if(palette == 0u) { \n\
-                if((even == 0u) && (odd == 255u)) { \n\
-                    color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1.0);\n\
-                    /* green 20 245  60 */ \n\
-                } else if((even == 255u) && (odd == 0u)) { \n\
-                    /* purple 255  68 253 */ \n\
-                    color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1.0);\n\
-                } else if((even == 0u) && (odd == 0u)) { \n\
-                    color = vec4(0, 0, 0, 1);\n\
-                } /* handled 1,1 above */ \n\
-            } else { \n\
-                if((even == 0u) && (odd == 255u)) { \n\
-                    /* orange 255 106  60 */ \n\
-                    color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1.0);\n\
-                } else if((even == 255u) && (odd == 0u)) { \n\
-                    /* blue 20 207 253 */ \n\
-                    color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1.0);\n\
-                } else if((even == 0u) && (odd == 0u)) { \n\
-                    color = vec4(0, 0, 0, 1);\n\
-                } /* handled 1,1 above */ \n\
-            } \n\
-        } \n\
-    }\n";
+static const char *hirescolor_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform vec2 hires_texture_coord_scale;
+    uniform sampler2D hires_texture;
+    
+    out vec4 color;
+    
+    vec2 raster_to_texture(int x, int y)
+    {
+        int byte = x / 7;
+        int bit = x % 7;
+        int texturex = byte * 8 + bit;
+        return vec2(texturex + .01f, y + .01f) * hires_texture_coord_scale; 
+    }
+    void main()
+    {
+        int x = int(raster_coords.x); 
+        int y = int(raster_coords.y); 
+ 
+        uint left = (x < 1) ? 0u : uint(255 * texture(hires_texture, raster_to_texture(x - 1, y)).x);
+        uint pixel = uint(255 * texture(hires_texture, raster_to_texture(x, y)).x);
+        uint right = (x > 278) ? 0u : uint(255 * texture(hires_texture, raster_to_texture(x + 1, y)).x);
+ 
+        if((pixel == 255u) && ((left == 255u) || (right == 255u))) { 
+            /* Okay, first of all, if this pixel's on and its left or right are on, it's white. */ 
+            color = vec4(1.0, 1.0, 1.0, 1.0);
+        } else if((pixel == 0u) && (left == 0u) && (right == 0u)) { 
+            /* If none are on, it's black */ 
+            color = vec4(0.0, 0.0, 0.0, 1.0);
+        } else { 
+            uint even = (x % 2 == 1) ? left : pixel; 
+            uint odd = (x % 2 == 1) ? pixel : right; 
+            uint palette = uint(texture(hires_texture, vec2((x / 7) * 8 + 7 + .01f, raster_coords.y + .01f) * hires_texture_coord_scale).x); 
+ 
+            if(palette == 0u) { 
+                if((even == 0u) && (odd == 255u)) { 
+                    color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1.0);
+                    /* green 20 245  60 */ 
+                } else if((even == 255u) && (odd == 0u)) { 
+                    /* purple 255  68 253 */ 
+                    color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1.0);
+                } else if((even == 0u) && (odd == 0u)) { 
+                    color = vec4(0, 0, 0, 1);
+                } /* handled 1,1 above */ 
+            } else { 
+                if((even == 0u) && (odd == 255u)) { 
+                    /* orange 255 106  60 */ 
+                    color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1.0);
+                } else if((even == 255u) && (odd == 0u)) { 
+                    /* blue 20 207 253 */ 
+                    color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1.0);
+                } else if((even == 0u) && (odd == 0u)) { 
+                    color = vec4(0, 0, 0, 1);
+                } /* handled 1,1 above */ 
+            } 
+        } 
+    })";
 
-static const char *text_vertex_shader = "\n\
-    uniform mat3 to_screen;\n\
-    in vec2 vertex_coords;\n\
-    uniform float x_offset;\n\
-    uniform float y_offset;\n\
-    out vec2 raster_coords;\n\
-    \n\
-    void main()\n\
-    {\n\
-        raster_coords = vertex_coords;\n\
-        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);\n\
-        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);\n\
-    }\n";
+static const char *text_vertex_shader = R"(
+    uniform mat3 to_screen;
+    in vec2 vertex_coords;
+    uniform float x_offset;
+    uniform float y_offset;
+    out vec2 raster_coords;
+    
+    void main()
+    {
+        raster_coords = vertex_coords;
+        vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);
+        gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);
+    })";
 
 // 0-31 is inverse 32-63
 // 32-63 is inverse 0-31
@@ -298,176 +298,176 @@ static const char *text_vertex_shader = "\n\
 // 192-223 is normal 32-63
 // 224-255 is normal 64-95
 
-static const char *text_fragment_shader = "\n\
-    in vec2 raster_coords;\n\
-    uniform int blink;\n\
-    uniform vec4 foreground;\n\
-    uniform vec4 background;\n\
-    uniform vec2 font_texture_coord_scale;\n\
-    uniform sampler2D font_texture;\n\
-    uniform vec2 textport_texture_coord_scale;\n\
-    uniform sampler2D textport_texture;\n\
-    \n\
-    out vec4 color;\n\
-    \n\
-    void main()\n\
-    {\n\
-        uint character;\n\
-        character = uint(texture(textport_texture, (uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); \n\
-        bool inverse = false;\n\
-        if(character >= 0u && character <= 31u) {\n\
-            character = character - 0u + 32u;\n\
-            inverse = true;\n\
-        } else if(character >= 32u && character <= 63u) {\n\
-            character = character - 32u + 0u;\n\
-            inverse = true;\n\
-        } else if(character >= 64u && character <= 95u) {\n\
-            character = character - 64u + 32u; // XXX BLINK \n\
-            inverse = blink == 1;\n\
-        } else if(character >= 96u && character <= 127u){\n\
-            character = character - 96u + 0u; // XXX BLINK \n\
-            inverse = blink == 1;\n\
-        } else if(character >= 128u && character <= 159u)\n\
-            character = character - 128u + 32u;\n\
-        else if(character >= 160u && character <= 191u)\n\
-            character = character - 160u + 0u;\n\
-        else if(character >= 192u && character <= 223u)\n\
-            character = character - 192u + 32u;\n\
-        else if(character >= 224u && character <= 255u)\n\
-            character = character - 224u + 64u;\n\
-        else \n\
-            character = 33u;\n\
-        uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);\n\
-        uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        float pixel = texture(font_texture, (infont + vec2(.01f, 0.1f)) * font_texture_coord_scale).x;\n\
-        if(inverse)\n\
-            color = mix(background, foreground, 1.0 - pixel);\n\
-        else\n\
-            color = mix(background, foreground, pixel);\n\
-    }\n";
+static const char *text_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform int blink;
+    uniform vec4 foreground;
+    uniform vec4 background;
+    uniform vec2 font_texture_coord_scale;
+    uniform sampler2D font_texture;
+    uniform vec2 textport_texture_coord_scale;
+    uniform sampler2D textport_texture;
+    
+    out vec4 color;
+    
+    void main()
+    {
+        uint character;
+        character = uint(texture(textport_texture, (uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); 
+        bool inverse = false;
+        if(character >= 0u && character <= 31u) {
+            character = character - 0u + 32u;
+            inverse = true;
+        } else if(character >= 32u && character <= 63u) {
+            character = character - 32u + 0u;
+            inverse = true;
+        } else if(character >= 64u && character <= 95u) {
+            character = character - 64u + 32u; // XXX BLINK 
+            inverse = blink == 1;
+        } else if(character >= 96u && character <= 127u){
+            character = character - 96u + 0u; // XXX BLINK 
+            inverse = blink == 1;
+        } else if(character >= 128u && character <= 159u)
+            character = character - 128u + 32u;
+        else if(character >= 160u && character <= 191u)
+            character = character - 160u + 0u;
+        else if(character >= 192u && character <= 223u)
+            character = character - 192u + 32u;
+        else if(character >= 224u && character <= 255u)
+            character = character - 224u + 64u;
+        else 
+            character = 33u;
+        uvec2 inglyph = uvec2(uint(raster_coords.x) % 7u, uint(raster_coords.y) % 8u);
+        uvec2 infont = inglyph + uvec2(0, character * 8u);
+        float pixel = texture(font_texture, (infont + vec2(.01f, 0.1f)) * font_texture_coord_scale).x;
+        if(inverse)
+            color = mix(background, foreground, 1.0 - pixel);
+        else
+            color = mix(background, foreground, pixel);
+    })";
 
-static const char *text80_fragment_shader = "\n\
-    in vec2 raster_coords;\n\
-    uniform int blink;\n\
-    uniform vec4 foreground;\n\
-    uniform vec4 background;\n\
-    uniform vec2 font_texture_coord_scale;\n\
-    uniform sampler2D font_texture;\n\
-    uniform vec2 textport_texture_coord_scale;\n\
-    uniform sampler2D textport_texture;\n\
-    uniform sampler2D textport_aux_texture;\n\
-    \n\
-    out vec4 color;\n\
-    \n\
-    void main()\n\
-    {\n\
-        uint character;\n\
-        uint x = uint(raster_coords.x * 2) / 7u; \n\
-        if(x % 2u == 1u) \n\
-            character = uint(texture(textport_texture, (uvec2((x - 1u) / 2u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); \n\
-        else \n\
-            character = uint(texture(textport_aux_texture, (uvec2(x / 2u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); \n\
-        bool inverse = false;\n\
-        if(character >= 0u && character <= 31u) {\n\
-            character = character - 0u + 32u;\n\
-            inverse = true;\n\
-        } else if(character >= 32u && character <= 63u) {\n\
-            character = character - 32u + 0u;\n\
-            inverse = true;\n\
-        } else if(character >= 64u && character <= 95u) {\n\
-            character = character - 64u + 32u; // XXX BLINK \n\
-            inverse = blink == 1;\n\
-        } else if(character >= 96u && character <= 127u){\n\
-            character = character - 96u + 0u; // XXX BLINK \n\
-            inverse = blink == 1;\n\
-        } else if(character >= 128u && character <= 159u)\n\
-            character = character - 128u + 32u;\n\
-        else if(character >= 160u && character <= 191u)\n\
-            character = character - 160u + 0u;\n\
-        else if(character >= 192u && character <= 223u)\n\
-            character = character - 192u + 32u;\n\
-        else if(character >= 224u && character <= 255u)\n\
-            character = character - 224u + 64u;\n\
-        else \n\
-            character = 33u;\n\
-        uvec2 inglyph = uvec2(uint(raster_coords.x * 2) % 7u, uint(raster_coords.y) % 8u);\n\
-        uvec2 infont = inglyph + uvec2(0, character * 8u);\n\
-        float pixel = texture(font_texture, (infont + vec2(.01f, 0.1f)) * font_texture_coord_scale).x;\n\
-        float value;\n\
-        if(inverse)\n\
-            color = mix(background, foreground, 1.0 - pixel);\n\
-        else\n\
-            color = mix(background, foreground, pixel);\n\
-    }\n";
+static const char *text80_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform int blink;
+    uniform vec4 foreground;
+    uniform vec4 background;
+    uniform vec2 font_texture_coord_scale;
+    uniform sampler2D font_texture;
+    uniform vec2 textport_texture_coord_scale;
+    uniform sampler2D textport_texture;
+    uniform sampler2D textport_aux_texture;
+    
+    out vec4 color;
+    
+    void main()
+    {
+        uint character;
+        uint x = uint(raster_coords.x * 2) / 7u; 
+        if(x % 2u == 1u) 
+            character = uint(texture(textport_texture, (uvec2((x - 1u) / 2u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); 
+        else 
+            character = uint(texture(textport_aux_texture, (uvec2(x / 2u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * textport_texture_coord_scale).x * 255.0); 
+        bool inverse = false;
+        if(character >= 0u && character <= 31u) {
+            character = character - 0u + 32u;
+            inverse = true;
+        } else if(character >= 32u && character <= 63u) {
+            character = character - 32u + 0u;
+            inverse = true;
+        } else if(character >= 64u && character <= 95u) {
+            character = character - 64u + 32u; // XXX BLINK 
+            inverse = blink == 1;
+        } else if(character >= 96u && character <= 127u){
+            character = character - 96u + 0u; // XXX BLINK 
+            inverse = blink == 1;
+        } else if(character >= 128u && character <= 159u)
+            character = character - 128u + 32u;
+        else if(character >= 160u && character <= 191u)
+            character = character - 160u + 0u;
+        else if(character >= 192u && character <= 223u)
+            character = character - 192u + 32u;
+        else if(character >= 224u && character <= 255u)
+            character = character - 224u + 64u;
+        else 
+            character = 33u;
+        uvec2 inglyph = uvec2(uint(raster_coords.x * 2) % 7u, uint(raster_coords.y) % 8u);
+        uvec2 infont = inglyph + uvec2(0, character * 8u);
+        float pixel = texture(font_texture, (infont + vec2(.01f, 0.1f)) * font_texture_coord_scale).x;
+        float value;
+        if(inverse)
+            color = mix(background, foreground, 1.0 - pixel);
+        else
+            color = mix(background, foreground, pixel);
+    })";
 
-static const char *lores_fragment_shader = "\n\
-    in vec2 raster_coords;\n\
-    uniform vec2 lores_texture_coord_scale;\n\
-    uniform sampler2D lores_texture;\n\
-    \n\
-    out vec4 color;\n\
-    \n\
-    void main()\n\
-    {\n\
-        uint byte;\n\
-        byte = uint(texture(lores_texture, (uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * lores_texture_coord_scale).x * 255.0); \n\
-        uint inglyph_y = uint(raster_coords.y) % 8u;\n\
-        uint lorespixel;\n\
-        if(inglyph_y < 4u)\n\
-            lorespixel = byte % 16u;\n\
-        else\n\
-            lorespixel = byte / 16u;\n\
-        switch(lorespixel) {\n\
-            case 0u:\n\
-                color = vec4(0, 0, 0, 1);\n\
-                break;\n\
-            case 1u:\n\
-                color = vec4(227.0/255.0, 30.0/255.0, 96.0/255.0, 1);\n\
-                break;\n\
-            case 2u:\n\
-                color = vec4(96.0/255.0, 78.0/255.0, 189.0/255.0, 1);\n\
-                break;\n\
-            case 3u:\n\
-                color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1);\n\
-                break;\n\
-            case 4u:\n\
-                color = vec4(9.0/255.0, 163.0/255.0, 96.0/255.0, 1);\n\
-                break;\n\
-            case 5u:\n\
-                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);\n\
-                break;\n\
-            case 6u:\n\
-                color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1);\n\
-                break;\n\
-            case 7u:\n\
-                color = vec4(208.0/255.0, 195.0/255.0, 255.0/255.0, 1);\n\
-                break;\n\
-            case 8u:\n\
-                color = vec4(96.0/255.0, 114.0/255.0, 3.0/255.0, 1);\n\
-                break;\n\
-            case 9u:\n\
-                color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1);\n\
-                break;\n\
-            case 10u:\n\
-                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);\n\
-                break;\n\
-            case 11u:\n\
-                color = vec4(255.0/255.0, 160.0/255.0, 208.0/255.0, 1);\n\
-                break;\n\
-            case 12u:\n\
-                color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1);\n\
-                break;\n\
-            case 13u:\n\
-                color = vec4(208.0/255.0, 221.0/255.0, 141.0/255.0, 1);\n\
-                break;\n\
-            case 14u:\n\
-                color = vec4(114.0/255.0, 255.0/255.0, 208.0/255.0, 1);\n\
-                break;\n\
-            case 15u:\n\
-                color = vec4(255.0/255.0, 255.0/255.0, 255.0/255.0, 1);\n\
-                break;\n\
-        }\n\
-    }\n";
+static const char *lores_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform vec2 lores_texture_coord_scale;
+    uniform sampler2D lores_texture;
+    
+    out vec4 color;
+    
+    void main()
+    {
+        uint byte;
+        byte = uint(texture(lores_texture, (uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * lores_texture_coord_scale).x * 255.0); 
+        uint inglyph_y = uint(raster_coords.y) % 8u;
+        uint lorespixel;
+        if(inglyph_y < 4u)
+            lorespixel = byte % 16u;
+        else
+            lorespixel = byte / 16u;
+        switch(lorespixel) {
+            case 0u:
+                color = vec4(0, 0, 0, 1);
+                break;
+            case 1u:
+                color = vec4(227.0/255.0, 30.0/255.0, 96.0/255.0, 1);
+                break;
+            case 2u:
+                color = vec4(96.0/255.0, 78.0/255.0, 189.0/255.0, 1);
+                break;
+            case 3u:
+                color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1);
+                break;
+            case 4u:
+                color = vec4(9.0/255.0, 163.0/255.0, 96.0/255.0, 1);
+                break;
+            case 5u:
+                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);
+                break;
+            case 6u:
+                color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1);
+                break;
+            case 7u:
+                color = vec4(208.0/255.0, 195.0/255.0, 255.0/255.0, 1);
+                break;
+            case 8u:
+                color = vec4(96.0/255.0, 114.0/255.0, 3.0/255.0, 1);
+                break;
+            case 9u:
+                color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1);
+                break;
+            case 10u:
+                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);
+                break;
+            case 11u:
+                color = vec4(255.0/255.0, 160.0/255.0, 208.0/255.0, 1);
+                break;
+            case 12u:
+                color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1);
+                break;
+            case 13u:
+                color = vec4(208.0/255.0, 221.0/255.0, 141.0/255.0, 1);
+                break;
+            case 14u:
+                color = vec4(114.0/255.0, 255.0/255.0, 208.0/255.0, 1);
+                break;
+            case 15u:
+                color = vec4(255.0/255.0, 255.0/255.0, 255.0/255.0, 1);
+                break;
+        }
+    })";
 
 void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
 {
@@ -1775,6 +1775,10 @@ void iterate(const ModeHistory& history, unsigned long long current_byte, float 
     CheckOpenGL(__FILE__, __LINE__);
     glfwSwapBuffers(my_window);
     CheckOpenGL(__FILE__, __LINE__);
+
+    for(int i = 0; i < 16; i++)
+        if(glfwJoystickPresent(GLFW_JOYSTICK_1 + i))
+            printf("joy %d present\n", i);
 
     if(glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         if(false) printf("joystick 1 present\n");
