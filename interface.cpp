@@ -1734,10 +1734,12 @@ void map_history_to_lines(const ModeHistory& history, unsigned long long current
         map_mode_to_lines(current, byte2);
     }
 
-    if(!history.empty())
+    if(!history.empty()) {
         most_recent_modepoint = history[history.size() - 1];
+    }
 
     map_mode_to_lines(most_recent_modepoint, current_byte);
+    most_recent_modepoint = { current_byte, get<1>(most_recent_modepoint) };
 }
 
 void iterate(const ModeHistory& history, unsigned long long current_byte, float megahertz)
