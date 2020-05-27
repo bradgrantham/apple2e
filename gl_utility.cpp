@@ -15,8 +15,8 @@
 void CheckOpenGL(const char *filename, int line)
 {
     int glerr;
-    bool stored_exit_flag = false;
-    bool exit_on_error;
+    static bool stored_exit_flag = false;
+    static bool exit_on_error;
 
     if(!stored_exit_flag) {
         exit_on_error = getenv("EXIT_ON_OPENGL_ERROR") != NULL;
