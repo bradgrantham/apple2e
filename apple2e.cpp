@@ -34,7 +34,7 @@ using namespace std;
 #include "dis6502.h"
 #include "interface.h"
 
-#define LK_HACK 1
+#define LK_HACK 0
 
 constexpr unsigned int DEBUG_ERROR = 0x01;
 constexpr unsigned int DEBUG_WARN = 0x02;
