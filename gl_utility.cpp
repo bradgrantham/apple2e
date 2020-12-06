@@ -128,7 +128,7 @@ bool CheckProgramLink(GLuint program)
     return false;
 }
 
-void opengl_texture::load(int w_, int h_, unsigned char *pixels)
+void opengl_texture::load(int w_, int h_, const unsigned char *pixels)
 {
     w = w_;
     h = h_;
@@ -137,7 +137,7 @@ void opengl_texture::load(int w_, int h_, unsigned char *pixels)
     glBindTexture(GL_TEXTURE_2D, GL_NONE);
 }
 
-opengl_texture initialize_texture(int w, int h, unsigned char *pixels)
+opengl_texture initialize_texture(int w, int h, const unsigned char *pixels)
 {
     GLuint tex;
 

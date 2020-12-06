@@ -98,10 +98,10 @@ struct opengl_texture
     int h;
     GLuint t;
     operator GLuint() const { return t; }
-    void load(int w, int h, unsigned char *pixels = NULL);
+    void load(int w, int h, const unsigned char *pixels = NULL);
 };
 
-opengl_texture initialize_texture(int w, int h, unsigned char *pixels = NULL);
+opengl_texture initialize_texture(int w, int h, const unsigned char *pixels = NULL);
 
 GLuint GenerateProgram(const std::string& shader_name, const std::string& vertex_shader_text, const std::string& fragment_shader_text);
 

@@ -59,7 +59,7 @@ int joystick_button0 = -1;
 int joystick_button1 = -1;
 
 extern int font_offset;
-extern unsigned char font_bytes[96 * 7 * 8];
+extern const unsigned char font_bytes[96 * 7 * 8];
 
 static int gWindowWidth, gWindowHeight;
 
@@ -184,7 +184,8 @@ static const char *hires_vertex_shader = R"(
         raster_coords = vertex_coords;
         vec3 screen_coords = to_screen * vec3(vertex_coords + vec2(x_offset, y_offset), 1);
         gl_Position = vec4(screen_coords.x, screen_coords.y, .5, 1);
-    })";
+    }
+)";
 
 static const char *image_fragment_shader = R"(
     in vec2 raster_coords;
@@ -198,7 +199,8 @@ static const char *image_fragment_shader = R"(
         ivec2 tc = ivec2(raster_coords.x, raster_coords.y);
         float pixel = texture(image, raster_coords * image_coord_scale).x;
         color = vec4(pixel, pixel, pixel, 1);
-    })";
+    }
+)";
 
 static const char *hires_fragment_shader = R"(
     in vec2 raster_coords;
@@ -1305,8 +1307,18 @@ static void start_record()
 floppy_icon *floppy0_icon;
 floppy_icon *floppy1_icon;
 
+uint8_t hgr_page1[8192];
+
+void save_hgr()
+{
+    FILE *fp = fopen("hgr.bin", "wb");
+    fwrite(hgr_page1, sizeof(hgr_page1), 1, fp);
+    fclose(fp);
+}
+
 void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted)
 {
+    momentary *hgr_momentary = new momentary("SNAP HGR", [](){save_hgr();});
     momentary *reset_momentary = new momentary("RESET", [](){event_queue.push_back({RESET, 0});});
     momentary *reboot_momentary = new momentary("REBOOT", [](){event_queue.push_back({REBOOT, 0});});
     toggle *fast_toggle = new toggle("FAST", run_fast, [](){event_queue.push_back({SPEED, 1});}, [](){event_queue.push_back({SPEED, 0});});
@@ -1315,7 +1327,7 @@ void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted,
     toggle *pause_toggle = new toggle("PAUSE", false, [](){event_queue.push_back({PAUSE, 1});}, [](){event_queue.push_back({PAUSE, 0});});
     record_toggle = new toggle("RECORD", false, [](){start_record();}, [](){stop_record();});
 
-    vector<widget*> controls = {reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle};
+    vector<widget*> controls = {hgr_momentary, reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle};
     
     if(false) {
         speed_textbox = new textbox("X.YYY MHz");
@@ -1890,6 +1902,7 @@ void write2(int addr, bool aux, unsigned char data)
         int row = scanout_address / 40;
         int col = scanout_address % 40;
         glBindTexture(GL_TEXTURE_2D, hires_texture[page]);
+        if(page == 0) hgr_page1[addr - 0x2000] = data; // XXX hack
         unsigned char pixels[8];
         for(int i = 0; i < 8 ; i++)
             pixels[i] = ((data & (1 << i)) ? 255 : 0);
@@ -2000,7 +2013,7 @@ void initialize_memory_to_scanout()
 }
 
 int font_offset = 32;
-unsigned char font_bytes[96 * 7 * 8] = {
+const unsigned char font_bytes[96 * 7 * 8] = {
     // 32 :  
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,
