@@ -274,7 +274,7 @@ unsigned char floppy_doSector[16] = {
 unsigned char floppy_poSector[16] = {
 	0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF };
 
-void floppy_NybblizeImage(unsigned char *image, unsigned char *nybblized, unsigned char *skew)
+void floppy_NybblizeImage(const unsigned char *image, unsigned char *nybblized, unsigned char *skew)
 {
 	// Format of a sector is header (23) + nybbles (343) + footer (30) = 396
 	// (short by 20 bytes of 416 [413 if 48 byte header is one time only])
@@ -320,7 +320,7 @@ void floppy_NybblizeImage(unsigned char *image, unsigned char *nybblized, unsign
 			p[10] = ((trk ^ sector ^ 0xFE)       & 0x55) | 0xAA;
 
 			p += 21;
-			unsigned char * bytes = image;
+			const unsigned char * bytes = image;
 
                         bytes += (skew[sector] * 256) + (trk * 256 * 16);
 
@@ -362,7 +362,7 @@ void floppy_NybblizeImage(unsigned char *image, unsigned char *nybblized, unsign
 	}
 }
 
-
+// XXX readonly at this time
 struct DISKIIboard : board_base
 {
     const unsigned int CA0 = 0xC0E0; // stepper phase 0 / control line 0
@@ -1249,16 +1249,20 @@ struct MAINboard : board_base
                 if(addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
-                    sw->enabled = true;
-                    if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
-                    post_soft_switch_mode_change();
+                    if(!sw->enabled) {
+                        sw->enabled = true;
+                        if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
+                        post_soft_switch_mode_change();
+                    }
                     return true;
                 } else if(addr == sw->clear_address) {
                     // if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
-                    sw->enabled = false;
-                    if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
-                    post_soft_switch_mode_change();
+                    if(sw->enabled) {
+                        sw->enabled = false;
+                        if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
+                        post_soft_switch_mode_change();
+                    }
                     return true;
                 }
             }
