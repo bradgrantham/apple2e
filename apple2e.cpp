@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <array>
 #include <string>
 #include <set>
 #include <chrono>
@@ -200,7 +201,7 @@ struct region
     int size;
     bool contains(int addr) const
     {
-        return addr >= base && addr < base + size;
+        return (addr >= base) && (addr < base + size);
     }
 };
 
@@ -241,7 +242,7 @@ struct backed_region : region
 
     bool contains(int addr) const
     {
-        return addr >= base && addr < base + size;
+        return (addr >= base) && (addr < base + size);
     }
 
     bool read(int addr, unsigned char& data)
@@ -365,16 +366,16 @@ void floppy_NybblizeImage(const unsigned char *image, unsigned char *nybblized, 
 // XXX readonly at this time
 struct DISKIIboard : board_base
 {
-    const unsigned int CA0 = 0xC0E0; // stepper phase 0 / control line 0
-    const unsigned int CA1 = 0xC0E2; // stepper phase 1 / control line 1
-    const unsigned int CA2 = 0xC0E4; // stepper phase 2 / control line 2
-    const unsigned int CA3 = 0xC0E6; // stepper phase 3 / control strobe
-    const unsigned int ENABLE = 0xC0E8; // disk drive off/on
-    const unsigned int SELECT = 0xC0EA; // select drive 1/2
-    const unsigned int Q6L = 0xC0EC; // IO strobe for read
-    const unsigned int Q6H = 0xC0ED; // IO strobe for write
-    const unsigned int Q7L = 0xC0EE; // IO strobe for clear
-    const unsigned int Q7H = 0xC0EF; // IO strobe for shift
+    static constexpr int CA0 = 0xC0E0; // stepper phase 0 / control line 0
+    static constexpr int CA1 = 0xC0E2; // stepper phase 1 / control line 1
+    static constexpr int CA2 = 0xC0E4; // stepper phase 2 / control line 2
+    static constexpr int CA3 = 0xC0E6; // stepper phase 3 / control strobe
+    static constexpr int ENABLE = 0xC0E8; // disk drive off/on
+    static constexpr int SELECT = 0xC0EA; // select drive 1/2
+    static constexpr int Q6L = 0xC0EC; // IO strobe for read
+    static constexpr int Q6H = 0xC0ED; // IO strobe for write
+    static constexpr int Q7L = 0xC0EE; // IO strobe for clear
+    static constexpr int Q7H = 0xC0EF; // IO strobe for shift
 
     map<unsigned int, string> io = {
         {0xC0E0, "CA0OFF"},
@@ -397,8 +398,8 @@ struct DISKIIboard : board_base
 
     backed_region rom_C600 = {"rom_C600", 0xC600, 0x0100, ROM, nullptr, [&]{return true;}};
 
-    unsigned char floppy_image[2][143360];
-    unsigned char floppy_nybblized[2][232960];
+    unsigned char *floppy_image[2]; // [143360];
+    unsigned char *floppy_nybblized[2]; // [232960];
     const unsigned int bytes_per_nybblized_track = 6656;
     bool floppy_present[2];
 
@@ -415,7 +416,7 @@ struct DISKIIboard : board_base
     {
         floppy_present[number] = false;
         if(name) {
-            if(!read_blob(name, floppy_image[number], sizeof(floppy_image[0])))
+            if(!read_blob(name, floppy_image[number], 143360 /*sizeof(floppy_image[0])*/))
                 throw "Couldn't read floppy";
             
             floppy_present[number] = true;
@@ -437,8 +438,28 @@ struct DISKIIboard : board_base
         floppy_activity(floppy_activity_)
     {
         std::copy(diskII_rom, diskII_rom + 0x100, rom_C600.memory.begin());
+        if(floppy0_name) {
+            floppy_image[0] = new unsigned char[143360];
+            if(!floppy_image[0]) {
+                throw "failed to allocate floppy_image[0]";
+            }
+            floppy_nybblized[0] = new unsigned char[232960];
+            if(!floppy_nybblized[0]) {
+                throw "failed to allocate floppy_nybblized[0]";
+            }
         set_floppy(0, floppy0_name);
+        }
+        if(floppy1_name) {
+            floppy_image[1] = new unsigned char[143360];
+            if(!floppy_image[1]) {
+                throw "failed to allocate floppy_image[1]";
+            }
+            floppy_nybblized[1] = new unsigned char[232960];
+            if(!floppy_nybblized[1]) {
+                throw "failed to allocate floppy_nybblized[1]";
+            }
         set_floppy(1, floppy1_name);
+        }
     }
 
     unsigned char read_next_nybblized_byte()
@@ -707,6 +728,7 @@ struct MAINboard : board_base
     vector<SoftSwitch*> switches;
     SoftSwitch* switches_by_address[256];
     // SoftSwitch(const char* name_, int clear, int on, int read, bool read_changes, vector<SoftSwitch*>& s, bool implemented_ = false) :
+    // Inside the Apple //e, page 379
     SoftSwitch CXROM {"CXROM", 0xC006, 0xC007, 0xC015, false, switches, true};
     SoftSwitch STORE80 {"STORE80", 0xC000, 0xC001, 0xC018, false, switches, true};
     SoftSwitch RAMRD {"RAMRD", 0xC002, 0xC003, 0xC013, false, switches, true};
@@ -721,17 +743,50 @@ struct MAINboard : board_base
     SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches, true};
 
     vector<backed_region*> regions;
-    vector<backed_region*> regions_by_page[256];
+    std::array<backed_region*,256> read_regions_by_page;
+    std::array<backed_region*,256> write_regions_by_page;
+
+    void repage_regions(const char *reason)
+    {
+        std::fill(read_regions_by_page.begin(), read_regions_by_page.end(), nullptr);
+        std::fill(write_regions_by_page.begin(), write_regions_by_page.end(), nullptr);
+        for(auto* r : regions) {
+            int firstpage = r->base / 256;
+            int lastpage = (r->base + r->size - 1) / 256;
+            if((r->type == RAM) && r->write_enabled()) {
+                for(int i = firstpage; i <= lastpage; i++) {
+                    if(write_regions_by_page[i] != nullptr) {
+                        if(0)printf("warning, write region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
+                            i, r->name.c_str(), write_regions_by_page[i]->name.c_str(), reason);
+                    } else {
+                        write_regions_by_page[i] = r;
+                    }
+                }
+            }
+            if(r->read_enabled()) {
+                for(int i = firstpage; i <= lastpage; i++) {
+                    if(read_regions_by_page[i] != nullptr) {
+                        if(0)printf("warning, read region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
+                            i, r->name.c_str(), read_regions_by_page[i]->name.c_str(), reason);
+                    } else {
+                        read_regions_by_page[i] = r;
+                    }
+                }
+            }
+        }
+    }
 
     backed_region szp = {"szp", 0x0000, 0x0200, RAM, &regions, [&](){return !ALTZP;}}; // stack and zero page
     backed_region aszp = {"aszp", 0x0000, 0x0200, RAM, &regions, [&](){return ALTZP;}}; // alternate stack and zero page
 
+    enabled_func always_disabled = []{return false;};
+
     bool internal_C800_ROM_selected;
-    backed_region rom_C100 = {"rom_C100", 0xC100, 0x0200, ROM, &regions, [&]{return CXROM;}};
-    backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, &regions, [&]{return CXROM || (!CXROM && !C3ROM);}};
-    backed_region rom_C400 = {"rom_C400", 0xC300, 0x0400, ROM, &regions, [&]{return CXROM;}};
-    backed_region rom_C800 = {"rom_C800", 0xC800, 0x0800, ROM, &regions, [&]{return CXROM || (!CXROM && !C3ROM && internal_C800_ROM_selected);}};
-    backed_region rom_CXXX_default = {"rom_CXXX_default", 0xC100, 0x0F00, ROM, &regions, [&]{return true;}};
+    backed_region rom_C100 = {"rom_C100", 0xC100, 0x0200, ROM, &regions, [&]{return CXROM;}, always_disabled};
+    backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, &regions, [&]{return CXROM || (!CXROM && !C3ROM);}, always_disabled};
+    backed_region rom_C400 = {"rom_C400", 0xC400, 0x0400, ROM, &regions, [&]{return CXROM;}, always_disabled};
+    backed_region rom_C800 = {"rom_C800", 0xC800, 0x0800, ROM, &regions, [&]{return CXROM || (!CXROM && !C3ROM && internal_C800_ROM_selected);}, always_disabled};
+    backed_region rom_CXXX_default = {"rom_CXXX_default", 0xC100, 0x0F00, ROM, &regions, [&]{return true;}, always_disabled};
 
     enabled_func read_from_aux_ram = [&]{return RAMRD;};
     enabled_func write_to_aux_ram = [&]{return RAMWRT;};
@@ -749,8 +804,8 @@ struct MAINboard : board_base
     bool C08X_write_RAM;
     enum {BANK1, BANK2} C08X_bank;
 
-    backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, &regions, [&]{return !C08X_read_RAM;}};
-    backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, &regions, [&]{return !C08X_read_RAM;}};
+    backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, &regions, [&]{return !C08X_read_RAM;}, always_disabled};
+    backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, &regions, [&]{return !C08X_read_RAM;}, always_disabled};
 
     backed_region ram1_main_D000 = {"ram1_main_D000", 0xD000, 0x1000, RAM, &regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK1);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK1);}};
     backed_region ram2_main_D000 = {"ram2_main_D000", 0xD000, 0x1000, RAM, &regions, [&]{return !ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return !ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
@@ -895,13 +950,8 @@ struct MAINboard : board_base
         std::copy(rom_image + rom_C400.base - 0x8000, rom_image + rom_C400.base - 0x8000 + rom_C400.size, rom_C400.memory.begin());
         std::copy(rom_image + rom_C800.base - 0x8000, rom_image + rom_C800.base - 0x8000 + rom_C800.size, rom_C800.memory.begin());
 
-        for(auto r : regions) {
-            int firstpage = r->base / 256;
-            int lastpage = (r->base + r->size + 255) / 256 - 1;
-            for(int i = firstpage; i <= lastpage; i++) {
-                regions_by_page[i].push_back(r);
-            }
-        }
+        repage_regions("init");
+
         for(int i = 0; i < 256; i++)
             switches_by_address[i] = NULL;
         for(auto sw : switches) {
@@ -931,6 +981,7 @@ struct MAINboard : board_base
         C08X_read_RAM = false;
         C08X_write_RAM = true;
         internal_C800_ROM_selected = true;
+        repage_regions("reset");
     }
 
     bool read(int addr, unsigned char &data)
@@ -941,11 +992,11 @@ struct MAINboard : board_base
                 return true;
             }
         }
-        for(auto r : regions_by_page[addr / 256]) {
-            if(r->read(addr, data)) {
-                if(debug & DEBUG_RW) printf("read 0x%04X -> 0x%02X from %s\n", addr, data, r->name.c_str());
+        auto* r = read_regions_by_page[addr / 256];
+        if(r) {
+            data = r->memory[addr - r->base];
+            if(debug & DEBUG_RW) printf("read %02X from 0x%04X in %s\n", addr, data, r->name.c_str());
                 return true;
-            }
         }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_read_switches.find(addr) != banking_read_switches.end())) {
@@ -953,7 +1004,7 @@ struct MAINboard : board_base
                 exit(1);
             }
             SoftSwitch* sw = switches_by_address[addr - 0xC000];
-            if(sw != NULL) {
+            if(sw != nullptr) {
 
                 unsigned char result = 0xFF;
 
@@ -1032,6 +1083,7 @@ struct MAINboard : board_base
                 C08X_read_RAM = !read_ROM;
                 if(debug & DEBUG_SWITCH) printf("write %04X switch, %s, %d write_RAM, %d read_RAM\n", addr, (C08X_bank == BANK1) ? "BANK1" : "BANK2", C08X_write_RAM, C08X_read_RAM);
                 data = 0x00;
+                repage_regions("C08x write");
                 return true;
             } else if(addr == 0xC011) {
                 data = (C08X_bank == BANK2) ? 0x80 : 0x0;
@@ -1105,11 +1157,17 @@ struct MAINboard : board_base
         }
         if((addr & 0xFF00) == 0xC300) {
             if(debug & DEBUG_SWITCH) printf("read 0x%04X, enabling internal C800 ROM\n", addr);
-            internal_C800_ROM_selected = true;
+            if(!internal_C800_ROM_selected) {
+                internal_C800_ROM_selected = true;
+                repage_regions("C3xx write");
+            }
         }
         if(addr == 0xCFFF) {
             if(debug & DEBUG_SWITCH) printf("read 0xCFFF, disabling internal C800 ROM\n");
-            internal_C800_ROM_selected = false;
+            if(internal_C800_ROM_selected) {
+                internal_C800_ROM_selected = false;
+                repage_regions("C3FF write");
+            }
         }
         if(debug & DEBUG_WARN) printf("unhandled memory read at %04X\n", addr);
         if(exit_on_memory_fallthrough) {
@@ -1214,30 +1272,20 @@ struct MAINboard : board_base
 #endif
         {
             display_write(addr, write_to_aux_text1(), data);
-            if(false && (addr >= 0x2000) && (addr <= 0x3FFF)) {
-                static FILE* memoryWritesFile = NULL;
-                if(memoryWritesFile == NULL) {
-                    memoryWritesFile = fopen("memorydump.bin", "wb");
-                }
-                unsigned long long c = clk * 1000000 / 14318;
-                uint16_t a = addr;
-                uint16_t d = data;
-                fwrite(&c, sizeof(c), 1, memoryWritesFile);
-                fwrite(&a, sizeof(a), 1, memoryWritesFile);
-                fwrite(&d, sizeof(d), 1, memoryWritesFile);
-                // printf("    { %lld, 0x%04X, 0x%02X }\n", clk * 1000000 / 14318, addr, data);
-            }
         }
         for(auto b : boards) { 
             if(b->write(addr, data)) {
                 return true;
             }
         }
-        for(auto r : regions_by_page[addr / 256]) {
-            if(r->write(addr, data)) {
-                if(debug & DEBUG_RW) printf("wrote %02X to 0x%04X in %s\n", addr, data, r->name.c_str());
-                return true;
+        auto* r = write_regions_by_page[addr / 256];
+        if(r) {
+            if(debug & DEBUG_RW) printf("wrote %02X to 0x%04X in %s\n", addr, data, r->name.c_str());
+            if((addr - r->base < 0) || (addr - r->base > r->size)) {
+                printf("write to %d outside region \"%s\", base %d, size %d\n", addr, r->name.c_str(), r->base, r->size);
             }
+            r->memory[addr - r->base] = data;
+            return true;
         }
         if(io_region.contains(addr)) {
             if(exit_on_banking && (banking_write_switches.find(addr) != banking_write_switches.end())) {
@@ -1253,6 +1301,8 @@ struct MAINboard : board_base
                         sw->enabled = true;
                         if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
                         post_soft_switch_mode_change();
+                        static char reason[512]; sprintf(reason, "set %s", sw->name.c_str());
+                        repage_regions(reason);
                     }
                     return true;
                 } else if(addr == sw->clear_address) {
@@ -1262,6 +1312,8 @@ struct MAINboard : board_base
                         sw->enabled = false;
                         if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
                         post_soft_switch_mode_change();
+                        static char reason[512]; sprintf(reason, "clear %s", sw->name.c_str());
+                        repage_regions(reason);
                     }
                     return true;
                 }
@@ -1273,6 +1325,7 @@ struct MAINboard : board_base
                 C08X_read_RAM = !read_ROM;
                 if(debug & DEBUG_SWITCH) printf("write %04X switch, %s, %d write_RAM, %d read_RAM\n", addr, (C08X_bank == BANK1) ? "BANK1" : "BANK2", C08X_write_RAM, C08X_read_RAM);
                 data = 0x00;
+                repage_regions("C08x write");
                 return true;
             }
             if(addr == 0xC010) {
@@ -1706,8 +1759,9 @@ int main(int argc, char **argv)
     const char *romname = argv[0];
     unsigned char b[32768];
 
-    if(!read_blob(romname, b, sizeof(b)))
+    if(!read_blob(romname, b, sizeof(b))) {
         exit(EXIT_FAILURE);
+    }
 
     unsigned char diskII_rom[256];
     if(diskII_rom_name != NULL) {
