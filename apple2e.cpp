@@ -445,18 +445,24 @@ struct DISKIIboard : board_base
     bool driveMotorEnabled[2];
     enum {READ, WRITE} headMode = READ;
     unsigned char dataLatch = 0x00;
-    int headStepperPhase[4] = {0, 0, 0, 0};
-    int headStepperMostRecentPhase = 0;
+    int headStepperPhase[2][4] = { {0, 0, 0, 0}, {0, 0, 0, 0} };
+    int headStepperMostRecentPhase[2] = {0, 0};
+    int currentTrackNumber[2] = {0, 0}; // physical track number - DOS and ProDOS only use even tracks
 
     // track data
     uint8_t trackBytes[floppy::nybblizedTrackSize];
-    int trackNumber[2] = {0, 0}; // physical track number - DOS and ProDOS only use even tracks
-    unsigned int trackByte = 0;
+    int nybblizedTrackIndex = -1;
+    int nybblizedDriveIndex = -1;
+    unsigned int trackByteIndex = 0;
 
     void set_floppy(int number, const char *name) // number 0 or 1; name = NULL to eject
     {
         floppyPresent[number] = false;
         floppyImageNames[number] = "";
+        if(nybblizedDriveIndex == number) {
+            nybblizedTrackIndex = -1;
+            nybblizedDriveIndex = -1;
+        }
 
         if(name) {
             if(floppyImageFiles[number]) {
@@ -504,9 +510,9 @@ struct DISKIIboard : board_base
         if(headMode != READ || !driveMotorEnabled[driveSelected] || !floppyPresent[driveSelected])
             return 0x00;
 
-        uint8_t data = trackBytes[trackByte];
+        uint8_t data = trackBytes[trackByteIndex];
 
-        trackByte = (trackByte + 1) % floppy::nybblizedTrackSize;
+        trackByteIndex = (trackByteIndex + 1) % floppy::nybblizedTrackSize;
 
         return data;
     }
@@ -517,11 +523,18 @@ struct DISKIIboard : board_base
             return false;
         }
 
-        bool success = floppy::nybblizeTrackFromFile(floppyImageFiles[driveSelected], trackNumber[driveSelected] / 2, trackBytes, floppySectorSkew[driveSelected]);
+        if((nybblizedTrackIndex == currentTrackNumber[driveSelected]) && (nybblizedDriveIndex == driveSelected)) {
+            return true;
+        }
+
+        bool success = floppy::nybblizeTrackFromFile(floppyImageFiles[driveSelected], currentTrackNumber[driveSelected] / 2, trackBytes, floppySectorSkew[driveSelected]);
         if(!success) {
             fprintf(stderr, "unexpected failure reading track from disk \"%s\"\n", floppyImageNames[driveSelected].c_str());
             return false;
         }
+
+        nybblizedTrackIndex = currentTrackNumber[driveSelected];
+        nybblizedDriveIndex = driveSelected;
 
         return true;
     }
@@ -531,41 +544,41 @@ struct DISKIIboard : board_base
         int phase = (addr & 0x7) >> 1;
         int state = addr & 0x1;
 
-        headStepperPhase[phase] = state;
+        headStepperPhase[driveSelected][phase] = state;
 
         if(debug & DEBUG_FLOPPY) printf("stepper %04X, phase %d, state %d, so stepper motor state now: %d, %d, %d, %d\n",
             addr, phase, state,
-            headStepperPhase[0], headStepperPhase[1],
-            headStepperPhase[2], headStepperPhase[3]);
+            headStepperPhase[driveSelected][0], headStepperPhase[driveSelected][1],
+            headStepperPhase[driveSelected][2], headStepperPhase[driveSelected][3]);
 
         if(state == 1) { // turn stepper motor phase on
 
-            if(headStepperMostRecentPhase == (((phase - 1) + 4) % 4)) { // stepping up
+            if(headStepperMostRecentPhase[driveSelected] == (((phase - 1) + 4) % 4)) { // stepping up
 
-                trackNumber[driveSelected] = min(trackNumber[driveSelected] + 1, 69);
+                currentTrackNumber[driveSelected] = min(currentTrackNumber[driveSelected] + 1, 69);
                 readDriveTrack();
-                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", trackNumber[driveSelected]);
+                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", currentTrackNumber[driveSelected]);
 
-            } else if(headStepperMostRecentPhase == ((phase + 1) % 4)) { // stepping down
+            } else if(headStepperMostRecentPhase[driveSelected] == ((phase + 1) % 4)) { // stepping down
 
-                trackNumber[driveSelected] = max(0, trackNumber[driveSelected] - 1);
+                currentTrackNumber[driveSelected] = max(0, currentTrackNumber[driveSelected] - 1);
                 readDriveTrack();
-                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", trackNumber[driveSelected]);
+                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", currentTrackNumber[driveSelected]);
 
-            } else if(headStepperMostRecentPhase == phase) { // unexpected condition
+            } else if(headStepperMostRecentPhase[driveSelected] == phase) { // unexpected condition
 
                 if(debug & DEBUG_FLOPPY) printf("track head stepper no change\n");
 
             } else { // unexpected condition
 
                 if(debug & DEBUG_WARN) fprintf(stderr, "unexpected track stepper motor state: %d, %d, %d, %d\n",
-                    headStepperPhase[0], headStepperPhase[1],
-                    headStepperPhase[2], headStepperPhase[3]);
-                if(debug & DEBUG_WARN) fprintf(stderr, "most recent phase: %d\n", headStepperMostRecentPhase);
+                    headStepperPhase[driveSelected][0], headStepperPhase[driveSelected][1],
+                    headStepperPhase[driveSelected][2], headStepperPhase[driveSelected][3]);
+                if(debug & DEBUG_WARN) fprintf(stderr, "most recent phase: %d\n", headStepperMostRecentPhase[driveSelected]);
 
             }
 
-            headStepperMostRecentPhase = phase;
+            headStepperMostRecentPhase[driveSelected] = phase;
         }
     }
 
