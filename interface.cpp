@@ -1329,7 +1329,7 @@ void initialize_widgets(bool run_fast, bool add_floppies, bool floppy0_inserted,
 
     vector<widget*> controls = {hgr_momentary, reset_momentary, reboot_momentary, fast_toggle, caps_toggle, color_toggle, pause_toggle, record_toggle};
     
-    if(false) {
+    if(true) {
         speed_textbox = new textbox("X.YYY MHz");
         controls.push_back(speed_textbox);
     }
