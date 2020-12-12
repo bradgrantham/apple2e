@@ -45,7 +45,7 @@ constexpr unsigned int DEBUG_RW = 0x10;
 constexpr unsigned int DEBUG_BUS = 0x20;
 constexpr unsigned int DEBUG_FLOPPY = 0x40;
 constexpr unsigned int DEBUG_SWITCH = 0x80;
-volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN ; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
+volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
 
 bool delete_is_left_arrow = true;
 volatile bool exit_on_banking = false;
@@ -270,38 +270,50 @@ namespace floppy
 {
 
 /*
-5 1/2" floppy disk images are 35 tracks of 16 sectors of 256 bytes = 143360 bytes
+5 1/2" floppy disk images are 70 tracks of 16 sectors of 256 bytes
+But DOS and ProDOS only read even tracks, so floppy images saved on disk contain only even tracks,
+and a ".dsk" floppy image is only 143360 bytes.
 */
 constexpr int sectorSize = 256;
 constexpr int sectorsPerTrack = 16;
 constexpr int tracksPerFloppy = 35;
 
-const unsigned char sectorHeader[21] = {
-	0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0xDE, 0xAA, 0xFF, 0xFF, 0xFF,
-	0xFF, 0xFF, 0xD5, 0xAA, 0xAD };
+const unsigned char sectorHeader[21] =
+{
+    0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0xDE, 0xAA, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xD5, 0xAA, 0xAD
+};
 
-const unsigned char doSectorSkew[16] = {
-	0x0, 0x7, 0xE, 0x6, 0xD, 0x5, 0xC, 0x4, 0xB, 0x3, 0xA, 0x2, 0x9, 0x1, 0x8, 0xF };
-const unsigned char poSectorSkew[16] = {
-	0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF };
+const int sectorSkewDOS[16] =
+{
+    0x0, 0x7, 0xE, 0x6, 0xD, 0x5, 0xC, 0x4, 0xB, 0x3, 0xA, 0x2, 0x9, 0x1, 0x8, 0xF
+};
+const int sectorSkewProDOS[16] =
+{
+    0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF
+};
 
-const unsigned char sectorFooter[48] = {
-        0xDE, 0xAA, 0xEB, 0xFF, 0xEB, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-const unsigned char SixBitsToBytes[0x40] = {
-        0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
-        0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
-        0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC,
-        0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
-        0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
-        0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
-        0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
-        0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF };
+const unsigned char sectorFooter[48] =
+{
+    0xDE, 0xAA, 0xEB, 0xFF, 0xEB, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+};
+const unsigned char SixBitsToBytes[0x40] =
+{
+    0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
+    0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
+    0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC,
+    0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
+    0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
+    0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
+    0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
+    0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF
+};
 
 constexpr size_t trackGapSize = 64;
 constexpr size_t nybblizedSectorSize = 21 + 343 + 48;
@@ -309,14 +321,14 @@ constexpr size_t nybblizedTrackSize = trackGapSize + sectorsPerTrack * nybblized
 
 void nybblizeSector(int trackIndex, int sectorIndex, const uint8_t *sectorBytes, uint8_t *sectorNybblized)
 {
-    memset(sectorNybblized, 0xFF, nybblizedSectorSize);					// Doesn't matter if 00s or FFs...
+    memset(sectorNybblized, 0xFF, nybblizedSectorSize); // Doesn't matter if 00s or FFs...
 
     uint8_t *p = sectorNybblized;
 
-    memcpy(p, sectorHeader, sizeof(sectorHeader));			// Set up the sectorIndex header
+    memcpy(p, sectorHeader, sizeof(sectorHeader)); // Set up the sectorIndex header
 
-    p[5] = ((trackIndex >> 1) & 0x55) | 0xAA;
-    p[6] =  (trackIndex       & 0x55) | 0xAA;
+    p[5] = ((trackIndex  >> 1) & 0x55) | 0xAA;
+    p[6] =  (trackIndex        & 0x55) | 0xAA;
     p[7] = ((sectorIndex >> 1) & 0x55) | 0xAA;
     p[8] =  (sectorIndex       & 0x55) | 0xAA;
     p[9] = (((trackIndex ^ sectorIndex ^ 0xFE) >> 1) & 0x55) | 0xAA;
@@ -360,37 +372,28 @@ void nybblizeSector(int trackIndex, int sectorIndex, const uint8_t *sectorBytes,
     // p += 48;
 }
 
-bool nybblizeImage(FILE *floppyImageFile, unsigned char *nybblizedImage, const unsigned char *skew)
+bool nybblizeTrackFromFile(FILE *floppyImageFile, int trackIndex, unsigned char *nybblizedTrack, const int *skew)
 {
-    // Format of a sector is header (23) + nybbles (343) + footer (30) = 396
-    // (short by 20 bytes of 416 [413 if 48 byte header is one time only])
-    // hdr (21) + nybbles (343) + footer (48) = 412 bytes per sector
-    // (not incl. 64 byte track marker)
+    memset(nybblizedTrack, 0xFF, trackGapSize);					// Write gap 1, 64 bytes (self-sync)
 
-    for(unsigned char trackIndex = 0; trackIndex < 35; trackIndex++)
+    for(unsigned char sectorIndex = 0; sectorIndex < 16; sectorIndex++)
     {
-        unsigned char *nybblizedTrack = nybblizedImage + trackIndex * nybblizedTrackSize;
-
-        memset(nybblizedTrack, 0xFF, trackGapSize);					// Write gap 1, 64 bytes (self-sync)
-
-        for(unsigned char sectorIndex = 0; sectorIndex < 16; sectorIndex++)
-        {
-            long sectorOffset = (skew[sectorIndex] + trackIndex * sectorsPerTrack) * sectorSize;
-            int seeked = fseek(floppyImageFile, sectorOffset, SEEK_SET);
-            if(seeked == -1) {
-                fprintf(stderr, "failed to seek to sector in floppy disk image\n");
-                return false;
-            }
-
-            unsigned char sectorBytes[256];
-            size_t wasRead = fread(sectorBytes, 1, sectorSize, floppyImageFile);
-            if(wasRead != sectorSize) {
-                fprintf(stderr, "failed to read sector from floppy disk image\n");
-                return false;
-            }
-
-            nybblizeSector(trackIndex, sectorIndex, sectorBytes, nybblizedTrack + sectorIndex * nybblizedSectorSize);
+        long sectorOffset = (skew[sectorIndex] + trackIndex * sectorsPerTrack) * sectorSize;
+        int seeked = fseek(floppyImageFile, sectorOffset, SEEK_SET);
+        if(seeked == -1) {
+            fprintf(stderr, "failed to seek to sector in floppy disk image\n");
+            return false;
         }
+
+        unsigned char sectorBytes[256];
+        size_t wasRead = fread(sectorBytes, 1, sectorSize, floppyImageFile);
+        if(wasRead != sectorSize) {
+            fprintf(stderr, "failed to read sector from floppy disk image\n");
+            printf("track %d, sectorIndex %d, skew %d, offset %ld, read %zd\n", trackIndex, sectorIndex, skew[sectorIndex], sectorOffset, wasRead);
+            return false;
+        }
+
+        nybblizeSector(trackIndex, sectorIndex, sectorBytes, nybblizedTrack + trackGapSize + sectorIndex * nybblizedSectorSize);
     }
     return true;
 }
@@ -411,7 +414,7 @@ struct DISKIIboard : board_base
     static constexpr int Q7L = 0xC0EE; // IO strobe for clear
     static constexpr int Q7H = 0xC0EF; // IO strobe for shift
 
-    map<unsigned int, string> io = {
+    const map<unsigned int, string> io = {
         {0xC0E0, "CA0OFF"},
         {0xC0E1, "CA0ON"},
         {0xC0E2, "CA1OFF"},
@@ -432,23 +435,28 @@ struct DISKIIboard : board_base
 
     backed_region rom_C600 = {"rom_C600", 0xC600, 0x0100, ROM, nullptr, [&]{return true;}};
 
-    unsigned char *floppy_nybblized[2]; // [232960];
-    const unsigned int bytes_per_nybblized_track = 6656;
-    bool floppy_present[2];
+    bool floppyPresent[2];
+    std::string floppyImageNames[2];
     FILE *floppyImageFiles[2] = {nullptr, nullptr};
+    const int *floppySectorSkew[2];
 
-    int drive_selected = 0;
-    bool drive_motor_enabled[2];
-    enum {READ, WRITE} head_mode = READ;
-    unsigned char data_latch = 0x00;
-    int head_stepper_phase[4] = {0, 0, 0, 0};
-    int head_stepper_most_recent_phase = 0;
-    int track_number = 0; // physical track number - DOS and ProDOS only use even tracks
-    unsigned int track_byte = 0;
+    // Floppy drive control
+    int driveSelected = 0;
+    bool driveMotorEnabled[2];
+    enum {READ, WRITE} headMode = READ;
+    unsigned char dataLatch = 0x00;
+    int headStepperPhase[4] = {0, 0, 0, 0};
+    int headStepperMostRecentPhase = 0;
+
+    // track data
+    uint8_t trackBytes[floppy::nybblizedTrackSize];
+    int trackNumber[2] = {0, 0}; // physical track number - DOS and ProDOS only use even tracks
+    unsigned int trackByte = 0;
 
     void set_floppy(int number, const char *name) // number 0 or 1; name = NULL to eject
     {
-        floppy_present[number] = false;
+        floppyPresent[number] = false;
+        floppyImageNames[number] = "";
 
         if(name) {
             if(floppyImageFiles[number]) {
@@ -463,21 +471,15 @@ struct DISKIIboard : board_base
 
             } else {
 
-                const unsigned char *skew;
                 if(strcmp(name + strlen(name) - 3, ".po") == 0) {
                     printf("ProDOS floppy\n");
-                    skew = floppy::poSectorSkew;
+                    floppySectorSkew[number] = floppy::sectorSkewProDOS;
                 } else {
-                    skew = floppy::doSectorSkew;
+                    floppySectorSkew[number] = floppy::sectorSkewDOS;
                 }
 
-                bool success = floppy::nybblizeImage(floppyImageFiles[number], floppy_nybblized[number], skew);
-                if(!success) {
-                    floppyImageFiles[number] = nullptr;
-                    fprintf(stderr, "unexpected failure reading sector from disk \"%s\"\n", name);
-                }
-
-                floppy_present[number] = true;
+                floppyPresent[number] = true;
+                floppyImageNames[number] = name;
             }
         }
     }
@@ -490,57 +492,80 @@ struct DISKIIboard : board_base
     {
         std::copy(diskII_rom, diskII_rom + 0x100, rom_C600.memory.begin());
         if(floppy0_name) {
-            floppy_nybblized[0] = new (std::nothrow) unsigned char[232960];
-            if(!floppy_nybblized[0]) {
-                throw "failed to allocate floppy_nybblized[0]";
-            }
             set_floppy(0, floppy0_name);
         }
         if(floppy1_name) {
-            floppy_nybblized[1] = new (std::nothrow) unsigned char[232960];
-            if(!floppy_nybblized[1]) {
-                throw "failed to allocate floppy_nybblized[1]";
-            }
             set_floppy(1, floppy1_name);
         }
     }
 
-    unsigned char read_next_nybblized_byte()
+    unsigned char readNextTrackByte()
     {
-        if(head_mode != READ || !drive_motor_enabled[drive_selected] || !floppy_present[drive_selected])
+        if(headMode != READ || !driveMotorEnabled[driveSelected] || !floppyPresent[driveSelected])
             return 0x00;
-        int i = track_byte;
-        track_byte = (track_byte + 1) % bytes_per_nybblized_track;
-        return floppy_nybblized[drive_selected][(track_number / 2) * bytes_per_nybblized_track + i];
+
+        uint8_t data = trackBytes[trackByte];
+
+        trackByte = (trackByte + 1) % floppy::nybblizedTrackSize;
+
+        return data;
     }
 
-    void control_track_motor(unsigned int addr)
+    bool readDriveTrack()
+    {
+        if(!floppyPresent[driveSelected]) {
+            return false;
+        }
+
+        bool success = floppy::nybblizeTrackFromFile(floppyImageFiles[driveSelected], trackNumber[driveSelected] / 2, trackBytes, floppySectorSkew[driveSelected]);
+        if(!success) {
+            fprintf(stderr, "unexpected failure reading track from disk \"%s\"\n", floppyImageNames[driveSelected].c_str());
+            return false;
+        }
+
+        return true;
+    }
+
+    void controlTrackMotor(unsigned int addr)
     {
         int phase = (addr & 0x7) >> 1;
         int state = addr & 0x1;
-        head_stepper_phase[phase] = state;
+
+        headStepperPhase[phase] = state;
+
         if(debug & DEBUG_FLOPPY) printf("stepper %04X, phase %d, state %d, so stepper motor state now: %d, %d, %d, %d\n",
             addr, phase, state,
-            head_stepper_phase[0], head_stepper_phase[1],
-            head_stepper_phase[2], head_stepper_phase[3]);
+            headStepperPhase[0], headStepperPhase[1],
+            headStepperPhase[2], headStepperPhase[3]);
+
         if(state == 1) { // turn stepper motor phase on
-            if(head_stepper_most_recent_phase == (((phase - 1) + 4) % 4)) { // stepping up
-                track_number = min(track_number + 1, 70);
-                // XXX load track
-                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", track_number);
-            } else if(head_stepper_most_recent_phase == ((phase + 1) % 4)) { // stepping down
-                track_number = max(0, track_number - 1);
-                // XXX load track
-                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", track_number);
-            } else if(head_stepper_most_recent_phase == phase) { // unexpected condition
+
+            if(headStepperMostRecentPhase == (((phase - 1) + 4) % 4)) { // stepping up
+
+                trackNumber[driveSelected] = min(trackNumber[driveSelected] + 1, 69);
+                readDriveTrack();
+                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", trackNumber[driveSelected]);
+
+            } else if(headStepperMostRecentPhase == ((phase + 1) % 4)) { // stepping down
+
+                trackNumber[driveSelected] = max(0, trackNumber[driveSelected] - 1);
+                readDriveTrack();
+                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", trackNumber[driveSelected]);
+
+            } else if(headStepperMostRecentPhase == phase) { // unexpected condition
+
                 if(debug & DEBUG_FLOPPY) printf("track head stepper no change\n");
+
             } else { // unexpected condition
+
                 if(debug & DEBUG_WARN) fprintf(stderr, "unexpected track stepper motor state: %d, %d, %d, %d\n",
-                    head_stepper_phase[0], head_stepper_phase[1],
-                    head_stepper_phase[2], head_stepper_phase[3]);
-                if(debug & DEBUG_WARN) fprintf(stderr, "most recent phase: %d\n", head_stepper_most_recent_phase);
+                    headStepperPhase[0], headStepperPhase[1],
+                    headStepperPhase[2], headStepperPhase[3]);
+                if(debug & DEBUG_WARN) fprintf(stderr, "most recent phase: %d\n", headStepperMostRecentPhase);
+
             }
-            head_stepper_most_recent_phase = phase;
+
+            headStepperMostRecentPhase = phase;
         }
     }
 
@@ -548,9 +573,10 @@ struct DISKIIboard : board_base
     {
         if(addr < 0xC0E0 || addr > 0xC0EF)
             return false;
-        if(debug & DEBUG_WARN) printf("DISK II unhandled write of %02X to %04X (%s)\n", data, addr, io[addr].c_str());
+        if(debug & DEBUG_WARN) printf("DISK II unhandled write of %02X to %04X (%s)\n", data, addr, io.at(addr).c_str());
         return false;
     }
+
     virtual bool read(int addr, unsigned char &data)
     {
         if(rom_C600.read(addr, data)) {
@@ -564,52 +590,54 @@ struct DISKIIboard : board_base
 
         if(addr >= CA0 && addr <= (CA3 + 1)) {
             if(debug & DEBUG_FLOPPY) printf("floppy control track motor\n");
-            control_track_motor(addr);
+            controlTrackMotor(addr);
             data = 0;
             return true;
         } else if(addr == Q6L) { // 0xC0EC
-            data = read_next_nybblized_byte();
+            data = readNextTrackByte();
             if(debug & DEBUG_FLOPPY) printf("floppy read byte : %02X\n", data);
             return true;
         } else if(addr == Q6H) { // 0xC0ED
             if(debug & DEBUG_FLOPPY) printf("floppy read latch\n");
-            data = data_latch; // XXX do something with the latch - e.g. set write-protect bit
+            data = dataLatch; // XXX do something with the latch - e.g. set write-protect bit
             data = 0;
             return true;
         } else if(addr == Q7L) { // 0xC0EE
             if(debug & DEBUG_FLOPPY) printf("floppy set read\n");
-            head_mode = READ;
+            headMode = READ;
             data = 0;
             return true;
         } else if(addr == Q7H) { // 0xC0EF
             if(debug & DEBUG_FLOPPY) printf("floppy set write\n");
-            head_mode = WRITE;
+            headMode = WRITE;
             data = 0;
             return true;
         } else if(addr == SELECT) {
             if(debug & DEBUG_FLOPPY) printf("floppy select first drive\n");
-            drive_selected = 0;
+            driveSelected = 0;
+            readDriveTrack();
             return true;
         } else if(addr == SELECT + 1) {
             if(debug & DEBUG_FLOPPY) printf("floppy select second drive\n");
-            drive_selected = 1;
+            driveSelected = 1;
+            readDriveTrack();
             return true;
         } else if(addr == ENABLE) {
             if(debug & DEBUG_FLOPPY) printf("floppy switch off\n");
-            drive_motor_enabled[drive_selected] = false;
-            floppy_activity(drive_selected, false);
+            driveMotorEnabled[driveSelected] = false;
+            floppy_activity(driveSelected, false);
             // go disable reading
             // disable other drive?
             return true;
         } else if(addr == ENABLE + 1) {
             if(debug & DEBUG_FLOPPY) printf("floppy switch on\n");
-            drive_motor_enabled[drive_selected] = true;
-            floppy_activity(drive_selected, true);
+            driveMotorEnabled[driveSelected] = true;
+            floppy_activity(driveSelected, true);
             // go enable reading
             // disable other drive?
             return true;
         }
-        if(debug & DEBUG_WARN) printf("DISK II unhandled read from %04X (%s)\n", addr, io[addr].c_str());
+        if(debug & DEBUG_WARN) printf("DISK II unhandled read from %04X (%s)\n", addr, io.at(addr).c_str());
         data = 0;
         return true;
     }
