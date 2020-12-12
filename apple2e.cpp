@@ -266,101 +266,107 @@ struct backed_region : region
 
 const region io_region = {"io", 0xC000, 0x100};
 
-unsigned char floppy_header[21] = {
+const unsigned char floppy_sectorHeader[21] = {
 	0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0xDE, 0xAA, 0xFF,	0xFF, 0xFF,
+	0x00, 0x00, 0x00, 0xDE, 0xAA, 0xFF, 0xFF, 0xFF,
 	0xFF, 0xFF, 0xD5, 0xAA, 0xAD };
-unsigned char floppy_doSector[16] = {
+const unsigned char floppy_doSector[16] = {
 	0x0, 0x7, 0xE, 0x6, 0xD, 0x5, 0xC, 0x4, 0xB, 0x3, 0xA, 0x2, 0x9, 0x1, 0x8, 0xF };
-unsigned char floppy_poSector[16] = {
+const unsigned char floppy_poSector[16] = {
 	0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF };
+const unsigned char floppy_sectorFooter[48] = {
+        0xDE, 0xAA, 0xEB, 0xFF, 0xEB, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+const unsigned char floppy_6BitsToBytes[0x40] = {
+        0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
+        0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
+        0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC,
+        0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
+        0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
+        0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
+        0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
+        0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF };
 
-void floppy_NybblizeImage(const unsigned char *image, unsigned char *nybblized, unsigned char *skew)
+constexpr size_t floppy_trackGapSize = 64;
+constexpr size_t nybblizedSectorSize = 21 + 343 + 48;
+constexpr size_t nybblizedTrackSize = floppy_trackGapSize + 16 * nybblizedSectorSize;
+
+void nybblizeSector(int trackIndex, int sectorIndex, const uint8_t *sectorBytes, uint8_t *sectorNybblized)
 {
-	// Format of a sector is header (23) + nybbles (343) + footer (30) = 396
-	// (short by 20 bytes of 416 [413 if 48 byte header is one time only])
-	// hdr (21) + nybbles (343) + footer (48) = 412 bytes per sector
-	// (not incl. 64 byte track marker)
+    memset(sectorNybblized, 0xFF, nybblizedSectorSize);					// Doesn't matter if 00s or FFs...
 
-	static unsigned char footer[48] = {
-		0xDE, 0xAA, 0xEB, 0xFF, 0xEB, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    uint8_t *p = sectorNybblized;
 
-	static unsigned char diskbyte[0x40] = {
-		0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
-		0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
-		0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC,
-		0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
-		0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
-		0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
-		0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
-		0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF };
+    memcpy(p, floppy_sectorHeader, sizeof(floppy_sectorHeader));			// Set up the sectorIndex header
 
-	memset(nybblized, 0xFF, 232960);					// Doesn't matter if 00s or FFs...
+    p[5] = ((trackIndex >> 1) & 0x55) | 0xAA;
+    p[6] =  (trackIndex       & 0x55) | 0xAA;
+    p[7] = ((sectorIndex >> 1) & 0x55) | 0xAA;
+    p[8] =  (sectorIndex       & 0x55) | 0xAA;
+    p[9] = (((trackIndex ^ sectorIndex ^ 0xFE) >> 1) & 0x55) | 0xAA;
+    p[10] = ((trackIndex ^ sectorIndex ^ 0xFE)       & 0x55) | 0xAA;
 
-        unsigned char *p = nybblized;
+    p += 21;
 
-	for(unsigned char trk=0; trk<35; trk++)
-	{
-		memset(p, 0xFF, 64);					// Write gap 1, 64 bytes (self-sync)
-		p += 64;
+    // Convert the 256 8-bit bytes into 342 6-bit bytes.
 
-		for(unsigned char sector=0; sector<16; sector++)
-		{
-			memcpy(p, floppy_header, 21);			// Set up the sector header
+    for(int i=0; i<0x56; i++)
+    {
+        p[i] = ((sectorBytes[(i + 0xAC) & 0xFF] & 0x01) << 7)
+            | ((sectorBytes[(i + 0xAC) & 0xFF] & 0x02) << 5)
+            | ((sectorBytes[(i + 0x56) & 0xFF] & 0x01) << 5)
+            | ((sectorBytes[(i + 0x56) & 0xFF] & 0x02) << 3)
+            | ((sectorBytes[(i + 0x00) & 0xFF] & 0x01) << 3)
+            | ((sectorBytes[(i + 0x00) & 0xFF] & 0x02) << 1);
+    }
 
-			p[5] = ((trk >> 1) & 0x55) | 0xAA;
-			p[6] =  (trk       & 0x55) | 0xAA;
-			p[7] = ((sector >> 1) & 0x55) | 0xAA;
-			p[8] =  (sector       & 0x55) | 0xAA;
-			p[9] = (((trk ^ sector ^ 0xFE) >> 1) & 0x55) | 0xAA;
-			p[10] = ((trk ^ sector ^ 0xFE)       & 0x55) | 0xAA;
+    p[0x54] &= 0x3F;
+    p[0x55] &= 0x3F;
+    memcpy(p + 0x56, sectorBytes, 256);
 
-			p += 21;
-			const unsigned char * bytes = image;
+    // XOR the data block with itself, offset by one byte,
+    // creating a 343rd byte which is used as a cheksum.
 
-                        bytes += (skew[sector] * 256) + (trk * 256 * 16);
+    p[342] = 0x00;
 
-			// Convert the 256 8-bit bytes into 342 6-bit bytes.
+    for(int i=342; i>0; i--)
+        p[i] = p[i] ^ p[i - 1];
 
-			for(int i=0; i<0x56; i++)
-			{
-				p[i] = ((bytes[(i + 0xAC) & 0xFF] & 0x01) << 7)
-					| ((bytes[(i + 0xAC) & 0xFF] & 0x02) << 5)
-					| ((bytes[(i + 0x56) & 0xFF] & 0x01) << 5)
-					| ((bytes[(i + 0x56) & 0xFF] & 0x02) << 3)
-					| ((bytes[(i + 0x00) & 0xFF] & 0x01) << 3)
-					| ((bytes[(i + 0x00) & 0xFF] & 0x02) << 1);
-			}
+    // Using a lookup table, convert the 6-bit bytes into disk bytes.
 
-			p[0x54] &= 0x3F;
-			p[0x55] &= 0x3F;
-			memcpy(p + 0x56, bytes, 256);
+    for(int i=0; i<343; i++)
+        p[i] = floppy_6BitsToBytes[p[i] >> 2];
+    p += 343;
 
-			// XOR the data block with itself, offset by one byte,
-			// creating a 343rd byte which is used as a cheksum.
+    // Done with the nybblization, now for the epilogue...
 
-			p[342] = 0x00;
+    memcpy(p, floppy_sectorFooter, sizeof(floppy_sectorFooter));
+    // p += 48;
+}
 
-			for(int i=342; i>0; i--)
-				p[i] = p[i] ^ p[i - 1];
+void floppy_NybblizeImage(const unsigned char *floppyByteImage, unsigned char *nybblizedImage, const unsigned char *skew)
+{
+    // Format of a sector is header (23) + nybbles (343) + footer (30) = 396
+    // (short by 20 bytes of 416 [413 if 48 byte header is one time only])
+    // hdr (21) + nybbles (343) + footer (48) = 412 bytes per sector
+    // (not incl. 64 byte track marker)
 
-			// Using a lookup table, convert the 6-bit bytes into disk bytes.
+    for(unsigned char trackIndex = 0; trackIndex < 35; trackIndex++)
+    {
+        unsigned char *nybblizedTrack = nybblizedImage + trackIndex * nybblizedTrackSize;
 
-			for(int i=0; i<343; i++)
-                            p[i] = diskbyte[p[i] >> 2];
-			p += 343;
+        memset(nybblizedTrack, 0xFF, floppy_trackGapSize);					// Write gap 1, 64 bytes (self-sync)
 
-			// Done with the nybblization, now for the epilogue...
-
-			memcpy(p, footer, 48);
-			p += 48;
-		}
-	}
+        for(unsigned char sectorIndex = 0; sectorIndex < 16; sectorIndex++)
+        {
+            const unsigned char * sectorBytes = floppyByteImage + (skew[sectorIndex] * 256) + (trackIndex * 256 * 16);
+            nybblizeSector(trackIndex, sectorIndex, sectorBytes, nybblizedTrack + sectorIndex * nybblizedSectorSize);
+        }
+    }
 }
 
 // XXX readonly at this time
@@ -420,13 +426,13 @@ struct DISKIIboard : board_base
                 throw "Couldn't read floppy";
             
             floppy_present[number] = true;
-            unsigned char *skew;
+            const unsigned char *skew;
             if(strcmp(name + strlen(name) - 3, ".po") == 0) {
                 printf("ProDOS floppy\n");
                 skew = floppy_poSector;
-            }
-            else
+            } else {
                 skew = floppy_doSector;
+            }
             floppy_NybblizeImage(floppy_image[number], floppy_nybblized[number], skew);
         }
     }
@@ -439,26 +445,26 @@ struct DISKIIboard : board_base
     {
         std::copy(diskII_rom, diskII_rom + 0x100, rom_C600.memory.begin());
         if(floppy0_name) {
-            floppy_image[0] = new unsigned char[143360];
+            floppy_image[0] = new (std::nothrow) unsigned char[143360];
             if(!floppy_image[0]) {
                 throw "failed to allocate floppy_image[0]";
             }
-            floppy_nybblized[0] = new unsigned char[232960];
+            floppy_nybblized[0] = new (std::nothrow) unsigned char[232960];
             if(!floppy_nybblized[0]) {
                 throw "failed to allocate floppy_nybblized[0]";
             }
-        set_floppy(0, floppy0_name);
+            set_floppy(0, floppy0_name);
         }
         if(floppy1_name) {
-            floppy_image[1] = new unsigned char[143360];
+            floppy_image[1] = new (std::nothrow) unsigned char[143360];
             if(!floppy_image[1]) {
                 throw "failed to allocate floppy_image[1]";
             }
-            floppy_nybblized[1] = new unsigned char[232960];
+            floppy_nybblized[1] = new (std::nothrow) unsigned char[232960];
             if(!floppy_nybblized[1]) {
                 throw "failed to allocate floppy_nybblized[1]";
             }
-        set_floppy(1, floppy1_name);
+            set_floppy(1, floppy1_name);
         }
     }
 
