@@ -6,8 +6,6 @@ Yet another Apple //e emulator.
 
 I wrote this not because the world needed another //e emulator, but because I wanted to have the fun of building a thing from scratch to run my old Apple //e software.
 
-NOTE: I'm pretty sure I copied the disk image nybblization code.  However, now I can't find a reference to the original, nor did I keep the copyright.  If you have any references to or information about the nybblization routine, please let me know and I'll update the attribution.
-
 I wrote a little about my motivation and the process of writing this emulator [on my personal web page](http://plunk.org/~grantham/apple2e.html).
 
 There are several AppleSoft files in this project (`*.A`) that can be copied into the clipboard and then pasted into the emulator window with CMD-V.
@@ -15,6 +13,8 @@ There are several AppleSoft files in this project (`*.A`) that can be copied int
 Thanks to [Lawrence Kesteloot](http://github.com/lkesteloot) for the original keyboard code, and [Bart Grantham](http://github.com/bartgrantham) for extracting all our old floppy disk images!
 
 Thanks to Mike Chambers (miker00lz@gmail.com) for his 6502 CPU emulator, which I used as a reference when mine hung on "PRINT 5".
+
+Thanks to JLH, from whom I have copied the floppy nybblization code.  His Apple 2 emulator, released under the GPL, is at [http://shamusworld.gotdns.org/apple2/](http://shamusworld.gotdns.org/apple2/).
 
 Requirements for building:
 
