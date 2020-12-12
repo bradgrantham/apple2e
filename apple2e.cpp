@@ -266,22 +266,34 @@ struct backed_region : region
 
 const region io_region = {"io", 0xC000, 0x100};
 
-const unsigned char floppy_sectorHeader[21] = {
+namespace floppy
+{
+
+/*
+5 1/2" floppy disk images are 35 tracks of 16 sectors of 256 bytes = 143360 bytes
+*/
+constexpr int sectorSize = 256;
+constexpr int sectorsPerTrack = 16;
+constexpr int tracksPerFloppy = 35;
+
+const unsigned char sectorHeader[21] = {
 	0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0xDE, 0xAA, 0xFF, 0xFF, 0xFF,
 	0xFF, 0xFF, 0xD5, 0xAA, 0xAD };
-const unsigned char floppy_doSector[16] = {
+
+const unsigned char doSectorSkew[16] = {
 	0x0, 0x7, 0xE, 0x6, 0xD, 0x5, 0xC, 0x4, 0xB, 0x3, 0xA, 0x2, 0x9, 0x1, 0x8, 0xF };
-const unsigned char floppy_poSector[16] = {
+const unsigned char poSectorSkew[16] = {
 	0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF };
-const unsigned char floppy_sectorFooter[48] = {
+
+const unsigned char sectorFooter[48] = {
         0xDE, 0xAA, 0xEB, 0xFF, 0xEB, 0xFF, 0xFF, 0xFF,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-const unsigned char floppy_6BitsToBytes[0x40] = {
+const unsigned char SixBitsToBytes[0x40] = {
         0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
         0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
         0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC,
@@ -291,9 +303,9 @@ const unsigned char floppy_6BitsToBytes[0x40] = {
         0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
         0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF };
 
-constexpr size_t floppy_trackGapSize = 64;
+constexpr size_t trackGapSize = 64;
 constexpr size_t nybblizedSectorSize = 21 + 343 + 48;
-constexpr size_t nybblizedTrackSize = floppy_trackGapSize + 16 * nybblizedSectorSize;
+constexpr size_t nybblizedTrackSize = trackGapSize + sectorsPerTrack * nybblizedSectorSize;
 
 void nybblizeSector(int trackIndex, int sectorIndex, const uint8_t *sectorBytes, uint8_t *sectorNybblized)
 {
@@ -301,7 +313,7 @@ void nybblizeSector(int trackIndex, int sectorIndex, const uint8_t *sectorBytes,
 
     uint8_t *p = sectorNybblized;
 
-    memcpy(p, floppy_sectorHeader, sizeof(floppy_sectorHeader));			// Set up the sectorIndex header
+    memcpy(p, sectorHeader, sizeof(sectorHeader));			// Set up the sectorIndex header
 
     p[5] = ((trackIndex >> 1) & 0x55) | 0xAA;
     p[6] =  (trackIndex       & 0x55) | 0xAA;
@@ -339,16 +351,16 @@ void nybblizeSector(int trackIndex, int sectorIndex, const uint8_t *sectorBytes,
     // Using a lookup table, convert the 6-bit bytes into disk bytes.
 
     for(int i=0; i<343; i++)
-        p[i] = floppy_6BitsToBytes[p[i] >> 2];
+        p[i] = SixBitsToBytes[p[i] >> 2];
     p += 343;
 
     // Done with the nybblization, now for the epilogue...
 
-    memcpy(p, floppy_sectorFooter, sizeof(floppy_sectorFooter));
+    memcpy(p, sectorFooter, sizeof(sectorFooter));
     // p += 48;
 }
 
-void floppy_NybblizeImage(const unsigned char *floppyByteImage, unsigned char *nybblizedImage, const unsigned char *skew)
+bool nybblizeImage(FILE *floppyImageFile, unsigned char *nybblizedImage, const unsigned char *skew)
 {
     // Format of a sector is header (23) + nybbles (343) + footer (30) = 396
     // (short by 20 bytes of 416 [413 if 48 byte header is one time only])
@@ -359,15 +371,31 @@ void floppy_NybblizeImage(const unsigned char *floppyByteImage, unsigned char *n
     {
         unsigned char *nybblizedTrack = nybblizedImage + trackIndex * nybblizedTrackSize;
 
-        memset(nybblizedTrack, 0xFF, floppy_trackGapSize);					// Write gap 1, 64 bytes (self-sync)
+        memset(nybblizedTrack, 0xFF, trackGapSize);					// Write gap 1, 64 bytes (self-sync)
 
         for(unsigned char sectorIndex = 0; sectorIndex < 16; sectorIndex++)
         {
-            const unsigned char * sectorBytes = floppyByteImage + (skew[sectorIndex] * 256) + (trackIndex * 256 * 16);
+            long sectorOffset = (skew[sectorIndex] + trackIndex * sectorsPerTrack) * sectorSize;
+            int seeked = fseek(floppyImageFile, sectorOffset, SEEK_SET);
+            if(seeked == -1) {
+                fprintf(stderr, "failed to seek to sector in floppy disk image\n");
+                return false;
+            }
+
+            unsigned char sectorBytes[256];
+            size_t wasRead = fread(sectorBytes, 1, sectorSize, floppyImageFile);
+            if(wasRead != sectorSize) {
+                fprintf(stderr, "failed to read sector from floppy disk image\n");
+                return false;
+            }
+
             nybblizeSector(trackIndex, sectorIndex, sectorBytes, nybblizedTrack + sectorIndex * nybblizedSectorSize);
         }
     }
+    return true;
 }
+
+};
 
 // XXX readonly at this time
 struct DISKIIboard : board_base
@@ -404,10 +432,10 @@ struct DISKIIboard : board_base
 
     backed_region rom_C600 = {"rom_C600", 0xC600, 0x0100, ROM, nullptr, [&]{return true;}};
 
-    unsigned char *floppy_image[2]; // [143360];
     unsigned char *floppy_nybblized[2]; // [232960];
     const unsigned int bytes_per_nybblized_track = 6656;
     bool floppy_present[2];
+    FILE *floppyImageFiles[2] = {nullptr, nullptr};
 
     int drive_selected = 0;
     bool drive_motor_enabled[2];
@@ -421,19 +449,36 @@ struct DISKIIboard : board_base
     void set_floppy(int number, const char *name) // number 0 or 1; name = NULL to eject
     {
         floppy_present[number] = false;
+
         if(name) {
-            if(!read_blob(name, floppy_image[number], 143360 /*sizeof(floppy_image[0])*/))
-                throw "Couldn't read floppy";
-            
-            floppy_present[number] = true;
-            const unsigned char *skew;
-            if(strcmp(name + strlen(name) - 3, ".po") == 0) {
-                printf("ProDOS floppy\n");
-                skew = floppy_poSector;
-            } else {
-                skew = floppy_doSector;
+            if(floppyImageFiles[number]) {
+                fclose(floppyImageFiles[number]);
             }
-            floppy_NybblizeImage(floppy_image[number], floppy_nybblized[number], skew);
+
+            floppyImageFiles[number] = fopen(name, "rb");
+
+            if(!floppyImageFiles[number]) {
+
+                fprintf(stderr, "Couldn't open floppy disk image \"%s\"\n", name);
+
+            } else {
+
+                const unsigned char *skew;
+                if(strcmp(name + strlen(name) - 3, ".po") == 0) {
+                    printf("ProDOS floppy\n");
+                    skew = floppy::poSectorSkew;
+                } else {
+                    skew = floppy::doSectorSkew;
+                }
+
+                bool success = floppy::nybblizeImage(floppyImageFiles[number], floppy_nybblized[number], skew);
+                if(!success) {
+                    floppyImageFiles[number] = nullptr;
+                    fprintf(stderr, "unexpected failure reading sector from disk \"%s\"\n", name);
+                }
+
+                floppy_present[number] = true;
+            }
         }
     }
 
@@ -445,10 +490,6 @@ struct DISKIIboard : board_base
     {
         std::copy(diskII_rom, diskII_rom + 0x100, rom_C600.memory.begin());
         if(floppy0_name) {
-            floppy_image[0] = new (std::nothrow) unsigned char[143360];
-            if(!floppy_image[0]) {
-                throw "failed to allocate floppy_image[0]";
-            }
             floppy_nybblized[0] = new (std::nothrow) unsigned char[232960];
             if(!floppy_nybblized[0]) {
                 throw "failed to allocate floppy_nybblized[0]";
@@ -456,10 +497,6 @@ struct DISKIIboard : board_base
             set_floppy(0, floppy0_name);
         }
         if(floppy1_name) {
-            floppy_image[1] = new (std::nothrow) unsigned char[143360];
-            if(!floppy_image[1]) {
-                throw "failed to allocate floppy_image[1]";
-            }
             floppy_nybblized[1] = new (std::nothrow) unsigned char[232960];
             if(!floppy_nybblized[1]) {
                 throw "failed to allocate floppy_nybblized[1]";
@@ -489,9 +526,11 @@ struct DISKIIboard : board_base
         if(state == 1) { // turn stepper motor phase on
             if(head_stepper_most_recent_phase == (((phase - 1) + 4) % 4)) { // stepping up
                 track_number = min(track_number + 1, 70);
+                // XXX load track
                 if(debug & DEBUG_FLOPPY) printf("track number now %d\n", track_number);
             } else if(head_stepper_most_recent_phase == ((phase + 1) % 4)) { // stepping down
                 track_number = max(0, track_number - 1);
+                // XXX load track
                 if(debug & DEBUG_FLOPPY) printf("track number now %d\n", track_number);
             } else if(head_stepper_most_recent_phase == phase) { // unexpected condition
                 if(debug & DEBUG_FLOPPY) printf("track head stepper no change\n");
