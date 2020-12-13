@@ -451,6 +451,7 @@ struct DISKIIboard : board_base
 
     // track data
     uint8_t trackBytes[floppy::nybblizedTrackSize];
+    bool trackBytesOutOfDate = true;
     int nybblizedTrackIndex = -1;
     int nybblizedDriveIndex = -1;
     unsigned int trackByteIndex = 0;
@@ -510,6 +511,11 @@ struct DISKIIboard : board_base
         if(headMode != READ || !driveMotorEnabled[driveSelected] || !floppyPresent[driveSelected])
             return 0x00;
 
+        if(trackBytesOutOfDate) {
+            readDriveTrack();
+            trackBytesOutOfDate = false;
+        }
+
         uint8_t data = trackBytes[trackByteIndex];
 
         trackByteIndex = (trackByteIndex + 1) % floppy::nybblizedTrackSize;
@@ -556,13 +562,13 @@ struct DISKIIboard : board_base
             if(headStepperMostRecentPhase[driveSelected] == (((phase - 1) + 4) % 4)) { // stepping up
 
                 currentTrackNumber[driveSelected] = min(currentTrackNumber[driveSelected] + 1, 69);
-                readDriveTrack();
+                trackBytesOutOfDate = true;
                 if(debug & DEBUG_FLOPPY) printf("track number now %d\n", currentTrackNumber[driveSelected]);
 
             } else if(headStepperMostRecentPhase[driveSelected] == ((phase + 1) % 4)) { // stepping down
 
                 currentTrackNumber[driveSelected] = max(0, currentTrackNumber[driveSelected] - 1);
-                readDriveTrack();
+                trackBytesOutOfDate = true;
                 if(debug & DEBUG_FLOPPY) printf("track number now %d\n", currentTrackNumber[driveSelected]);
 
             } else if(headStepperMostRecentPhase[driveSelected] == phase) { // unexpected condition
@@ -628,12 +634,12 @@ struct DISKIIboard : board_base
         } else if(addr == SELECT) {
             if(debug & DEBUG_FLOPPY) printf("floppy select first drive\n");
             driveSelected = 0;
-            readDriveTrack();
+            trackBytesOutOfDate = true;
             return true;
         } else if(addr == SELECT + 1) {
             if(debug & DEBUG_FLOPPY) printf("floppy select second drive\n");
             driveSelected = 1;
-            readDriveTrack();
+            trackBytesOutOfDate = true;
             return true;
         } else if(addr == ENABLE) {
             if(debug & DEBUG_FLOPPY) printf("floppy switch off\n");
@@ -1890,7 +1896,10 @@ int main(int argc, char **argv)
 
         try {
             DISKIIboard::floppy_activity_func activity = [](int num, bool activity){APPLE2Einterface::show_floppy_activity(num, activity);};
-            diskIIboard = new DISKIIboard(diskII_rom, floppy1_name, floppy2_name, activity);
+            diskIIboard = new (std::nothrow) DISKIIboard(diskII_rom, floppy1_name, floppy2_name, activity);
+            if(!diskIIboard) {
+                printf("failed to new DISKIIboard\n");
+            }
             mainboard->boards.push_back(diskIIboard);
             mockingboard = new Mockingboard();
             mainboard->boards.push_back(mockingboard);
@@ -1923,7 +1932,7 @@ int main(int argc, char **argv)
                 break;
             }
 
-            int clocks_per_slice;
+            uint32_t clocks_per_slice;
             if(pause_cpu)
                 clocks_per_slice = 0;
             else {
