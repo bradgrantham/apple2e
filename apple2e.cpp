@@ -660,7 +660,15 @@ struct DISKIIboard : board_base
         data = 0;
         return true;
     }
-    virtual void reset(void) {}
+    virtual void reset(void)
+    {
+        driveMotorEnabled[0] = false; // Is this safe?
+        driveMotorEnabled[1] = false; // Is this safe?
+        driveSelected = 0;
+        trackBytesOutOfDate = true;
+        floppy_activity(0, false);
+        floppy_activity(1, false);
+    }
 };
 
 struct Mockingboard : board_base
@@ -1074,6 +1082,9 @@ struct MAINboard : board_base
         C08X_write_RAM = true;
         internal_C800_ROM_selected = true;
         repage_regions("reset");
+        for(auto b : boards) {
+            b->reset();
+        }
     }
 
     bool read(int addr, unsigned char &data)
