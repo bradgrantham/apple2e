@@ -203,11 +203,11 @@ void poll_keyboard()
     }
 }
 
-void iterate()
+void iterate(const ModeHistory& history, unsigned long long current_byte_in_frame, float megahertz)
 {
     apply_writes();
 
-    if(textport_needs_output[display_page])
+    if(false && textport_needs_output[display_page])
     {
         printf("\033[0;0H");
         printf(".----------------------------------------.\n");
