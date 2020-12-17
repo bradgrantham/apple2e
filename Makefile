@@ -13,5 +13,7 @@ all: apple2e
 apple2e: $(OBJECTS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
+apple2e.o: cpu6502.h
+
 clean:
 	rm $(OBJECTS)

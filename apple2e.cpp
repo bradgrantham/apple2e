@@ -14,10 +14,52 @@
 #include <thread>
 #include <functional>
 #include <signal.h>
+#include <unistd.h>
 
 #ifndef M_PI
 #define M_PI 3.14159
 #endif
+
+typedef uint64_t clk_t;
+struct system_clock
+{
+    clk_t clock_cpu = 0; // Actual CPU and memory clocks, variable rate
+    clk_t clock_14mhz = 0; // Fixed 14.31818MHz clock
+    clk_t phase_hpe = 0; // Phase of CPU clock within horizontal lines
+    operator clk_t() const { return clock_14mhz; }
+    void add_cpu_cycles(clk_t elapsed_cpu)
+    {
+        clock_cpu += elapsed_cpu;
+        clock_14mhz += elapsed_cpu * 14 + (elapsed_cpu + phase_hpe) / 65 * 2;
+        phase_hpe = (phase_hpe + elapsed_cpu) % 65;
+        if(0) printf("added %llu, new cpu clock %llu, 14mhz clock %llu, phase %llu\n", elapsed_cpu, clock_cpu, clock_14mhz, phase_hpe);
+    }
+} clk;
+
+
+#define printf PrintToLine3
+
+clk_t clockRangeStart = 2427489692 - 100000;
+clk_t clockRangeEnd = 2427489692 + 1000;
+
+void PrintToLine3(const char *fmt, ...)
+{
+    if(clk < clockRangeStart) {
+        return;
+    }
+    if(clk > clockRangeEnd) {
+        abort();
+    }
+    static char buffer[36];
+    va_list args;
+
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+
+    write(0, buffer, strlen(buffer));
+}
+
 
 // Brad's 6502
 #include "cpu6502.h"
@@ -37,15 +79,16 @@ using namespace std;
 
 #define LK_HACK 0
 
-constexpr unsigned int DEBUG_ERROR = 0x01;
-constexpr unsigned int DEBUG_WARN = 0x02;
-constexpr unsigned int DEBUG_DECODE = 0x04;
-constexpr unsigned int DEBUG_STATE = 0x08;
-constexpr unsigned int DEBUG_RW = 0x10;
-constexpr unsigned int DEBUG_BUS = 0x20;
-constexpr unsigned int DEBUG_FLOPPY = 0x40;
-constexpr unsigned int DEBUG_SWITCH = 0x80;
-volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
+constexpr uint32_t DEBUG_ERROR = 0x01;
+constexpr uint32_t DEBUG_WARN = 0x02;
+constexpr uint32_t DEBUG_DECODE = 0x04;
+constexpr uint32_t DEBUG_STATE = 0x08;
+constexpr uint32_t DEBUG_RW = 0x10;
+constexpr uint32_t DEBUG_BUS = 0x20;
+constexpr uint32_t DEBUG_FLOPPY = 0x40;
+constexpr uint32_t DEBUG_SWITCH = 0x80;
+constexpr uint32_t DEBUG_CLOCK = 0x100;
+volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN; //  DEBUG_DECODE | DEBUG_RW | DEBUG_STATE | DEBUG_CLOCK; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
 
 bool delete_is_left_arrow = true;
 volatile bool exit_on_banking = false;
@@ -64,26 +107,10 @@ const float paddle_max_pulse_seconds = .00282;
 // Map from memory address to name of function (from the ld65 map file).
 static map<int,string> address_to_function_name;
 
-typedef unsigned long long clk_t;
-struct system_clock
-{
-    clk_t clock_cpu = 0; // Actual CPU and memory clocks, variable rate
-    clk_t clock_14mhz = 0; // Fixed 14.31818MHz clock
-    clk_t phase_hpe = 0; // Phase of CPU clock within horizontal lines
-    operator clk_t() const { return clock_14mhz; }
-    void add_cpu_cycles(clk_t elapsed_cpu)
-    {
-        clock_cpu += elapsed_cpu;
-        clock_14mhz += elapsed_cpu * 14 + (elapsed_cpu + phase_hpe) / 65 * 2;
-        phase_hpe = (phase_hpe + elapsed_cpu) % 65;
-        if(0) printf("added %llu, new cpu clock %llu, 14mhz clock %llu, phase %llu\n", elapsed_cpu, clock_cpu, clock_14mhz, phase_hpe);
-    }
-} clk;
-
 const int machine_clock_rate = 14318180;
 
 
-bool read_blob(const char *name, unsigned char *b, size_t sz)
+bool read_blob(const char *name, uint8_t *b, size_t sz)
 {
     FILE *fp = fopen(name, "rb");
     if(fp == NULL) {
@@ -211,7 +238,7 @@ enum MemoryType {RAM, ROM};
 
 struct backed_region : region
 {
-    vector<unsigned char> memory;
+    vector<uint8_t> memory;
     MemoryType type;
     enabled_func read_enabled;
     enabled_func write_enabled;
@@ -245,7 +272,7 @@ struct backed_region : region
         return (addr >= base) && (addr < base + size);
     }
 
-    bool read(int addr, unsigned char& data)
+    bool read(int addr, uint8_t& data)
     {
         if(contains(addr) && read_enabled()) {
             data = memory[addr - base];
@@ -254,7 +281,7 @@ struct backed_region : region
         return false;
     }
 
-    bool write(int addr, unsigned char data)
+    bool write(int addr, uint8_t data)
     {
         if((type == RAM) && contains(addr) && write_enabled()) {
             memory[addr - base] = data;
@@ -278,7 +305,7 @@ constexpr int sectorSize = 256;
 constexpr int sectorsPerTrack = 16;
 constexpr int tracksPerFloppy = 35;
 
-const unsigned char sectorHeader[21] =
+const uint8_t sectorHeader[21] =
 {
     0xD5, 0xAA, 0x96, 0xFF, 0xFE, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0xDE, 0xAA, 0xFF, 0xFF, 0xFF,
@@ -294,7 +321,7 @@ const int sectorSkewProDOS[16] =
     0x0, 0x8, 0x1, 0x9, 0x2, 0xA, 0x3, 0xB, 0x4, 0xC, 0x5, 0xD, 0x6, 0xE, 0x7, 0xF
 };
 
-const unsigned char sectorFooter[48] =
+const uint8_t sectorFooter[48] =
 {
     0xDE, 0xAA, 0xEB, 0xFF, 0xEB, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -303,7 +330,7 @@ const unsigned char sectorFooter[48] =
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 };
-const unsigned char SixBitsToBytes[0x40] =
+const uint8_t SixBitsToBytes[0x40] =
 {
     0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
     0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
@@ -372,20 +399,20 @@ void nybblizeSector(int trackIndex, int sectorIndex, const uint8_t *sectorBytes,
     // p += 48;
 }
 
-bool nybblizeTrackFromFile(FILE *floppyImageFile, int trackIndex, unsigned char *nybblizedTrack, const int *skew)
+bool nybblizeTrackFromFile(FILE *floppyImageFile, int trackIndex, uint8_t *nybblizedTrack, const int *skew)
 {
     memset(nybblizedTrack, 0xFF, trackGapSize);					// Write gap 1, 64 bytes (self-sync)
 
-    for(unsigned char sectorIndex = 0; sectorIndex < 16; sectorIndex++)
+    for(int sectorIndex = 0; sectorIndex < 16; sectorIndex++)
     {
-        long sectorOffset = (skew[sectorIndex] + trackIndex * sectorsPerTrack) * sectorSize;
+        uint32_t sectorOffset = (skew[sectorIndex] + trackIndex * sectorsPerTrack) * sectorSize;
         int seeked = fseek(floppyImageFile, sectorOffset, SEEK_SET);
         if(seeked == -1) {
             fprintf(stderr, "failed to seek to sector in floppy disk image\n");
             return false;
         }
 
-        unsigned char sectorBytes[256];
+        uint8_t sectorBytes[256];
         size_t wasRead = fread(sectorBytes, 1, sectorSize, floppyImageFile);
         if(wasRead != sectorSize) {
             fprintf(stderr, "failed to read sector from floppy disk image\n");
@@ -414,7 +441,7 @@ struct DISKIIboard : board_base
     static constexpr int Q7L = 0xC0EE; // IO strobe for clear
     static constexpr int Q7H = 0xC0EF; // IO strobe for shift
 
-    const map<unsigned int, string> io = {
+    const map<uint32_t, string> io = {
         {0xC0E0, "CA0OFF"},
         {0xC0E1, "CA0ON"},
         {0xC0E2, "CA1OFF"},
@@ -444,7 +471,7 @@ struct DISKIIboard : board_base
     int driveSelected = 0;
     bool driveMotorEnabled[2];
     enum {READ, WRITE} headMode = READ;
-    unsigned char dataLatch = 0x00;
+    uint8_t dataLatch = 0x00;
     int headStepperPhase[2][4] = { {0, 0, 0, 0}, {0, 0, 0, 0} };
     int headStepperMostRecentPhase[2] = {0, 0};
     int currentTrackNumber[2] = {0, 0}; // physical track number - DOS and ProDOS only use even tracks
@@ -454,7 +481,7 @@ struct DISKIIboard : board_base
     bool trackBytesOutOfDate = true;
     int nybblizedTrackIndex = -1;
     int nybblizedDriveIndex = -1;
-    unsigned int trackByteIndex = 0;
+    uint32_t trackByteIndex = 0;
 
     void set_floppy(int number, const char *name) // number 0 or 1; name = NULL to eject
     {
@@ -494,7 +521,7 @@ struct DISKIIboard : board_base
     typedef std::function<void (int number, bool activity)> floppy_activity_func;
     floppy_activity_func floppy_activity;
 
-    DISKIIboard(const unsigned char diskII_rom[256], const char *floppy0_name, const char *floppy1_name, floppy_activity_func floppy_activity_) :
+    DISKIIboard(const uint8_t diskII_rom[256], const char *floppy0_name, const char *floppy1_name, floppy_activity_func floppy_activity_) :
         floppy_activity(floppy_activity_)
     {
         std::copy(diskII_rom, diskII_rom + 0x100, rom_C600.memory.begin());
@@ -506,7 +533,7 @@ struct DISKIIboard : board_base
         }
     }
 
-    unsigned char readNextTrackByte()
+    uint8_t readNextTrackByte()
     {
         if(headMode != READ || !driveMotorEnabled[driveSelected] || !floppyPresent[driveSelected])
             return 0x00;
@@ -545,7 +572,7 @@ struct DISKIIboard : board_base
         return true;
     }
 
-    void controlTrackMotor(unsigned int addr)
+    void controlTrackMotor(uint32_t addr)
     {
         int phase = (addr & 0x7) >> 1;
         int state = addr & 0x1;
@@ -588,7 +615,7 @@ struct DISKIIboard : board_base
         }
     }
 
-    virtual bool write(int addr, unsigned char data)
+    virtual bool write(int addr, uint8_t data)
     {
         if(addr < 0xC0E0 || addr > 0xC0EF)
             return false;
@@ -596,7 +623,7 @@ struct DISKIIboard : board_base
         return false;
     }
 
-    virtual bool read(int addr, unsigned char &data)
+    virtual bool read(int addr, uint8_t &data)
     {
         if(rom_C600.read(addr, data)) {
             if(debug & DEBUG_RW) printf("DiskII read 0x%04X -> %02X\n", addr, data);
@@ -677,7 +704,7 @@ struct Mockingboard : board_base
     {
     }
 
-    virtual bool write(int addr, unsigned char data)
+    virtual bool write(int addr, uint8_t data)
     {
         if((addr >= 0xC400) && (addr <= 0xC4FF)) {
             if(debug & DEBUG_RW) printf("Mockingboard write 0x%02X to 0x%04X ignored\n", data, addr);
@@ -685,7 +712,7 @@ struct Mockingboard : board_base
         }
         return false;
     }
-    virtual bool read(int addr, unsigned char &data)
+    virtual bool read(int addr, uint8_t &data)
     {
         if((addr >= 0xC400) && (addr <= 0xC4FF)) {
             if(debug & DEBUG_RW) printf("Mockingboard read at 0x%04X ignored\n", addr);
@@ -699,7 +726,7 @@ struct Mockingboard : board_base
 
 const int waveform_length = 44100 / 1000 / 2; // half of a wave at 4000 Hz
 const float waveform_max_amplitude = .35f;
-static unsigned char waveform[waveform_length];
+static uint8_t waveform[waveform_length];
 
 static void initialize_audio_waveform() __attribute__((constructor));
 void initialize_audio_waveform()
@@ -948,19 +975,19 @@ struct MAINboard : board_base
         0xC00A, 0xC00B,
     };
 
-    deque<unsigned char> keyboard_buffer;
+    deque<uint8_t> keyboard_buffer;
 
     static const int sample_rate = 44100;
     static const size_t audio_buffer_size = sample_rate / 100;
-    char audio_buffer[audio_buffer_size];
-    long long audio_buffer_start_sample = 0;
-    long long audio_buffer_next_sample = 0;
-    unsigned char speaker_level;
+    uint8_t audio_buffer[audio_buffer_size];
+    uint64_t audio_buffer_start_sample = 0;
+    uint64_t audio_buffer_next_sample = 0;
+    uint8_t speaker_level;
     bool speaker_transitioning_to_high = false; 
     int where_in_waveform = 0;
 
 #if LK_HACK
-    unsigned char *disassemble_buffer = 0;
+    uint8_t *disassemble_buffer = 0;
     int disassemble_state = 0;
     int disassemble_index = 0;
     int disassemble_size = 0;
@@ -969,11 +996,11 @@ struct MAINboard : board_base
 
     void fill_flush_audio()
     {
-        long long current_sample = clk * sample_rate / machine_clock_rate;
+        uint64_t current_sample = clk * sample_rate / machine_clock_rate;
 
-        for(long long i = audio_buffer_next_sample; i < current_sample; i++) {
+        for(uint64_t i = audio_buffer_next_sample; i < current_sample; i++) {
             if(where_in_waveform < waveform_length) {
-                unsigned char level = waveform[where_in_waveform++];
+                uint8_t level = waveform[where_in_waveform++];
                 speaker_level = speaker_transitioning_to_high ? level : (255 - level);
             }
 
@@ -1000,7 +1027,7 @@ struct MAINboard : board_base
         fill_flush_audio();
     }
 
-    void enqueue_key(unsigned char k)
+    void enqueue_key(uint8_t k)
     {
         keyboard_buffer.push_back(k);
     }
@@ -1028,14 +1055,14 @@ struct MAINboard : board_base
         }
     }
 
-    typedef std::function<bool (int addr, bool aux, unsigned char data)> display_write_func;
+    typedef std::function<bool (int addr, bool aux, uint8_t data)> display_write_func;
     display_write_func display_write;
-    typedef std::function<void (char *audiobuffer, size_t dist)> audio_flush_func;
+    typedef std::function<void (uint8_t *audiobuffer, size_t dist)> audio_flush_func;
     audio_flush_func audio_flush;
     typedef std::function<tuple<float, bool> (int num)> get_paddle_func;
     get_paddle_func get_paddle;
     clk_t paddles_clock_out[4];
-    MAINboard(system_clock& clk_, const unsigned char rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_, get_paddle_func get_paddle_) :
+    MAINboard(system_clock& clk_, const uint8_t rom_image[32768],  display_write_func display_write_, audio_flush_func audio_flush_, get_paddle_func get_paddle_) :
         clk(clk_),
         internal_C800_ROM_selected(true),
         speaker_level(waveform[0]),
@@ -1087,7 +1114,7 @@ struct MAINboard : board_base
         }
     }
 
-    bool read(int addr, unsigned char &data)
+    bool read(int addr, uint8_t &data)
     {
         if(debug & DEBUG_RW) printf("MAIN board read\n");
         for(auto b : boards) {
@@ -1109,7 +1136,7 @@ struct MAINboard : board_base
             SoftSwitch* sw = switches_by_address[addr - 0xC000];
             if(sw != nullptr) {
 
-                unsigned char result = 0xFF;
+                uint8_t result = 0xFF;
 
                 // Special case for floating bus for reading video scanout 
                 // XXX doesn't handle 80-column nor AUX
@@ -1283,7 +1310,7 @@ struct MAINboard : board_base
         }
         return false;
     }
-    bool write(int addr, unsigned char data)
+    bool write(int addr, uint8_t data)
     {
 #if LK_HACK
         if(addr == 0xBFFE) {
@@ -1306,7 +1333,7 @@ struct MAINboard : board_base
                 case 1:
                     // MSB of size.
                     disassemble_size |= data << 8;
-                    disassemble_buffer = new unsigned char[disassemble_size];
+                    disassemble_buffer = new uint8_t[disassemble_size];
                     disassemble_index = 0;
                     printf("Size of buffer: %d bytes\n", disassemble_size);
 
@@ -1462,30 +1489,38 @@ struct MAINboard : board_base
 struct bus_frontend
 {
     MAINboard* board;
-    map<int, vector<unsigned char> > writes;
-    map<int, vector<unsigned char> > reads;
+    map<int, vector<uint8_t> > writes;
+    map<int, vector<uint8_t> > reads;
 
-    unsigned char read(int addr)
+    uint8_t read(uint16_t addr)
     {
-        unsigned char data = 0xaa;
+        uint8_t data = 0xaa;
         if(board->read(addr & 0xFFFF, data)) {
-            if(debug & DEBUG_BUS) printf("read %04X returned %02X\n", addr & 0xFFFF, data);
+            if(debug & DEBUG_BUS)
+            {
+                printf("read %04X returned %02X\n", addr & 0xFFFF, data);
+            }
             // reads[addr & 0xFFFF].push_back(data);
             return data;
         }
-        if(debug & DEBUG_ERROR)
+        if(debug & DEBUG_ERROR) {
             fprintf(stderr, "no ownership of read at %04X\n", addr & 0xFFFF);
+        }
         return 0xAA;
     }
-    void write(int addr, unsigned char data)
+    void write(uint16_t addr, uint8_t data)
     {
         if(board->write(addr & 0xFFFF, data)) {
-            if(debug & DEBUG_BUS) printf("write %04X %02X\n", addr & 0xFFFF, data);
+            if(debug & DEBUG_BUS)
+            {
+                printf("write %04X %02X\n", addr & 0xFFFF, data);
+            }
             // writes[addr & 0xFFFF].push_back(data);
             return;
         }
-        if(debug & DEBUG_ERROR)
+        if(debug & DEBUG_ERROR) {
             fprintf(stderr, "no ownership of write %02X at %04X\n", data, addr & 0xFFFF);
+        }
     }
 
     void reset()
@@ -1547,7 +1582,7 @@ string read_bus_and_disassemble(bus_frontend &bus, int pc)
 {
     int bytes;
     string dis;
-    unsigned char buf[4];
+    uint8_t buf[4];
     buf[0] = bus.read(pc + 0);
     buf[1] = bus.read(pc + 1);
     buf[2] = bus.read(pc + 2);
@@ -1560,10 +1595,10 @@ int millis_per_slice = 16;
 
 struct key_to_ascii
 {
-    unsigned char no_shift_no_control;
-    unsigned char yes_shift_no_control;
-    unsigned char no_shift_yes_control;
-    unsigned char yes_shift_yes_control;
+    uint8_t no_shift_no_control;
+    uint8_t yes_shift_no_control;
+    uint8_t no_shift_yes_control;
+    uint8_t yes_shift_yes_control;
 };
 
 map<int, key_to_ascii> interface_key_to_apple2e = 
@@ -1635,7 +1670,7 @@ enum APPLE2Einterface::EventType process_events(MAINboard *board, bus_frontend& 
             diskIIboard->set_floppy(e.value, e.str);
             free(e.str);
         } else if(e.type == APPLE2Einterface::PASTE) {
-            for(unsigned int i = 0; i < strlen(e.str); i++)
+            for(uint32_t i = 0; i < strlen(e.str); i++)
                 if(e.str[i] == '\n')
                     board->enqueue_key('\r');
                 else
@@ -1734,12 +1769,12 @@ extern uint16_t pc;
 template<class CLK, class BUS>
 void print_cpu_state(const CPU6502<CLK, BUS>& cpu)
 {
-    unsigned char s0 = bus.read(0x100 + cpu.s + 0);
-    unsigned char s1 = bus.read(0x100 + cpu.s + 1);
-    unsigned char s2 = bus.read(0x100 + cpu.s + 2);
-    unsigned char pc0 = bus.read(cpu.pc + 0);
-    unsigned char pc1 = bus.read(cpu.pc + 1);
-    unsigned char pc2 = bus.read(cpu.pc + 2);
+    uint8_t s0 = bus.read(0x100 + cpu.s + 0);
+    uint8_t s1 = bus.read(0x100 + cpu.s + 1);
+    uint8_t s2 = bus.read(0x100 + cpu.s + 2);
+    uint8_t pc0 = bus.read(cpu.pc + 0);
+    uint8_t pc1 = bus.read(cpu.pc + 1);
+    uint8_t pc2 = bus.read(cpu.pc + 2);
     printf("6502: A:%02X X:%02X Y:%02X P:", cpu.a, cpu.x, cpu.y);
     printf("%s", (cpu.p & cpu.N) ? "N" : "n");
     printf("%s", (cpu.p & cpu.V) ? "V" : "v");
@@ -1749,10 +1784,11 @@ void print_cpu_state(const CPU6502<CLK, BUS>& cpu)
     printf("%s", (cpu.p & cpu.I) ? "I" : "i");
     printf("%s", (cpu.p & cpu.Z) ? "Z" : "z");
     printf("%s ", (cpu.p & cpu.C) ? "C" : "c");
-    printf("S:%02X (%02X %02X %02X ...) PC:%04X (%02X %02X %02X ...)\n", cpu.s, s0, s1, s2, cpu.pc, pc0, pc1, pc2);
+    printf("S:%02X (%02X %02X %02X ...) ", cpu.s, s0, s1, s2);
+    printf("PC:%04X (%02X %02X %02X ...)\n", cpu.pc, pc0, pc1, pc2);
 }
 
-template <class TYPE, unsigned int LENGTH>
+template <class TYPE, uint32_t LENGTH>
 struct averaged_sequence
 {
     int where;
@@ -1762,7 +1798,7 @@ struct averaged_sequence
     averaged_sequence() :
         where(-1)
     {
-        for(unsigned int i = 0; i < LENGTH; i++)
+        for(uint32_t i = 0; i < LENGTH; i++)
             list[i] = 0;
         sum = 0;
     }
@@ -1770,7 +1806,7 @@ struct averaged_sequence
     void add(TYPE value)
     {
         if(where == -1) {
-            for(unsigned int i = 0; i < LENGTH; i++)
+            for(uint32_t i = 0; i < LENGTH; i++)
                 list[i] = value;
             sum = value * LENGTH;
             where = 0;
@@ -1860,13 +1896,13 @@ int main(int argc, char **argv)
     }
 
     const char *romname = argv[0];
-    unsigned char b[32768];
+    uint8_t b[32768];
 
     if(!read_blob(romname, b, sizeof(b))) {
         exit(EXIT_FAILURE);
     }
 
-    unsigned char diskII_rom[256];
+    uint8_t diskII_rom[256];
     if(diskII_rom_name != NULL) {
         if(!read_blob(diskII_rom_name, diskII_rom, sizeof(diskII_rom)))
             exit(EXIT_FAILURE);
@@ -1879,15 +1915,15 @@ int main(int argc, char **argv)
 
     MAINboard* mainboard;
 
-    MAINboard::display_write_func display = [](int addr, bool aux, unsigned char data)->bool{return APPLE2Einterface::write(addr, aux, data);};
+    MAINboard::display_write_func display = [](uint16_t addr, bool aux, uint8_t data)->bool{return APPLE2Einterface::write(addr, aux, data);};
 
     MAINboard::get_paddle_func paddle = [](int num)->tuple<float, bool>{return APPLE2Einterface::get_paddle(num);};
 
     MAINboard::audio_flush_func audio;
     if(mute)
-        audio = [](char *buf, size_t sz){ };
+        audio = [](uint8_t *buf, size_t sz){ };
     else
-        audio = [](char *buf, size_t sz){ if(!run_fast) APPLE2Einterface::enqueue_audio_samples(buf, sz); };
+        audio = [](uint8_t *buf, size_t sz){ if(!run_fast) APPLE2Einterface::enqueue_audio_samples(buf, sz); };
 
     mainboard = new MAINboard(clk, b, display, audio, paddle);
     bus.board = mainboard;
@@ -1977,6 +2013,9 @@ int main(int argc, char **argv)
                     if(debug & DEBUG_STATE)
                         print_cpu_state(cpu);
                 }
+                if(debug & DEBUG_CLOCK) {
+                    printf("clock = %lu, %lu\n", (uint32_t)(clk / (1LLU << 32)), (uint32_t)(clk % (1LLU << 32)));
+                }
             }
             mainboard->sync();
 
@@ -2029,7 +2068,7 @@ int main(int argc, char **argv)
                 exit_on_banking = true;
                 continue;
             } else if(strncmp(line, "debug", 5) == 0) {
-                sscanf(line + 6, "%d", &debug);
+                sscanf(line + 6, "%u", &debug);
                 printf("debug set to %02X\n", debug);
                 continue;
             } else if(strcmp(line, "reset") == 0) {

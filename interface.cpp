@@ -42,10 +42,10 @@ using namespace std;
 namespace APPLE2Einterface
 {
 
-const int apple2_screen_width = 280;
-const int apple2_screen_height = 192;
-const int recording_scale = 2;
-const int recording_frame_duration_hundredths = 5;
+constexpr uint32_t apple2_screen_width = 280;
+constexpr uint32_t apple2_screen_height = 192;
+constexpr int recording_scale = 2;
+constexpr uint32_t recording_frame_duration_hundredths = 5;
 
 chrono::time_point<chrono::system_clock> start_time;
 
@@ -58,8 +58,8 @@ int joystick_axis1 = -1;
 int joystick_button0 = -1;
 int joystick_button1 = -1;
 
-extern int font_offset;
-extern const unsigned char font_bytes[96 * 7 * 8];
+extern uint16_t font_offset;
+extern const uint8_t font_bytes[96 * 7 * 8];
 
 static int gWindowWidth, gWindowHeight;
 
@@ -96,14 +96,14 @@ event dequeue_event()
 }
 
 opengl_texture font_texture;
-const int fonttexture_w = 7;
-const int fonttexture_h = 8 * 96;
+constexpr uint32_t fonttexture_w = 7;
+constexpr uint32_t fonttexture_h = 8 * 96;
 
 opengl_texture textport_texture[2][2]; // [aux][page]
 
 GLuint text_program;
-const int textport_w = 40;
-const int textport_h = 24;
+constexpr uint32_t textport_w = 40;
+constexpr uint32_t textport_h = 24;
 GLuint textport_texture_location;
 GLuint textport_texture_coord_scale_location;
 GLuint textport_blink_location;
@@ -135,8 +135,8 @@ GLuint lores_x_offset_location;
 GLuint lores_y_offset_location;
 GLuint lores_to_screen_location;
 
-const int hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
-const int hires_h = 192;
+const uint32_t hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
+const uint32_t hires_h = 192;
 opengl_texture hires_texture[2];
 
 GLuint hires_program;
@@ -170,7 +170,7 @@ tuple<float,bool> get_paddle(int num)
     return make_tuple(paddle_values[num], paddle_buttons[num]);
 }
 
-const int raster_coords_attrib = 0;
+const uint32_t raster_coords_attrib = 0;
 
 static const char *hires_vertex_shader = R"(
     uniform mat3 to_screen;
@@ -485,7 +485,7 @@ void set_image_shader(float to_screen[9], const opengl_texture& texture, float x
 
 void initialize_screen_areas()
 {
-    for(int i = 0; i < apple2_screen_height; i++) {
+    for(uint32_t i = 0; i < apple2_screen_height; i++) {
         line_to_area[i].push_back({make_rectangle_array_buffer(0, i, apple2_screen_width, 1), raster_coords_attrib, 2, GL_FLOAT, GL_FALSE, 0});
     }
 }
@@ -632,7 +632,7 @@ struct apple2screen : public widget
         h = h_;
         long long elapsed_millis = now * 1000;
 
-        for(int i = 0; i < apple2_screen_height; i++) {
+        for(uint32_t i = 0; i < apple2_screen_height; i++) {
             const ModeSettings& settings = line_to_mode[i];
 
             set_shader(to_screen, settings.mode, (i < 160) ? false : settings.mixed, settings.page, settings.vid80, (elapsed_millis / 300) % 2, x, y);
@@ -723,9 +723,9 @@ struct image_widget : public widget
 {
     opengl_texture image;
     vertex_array rectangle;
-    int w, h;
+    int32_t w, h;
 
-    image_widget(int w_, int h_, unsigned char *buffer) :
+    image_widget(int32_t w_, int32_t h_, uint8_t *buffer) :
         w(w_),
         h(h_)
     {
@@ -760,7 +760,7 @@ struct text_widget : public widget
     {
         content = content_;
         // construct string texture
-        unique_ptr<unsigned char> bytes(new unsigned char[content.size() + 1]);
+        unique_ptr<uint8_t> bytes(new uint8_t[content.size() + 1]);
         int i = 0;
         for(auto c : content) {
             if(c >= ' ' && c <= '?')
@@ -1120,7 +1120,7 @@ void initialize_gl(void)
     CheckOpenGL(__FILE__, __LINE__);
 }
 
-unsigned char disk_in_on_bitmap[] = {
+uint8_t disk_in_on_bitmap[] = {
 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, // 40, 40
 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 255, // 40, 40
 255, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, // 40, 40
@@ -1146,7 +1146,7 @@ unsigned char disk_in_on_bitmap[] = {
 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, // 40, 40
 };
 
-unsigned char disk_out_bitmap[] = {
+uint8_t disk_out_bitmap[] = {
 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, // 40, 40
 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 255, // 40, 40
 255, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, // 40, 40
@@ -1172,7 +1172,7 @@ unsigned char disk_out_bitmap[] = {
 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, // 40, 40
 };
 
-unsigned char disk_in_off_bitmap[] = {
+uint8_t disk_in_off_bitmap[] = {
 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, // 40, 40
 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 255, // 40, 40
 255, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, // 40, 40
@@ -1397,9 +1397,9 @@ tuple<float, float> window_to_widget(float x, float y)
     return make_tuple(wx, wy);
 }
 
-void save_rgba_to_ppm(const unsigned char *rgba8_pixels, int width, int height, const char *filename)
+void save_rgba_to_ppm(const uint8_t *rgba8_pixels, uint32_t width, uint32_t height, const char *filename)
 {
-    int row_bytes = width * 4;
+    size_t row_bytes = width * 4;
 
     FILE *fp = fopen(filename, "w");
     fprintf(fp, "P6 %d %d 255\n", width, height);
@@ -1413,7 +1413,7 @@ void save_rgba_to_ppm(const unsigned char *rgba8_pixels, int width, int height, 
 
 void add_rendertarget_to_gif(double now, render_target *rt)
 {
-    static unsigned char image_recorded[apple2_screen_width * recording_scale * apple2_screen_height * recording_scale * 4];
+    static uint8_t image_recorded[apple2_screen_width * recording_scale * apple2_screen_height * recording_scale * 4];
     
     rt->start_rendering();
 
@@ -1590,7 +1590,7 @@ static void scroll(GLFWwindow *window, double dx, double dy)
 {
 }
 
-const int pixel_scale = 3;
+constexpr uint32_t pixel_scale = 3;
 
 void load_joystick_setup()
 {
@@ -1623,9 +1623,9 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
     ui->drop(elapsed.count(), wx, wy, count, paths);
 }
 
-void enqueue_audio_samples(char *buf, size_t sz)
+void enqueue_audio_samples(uint8_t *buf, size_t sz)
 {
-    ao_play(aodev, buf, sz);
+    ao_play(aodev, (char*)buf, sz);
 }
 
 ao_device *open_ao()
@@ -1714,15 +1714,15 @@ void apply_writes(void);
 // of frames worth of mode changes anyway.
 void map_mode_to_lines(const ModePoint& p, unsigned long long to_byte)
 {
-    unsigned int byte = get<0>(p);
+    uint64_t byte = get<0>(p);
     const ModeSettings& settings = get<1>(p);
-    int line = (byte + 17029) / 65;
+    uint64_t line = (byte + 17029) / 65;
 
-    int to_line = (to_byte + 17029) / 65;
+    uint64_t to_line = (to_byte + 17029) / 65;
 
-    for(int l = line; l < to_line; l++) {
-        int line_in_frame = l % 262;
-        if(0)printf("to_byte %llu, line %d : mode %s\n", to_byte, line_in_frame, (settings.mode == APPLE2Einterface::TEXT) ? "TEXT" : ((settings.mode == APPLE2Einterface::LORES) ? "LORES" : "HIRES"));
+    for(uint64_t l = line; l < to_line; l++) {
+        uint64_t line_in_frame = l % 262;
+        if(0)printf("to_byte %llu, line %llu: mode %s\n", to_byte, line_in_frame, (settings.mode == APPLE2Einterface::TEXT) ? "TEXT" : ((settings.mode == APPLE2Einterface::LORES) ? "LORES" : "HIRES"));
         if(line_in_frame < 192)
             line_to_mode[line_in_frame] = settings;
     }
@@ -1741,7 +1741,7 @@ void map_history_to_lines(const ModeHistory& history, unsigned long long current
         auto& current = history[i];
         auto& next = history[i + 1];
 
-        unsigned int byte2 = get<0>(next);
+        uint64_t byte2 = get<0>(next);
 
         map_mode_to_lines(current, byte2);
     }
@@ -1799,7 +1799,7 @@ void iterate(const ModeHistory& history, unsigned long long current_byte, float 
 
         int axis_count, button_count;
         const float* axes = glfwGetJoystickAxes(GLFW_JOYSTICK_1, &axis_count);
-        const unsigned char* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
+        const uint8_t* buttons = glfwGetJoystickButtons(GLFW_JOYSTICK_1, &button_count);
 
         {
             static bool checkedJoystickProbing = false;
@@ -1863,30 +1863,30 @@ void shutdown()
     glfwTerminate();
 }
 
-static const int text_page1_base = 0x400;
-static const int text_page2_base = 0x800;
-static const int text_page_size = 0x400;
-static const int hires_page1_base = 0x2000;
-static const int hires_page2_base = 0x4000;
-static const int hires_page_size = 8192;
+constexpr uint16_t text_page1_base = 0x400;
+constexpr uint16_t text_page2_base = 0x800;
+constexpr uint16_t text_page_size = 0x400;
+constexpr uint16_t hires_page1_base = 0x2000;
+constexpr uint16_t hires_page2_base = 0x4000;
+constexpr uint16_t hires_page_size = 8192;
 
-extern int text_row_base_offsets[24];
-extern int hires_memory_to_scanout_address[8192];
+extern uint16_t text_row_base_offsets[24];
+extern uint16_t hires_memory_to_scanout_address[8192];
 
-typedef pair<int, bool> address_auxpage;
-map< address_auxpage, unsigned char> writes;
+typedef pair<uint16_t, bool> address_auxpage;
+map<address_auxpage, uint8_t> writes;
 int collisions = 0;
 
-void write2(int addr, bool aux, unsigned char data)
+void write2(uint16_t addr, bool aux, uint8_t data)
 {
     // We know text page 1 and 2 are contiguous
     if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
-        int page = (addr >= text_page2_base) ? 1 : 0;
-        int within_page = addr - text_page1_base - page * text_page_size;
+        uint16_t page = (addr >= text_page2_base) ? 1 : 0;
+        uint16_t within_page = addr - text_page1_base - page * text_page_size;
         for(int row = 0; row < 24; row++) {
-            int row_offset = text_row_base_offsets[row];
+            uint16_t row_offset = text_row_base_offsets[row];
             if((within_page >= row_offset) && (within_page < row_offset + 40)) {
-                int col = within_page - row_offset;
+                uint16_t col = within_page - row_offset;
                 glBindTexture(GL_TEXTURE_2D, textport_texture[aux ? 1 : 0][page]);
                 glTexSubImage2D(GL_TEXTURE_2D, 0, col, row, 1, 1, GL_RED, GL_UNSIGNED_BYTE, &data);
                 CheckOpenGL(__FILE__, __LINE__);
@@ -1895,15 +1895,15 @@ void write2(int addr, bool aux, unsigned char data)
 
     } else if(((addr >= hires_page1_base) && (addr < hires_page1_base + hires_page_size)) || ((addr >= hires_page2_base) && (addr < hires_page2_base + hires_page_size))) {
 
-        int page = (addr < hires_page2_base) ? 0 : 1;
-        int page_base = (page == 0) ? hires_page1_base : hires_page2_base;
-        int within_page = addr - page_base;
-        int scanout_address = hires_memory_to_scanout_address[within_page];
-        int row = scanout_address / 40;
-        int col = scanout_address % 40;
+        uint16_t page = (addr < hires_page2_base) ? 0 : 1;
+        uint16_t page_base = (page == 0) ? hires_page1_base : hires_page2_base;
+        uint16_t within_page = addr - page_base;
+        uint16_t scanout_address = hires_memory_to_scanout_address[within_page];
+        uint16_t row = scanout_address / 40;
+        uint16_t col = scanout_address % 40;
         glBindTexture(GL_TEXTURE_2D, hires_texture[page]);
         if(page == 0) hgr_page1[addr - 0x2000] = data; // XXX hack
-        unsigned char pixels[8];
+        uint8_t pixels[8];
         for(int i = 0; i < 8 ; i++)
             pixels[i] = ((data & (1 << i)) ? 255 : 0);
         glTexSubImage2D(GL_TEXTURE_2D, 0, col * 8, row, 8, 1, GL_RED, GL_UNSIGNED_BYTE, pixels);
@@ -1914,7 +1914,7 @@ void write2(int addr, bool aux, unsigned char data)
 void apply_writes(void)
 {
     for(auto it : writes) {
-        int addr;
+        uint16_t addr;
         bool aux;
         tie(addr, aux) = it.first;
         write2(addr, aux, it.second); 
@@ -1923,7 +1923,7 @@ void apply_writes(void)
     collisions = 0;
 }
 
-bool write(int addr, bool aux, unsigned char data)
+bool write(uint16_t addr, bool aux, uint8_t data)
 {
     // We know text page 1 and 2 are contiguous
     if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
@@ -1943,7 +1943,7 @@ bool write(int addr, bool aux, unsigned char data)
     return false;
 }
 
-int text_row_base_offsets[24] =
+uint16_t text_row_base_offsets[24] =
 {
     0x000,
     0x080,
@@ -1971,7 +1971,7 @@ int text_row_base_offsets[24] =
     0x3D0,
 };
 
-static int hires_row_base_offsets[192] =
+static uint16_t hires_row_base_offsets[192] =
 {
      0x0000,  0x0400,  0x0800,  0x0C00,  0x1000,  0x1400,  0x1800,  0x1C00, 
      0x0080,  0x0480,  0x0880,  0x0C80,  0x1080,  0x1480,  0x1880,  0x1C80, 
@@ -1999,21 +1999,21 @@ static int hires_row_base_offsets[192] =
      0x03D0,  0x07D0,  0x0BD0,  0x0FD0,  0x13D0,  0x17D0,  0x1BD0,  0x1FD0, 
 };
 
-int hires_memory_to_scanout_address[8192];
+uint16_t hires_memory_to_scanout_address[8192];
 
 static void initialize_memory_to_scanout() __attribute__((constructor));
 void initialize_memory_to_scanout()
 {
-    for(int row = 0; row < 192; row++) {
-        int row_address = hires_row_base_offsets[row];
-        for(int byte = 0; byte < 40; byte++) {
+    for(uint16_t row = 0; row < 192; row++) {
+        uint16_t row_address = hires_row_base_offsets[row];
+        for(uint16_t byte = 0; byte < 40; byte++) {
             hires_memory_to_scanout_address[row_address + byte] = row * 40 + byte;
         }
     }
 }
 
-int font_offset = 32;
-const unsigned char font_bytes[96 * 7 * 8] = {
+uint16_t font_offset = 32;
+const uint8_t font_bytes[96 * 7 * 8] = {
     // 32 :  
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,

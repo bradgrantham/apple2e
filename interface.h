@@ -83,16 +83,16 @@ struct ModeSettings
     }
 };
 
-typedef std::tuple<unsigned long long, ModeSettings> ModePoint;
+typedef std::tuple<uint64_t, ModeSettings> ModePoint;
 typedef std::vector<ModePoint> ModeHistory;
 
-bool write(int addr, bool aux, unsigned char data);
+bool write(uint16_t addr, bool aux, uint8_t data);
 
 std::tuple<float,bool> get_paddle(int num);
 
 void show_floppy_activity(int number, bool activity);
 
-void enqueue_audio_samples(char *buf, size_t sz);
+void enqueue_audio_samples(uint8_t *buf, size_t sz);
 
 void start(bool run_fast, bool add_floppies, bool floppy0_inserted, bool floppy1_inserted);
 void iterate(const ModeHistory& history, unsigned long long current_byte_in_frame, float megahertz); // display
