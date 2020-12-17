@@ -155,7 +155,9 @@ struct CPU6502
     void reset()
     {
         s = 0xFD;
-        pc = bus.read(0xFFFC) + bus.read(0xFFFD) * 256;
+        uint8_t low = bus.read(0xFFFC);
+        uint8_t high = bus.read(0xFFFD);
+        pc = low + high * 256;
         exception = NONE;
     }
 
@@ -164,7 +166,9 @@ struct CPU6502
         stack_push((pc - 1) >> 8);
         stack_push((pc - 1) & 0xFF);
         stack_push(p);
-        pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
+        uint8_t low = bus.read(0xFFFE);
+        uint8_t high = bus.read(0xFFFF);
+        pc = low + high * 256;
         exception = NONE;
     }
 
@@ -173,7 +177,9 @@ struct CPU6502
         stack_push((pc - 1) >> 8);
         stack_push((pc - 1) & 0xFF);
         stack_push(p);
-        pc = bus.read(0xFFFA) + bus.read(0xFFFB) * 256;
+        uint8_t low = bus.read(0xFFFA);
+        uint8_t high = bus.read(0xFFFB);
+        pc = low + high * 256;
         exception = NONE;
     }
 
@@ -197,7 +203,9 @@ struct CPU6502
                 stack_push((pc - 1) >> 8);
                 stack_push((pc - 1) & 0xFF);
                 stack_push(p | B); // | B says the Synertek 6502 reference
-                pc = bus.read(0xFFFE) + bus.read(0xFFFF) * 256;
+                uint8_t low = bus.read(0xFFFE);
+                uint8_t high = bus.read(0xFFFF);
+                pc = low + high * 256;
                 exception = NONE;
                 break;
             }
@@ -279,14 +287,18 @@ struct CPU6502
             }
 
             case 0xDE: { // DEC abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256 + x;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + x;
                 set_flags(N | Z, m = bus.read(addr) - 1);
                 bus.write(addr, m);
                 break;
             }
 
             case 0xCE: { // DEC abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, m = bus.read(addr) - 1);
                 bus.write(addr, m);
                 break;
@@ -298,7 +310,9 @@ struct CPU6502
             }
 
             case 0xFE: { // INC abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256 + x;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + x;
                 if((addr - x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 set_flags(N | Z, m = bus.read(addr) + 1);
@@ -307,7 +321,9 @@ struct CPU6502
             }
 
             case 0xEE: { // INC abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, m = bus.read(addr) + 1);
                 bus.write(addr, m);
                 break;
@@ -428,7 +444,9 @@ struct CPU6502
 
             case 0xA1: { // LDA (ind, X)
                 uint8_t zpg = (read_pc_inc() + x) & 0xFF;
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
@@ -442,7 +460,9 @@ struct CPU6502
 
             case 0xB1: { // LDA ind, Y
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = bus.read(addr));
@@ -456,7 +476,9 @@ struct CPU6502
             }
 
             case 0xDD: { // CMP abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -467,7 +489,9 @@ struct CPU6502
 
             case 0xC1: { // CMP (ind, X)
                 uint8_t zpg = (read_pc_inc() + x) & 0xFF;
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
@@ -475,7 +499,9 @@ struct CPU6502
             }
 
             case 0xD9: { // CMP abs, Y
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -485,7 +511,9 @@ struct CPU6502
             }
 
             case 0xB9: { // LDA abs, Y
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = bus.read(addr + y));
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -493,7 +521,9 @@ struct CPU6502
             }
 
             case 0xBC: { // LDY abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, y = bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -501,7 +531,9 @@ struct CPU6502
             }
 
             case 0xBD: { // LDA abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -546,7 +578,9 @@ struct CPU6502
 
             case 0xF1: { // SBC ind, Y
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xff) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -566,7 +600,9 @@ struct CPU6502
             }
 
             case 0xF9: { // SBC abs, Y
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256 + y;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 uint8_t m = bus.read(addr);
@@ -586,7 +622,9 @@ struct CPU6502
             }
 
             case 0xFD: { // SBC abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256 + x;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + x;
                 if((addr - x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 uint8_t m = bus.read(addr);
@@ -606,7 +644,9 @@ struct CPU6502
             }
 
             case 0xED: { // SBC abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 uint8_t m = bus.read(addr);
                 uint8_t borrow = isset(C) ? 0 : 1;
                 if(isset(D)) {
@@ -642,7 +682,9 @@ struct CPU6502
 
             case 0x71: { // ADC (ind), Y
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -662,7 +704,9 @@ struct CPU6502
             }
 
             case 0x6D: { // ADC abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 uint8_t carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -698,7 +742,9 @@ struct CPU6502
             }
 
             case 0x7D: { // ADC abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256 + x;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + x;
                 if((addr - x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -718,7 +764,9 @@ struct CPU6502
             }
 
             case 0x79: { // ADC abs, Y
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256 + y;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -788,7 +836,9 @@ struct CPU6502
             }
 
             case 0x5E: { // LSR abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + x);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
@@ -815,7 +865,9 @@ struct CPU6502
             }
 
             case 0x4E: { // LSR
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
@@ -841,7 +893,9 @@ struct CPU6502
 
             case 0x01: { // ORA (ind, X)
                 uint8_t zpg = (read_pc_inc() + x) & 0xFF;
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
                 break;
@@ -855,14 +909,18 @@ struct CPU6502
             }
 
             case 0x0D: { // ORA abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
                 break;
             }
 
             case 0x19: { // ORA abs, Y
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -871,7 +929,9 @@ struct CPU6502
             }
 
             case 0x1D: { // ORA abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -881,7 +941,9 @@ struct CPU6502
 
             case 0x11: { // ORA (ind), Y
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -910,7 +972,9 @@ struct CPU6502
 
             case 0x31: { // AND (ind), y
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 set_flags(N | Z, a = a & bus.read(addr));
@@ -918,7 +982,9 @@ struct CPU6502
             }
 
             case 0x3D: { // AND abs, x
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = a & bus.read(addr + x));
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -926,7 +992,9 @@ struct CPU6502
             }
 
             case 0x39: { // AND abs, y
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = a & bus.read(addr + y));
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -934,7 +1002,9 @@ struct CPU6502
             }
 
             case 0x2D: { // AND abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = a & bus.read(addr));
                 break;
             }
@@ -957,7 +1027,9 @@ struct CPU6502
             }
 
             case 0x7E: { // ROR abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + x);
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
@@ -978,7 +1050,9 @@ struct CPU6502
 
 
             case 0x3E: { // ROL abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + x);
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
@@ -1002,7 +1076,9 @@ struct CPU6502
             }
 
             case 0x6E: { // ROR abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
@@ -1032,7 +1108,9 @@ struct CPU6502
             }
 
             case 0x2E: { // ROL abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
@@ -1053,13 +1131,17 @@ struct CPU6502
             }
 
             case 0x4C: { // JMP
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 pc = addr;
                 break;
             }
 
-            case 0x6C: { // JMP
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+            case 0x6C: { // JMP indirect
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 uint8_t addrl = bus.read(addr);
                 uint8_t addrh = bus.read(addr + 1);
                 addr = addrl + addrh * 256;
@@ -1068,33 +1150,43 @@ struct CPU6502
             }
 
             case 0x9D: { // STA abs, x
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 bus.write(addr + x, a);
                 break;
             }
 
             case 0x99: { // STA
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 bus.write(addr + y, a);
                 break;
             }
 
             case 0x91: { // STA (ind), Y
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 bus.write(addr, a);
                 break;
             }
 
             case 0x81: { // STA (ind, X)
                 uint8_t zpg = (read_pc_inc() + x) & 0xFF;
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 bus.write(addr, a);
                 break;
             }
 
             case 0x8D: { // STA
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 bus.write(addr, a);
                 break;
             }
@@ -1119,7 +1211,9 @@ struct CPU6502
             }
 
             case 0x2C: { // BIT
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 flag_change(Z, (a & m) == 0);
                 flag_change(N, m & 0x80);
@@ -1134,13 +1228,17 @@ struct CPU6502
             }
 
             case 0xAE: { // LDX abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, x = bus.read(addr));
                 break;
             }
 
             case 0xBE: { // LDX
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256 + y;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 set_flags(N | Z, x = bus.read(addr));
@@ -1166,7 +1264,9 @@ struct CPU6502
             }
 
             case 0xAC: { // LDY
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, y = bus.read(addr));
                 break;
             }
@@ -1190,13 +1290,17 @@ struct CPU6502
             }
 
             case 0xAD: { // LDA
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
             case 0xCC: { // CPY abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= y);
                 set_flags(N | Z, m = y - m);
@@ -1204,7 +1308,9 @@ struct CPU6502
             }
 
             case 0xEC: { // CPX abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= x);
                 set_flags(N | Z, m = x - m);
@@ -1234,21 +1340,27 @@ struct CPU6502
 
             case 0x41: { // EOR (ind, X)
                 uint8_t zpg = (read_pc_inc() + x) & 0xFF;
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a ^ m);
                 break;
             }
 
             case 0x4D: { // EOR abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a ^ m);
                 break;
             }
 
             case 0x5D: { // EOR abs, X
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + x);
                 if((addr + x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1257,7 +1369,9 @@ struct CPU6502
             }
 
             case 0x59: { // EOR abs, Y
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr + y);
                 if((addr + y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
@@ -1279,7 +1393,9 @@ struct CPU6502
 
             case 0x51: { // EOR
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -1289,7 +1405,9 @@ struct CPU6502
 
             case 0xD1: { // CMP
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256 + y;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256 + y;
                 if((addr - y) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 m = bus.read(addr);
@@ -1307,7 +1425,9 @@ struct CPU6502
             }
 
             case 0xCD: { // CMP
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
@@ -1379,7 +1499,9 @@ struct CPU6502
             }
 
             case 0x8E: { // STX abs
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 bus.write(addr, x);
                 break;
             }
@@ -1397,7 +1519,9 @@ struct CPU6502
             }
 
             case 0x8C: { // STY
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 bus.write(addr, y);
                 break;
             }
@@ -1405,7 +1529,9 @@ struct CPU6502
             case 0x20: { // JSR
                 stack_push((pc + 1) >> 8);
                 stack_push((pc + 1) & 0xFF);
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 pc = addr;
                 break;
             }
@@ -1428,7 +1554,9 @@ struct CPU6502
             }
 
             case 0x9C: { // STZ abs, 65C02
-                uint16_t addr = read_pc_inc() + read_pc_inc() * 256;
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
                 bus.write(addr, 0x0);
                 break;
             }
@@ -1440,22 +1568,27 @@ struct CPU6502
 
             case 0xB2: { // LDA (zpg), 65C02
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 set_flags(N | Z, a = bus.read(addr));
                 break;
             }
 
             case 0x92: { // STA (zpg), 65C02
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 bus.write(addr, a);
                 break;
             }
 
             case 0x72: { // ADC (zpg), 65C02
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
-
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 uint8_t carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -1484,7 +1617,9 @@ struct CPU6502
 
             case 0x12: { // ORA (ind), 65C02
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 set_flags(N | Z, a = a | m);
                 break;
@@ -1492,7 +1627,9 @@ struct CPU6502
 
             case 0xD2: { // CMP (zpg), 65C02 instruction
                 uint8_t zpg = read_pc_inc();
-                uint16_t addr = bus.read(zpg) + bus.read((zpg + 1) & 0xFF) * 256;
+                uint8_t low = bus.read(zpg);
+                uint8_t high = bus.read((zpg + 1) & 0xFF);
+                uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 flag_change(C, m <= a);
                 set_flags(N | Z, m = a - m);
