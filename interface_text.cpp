@@ -28,11 +28,15 @@ bool mixed_mode = false;
 bool vid80 = false;
 bool altchar = false;
 
-static const int text_page1_base = 0x400;
-static const int text_page2_base = 0x800;
-static const int text_page_size = 0x400;
+constexpr uint16_t text_page1_base = 0x400;
+constexpr uint16_t text_page2_base = 0x800;
+constexpr uint16_t text_page_size = 0x400;
+constexpr uint16_t hires_page1_base = 0x2000;
+constexpr uint16_t hires_page2_base = 0x4000;
+constexpr uint16_t hires_page_size = 8192;
 
 unsigned char textport[2][24][40];
+unsigned char hgr[2][8192];
 
 deque<event> event_queue;
 
@@ -280,7 +284,7 @@ void apply_writes(void)
     collisions = 0;
 }
 
-bool write(int addr, bool aux, unsigned char data)
+bool write(uint16_t addr, bool aux, uint8_t data)
 {
     // We know text page 1 and 2 are contiguous
     if((addr >= text_page1_base) && (addr < text_page2_base + text_page_size)) {
@@ -327,7 +331,7 @@ void show_floppy_activity(int number, bool activity)
 {
 }
 
-void enqueue_audio_samples(char *buf, size_t sz)
+void enqueue_audio_samples(uint8_t *buf, size_t sz)
 {
 }
 
