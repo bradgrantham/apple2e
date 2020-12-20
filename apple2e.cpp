@@ -37,6 +37,7 @@ struct system_clock
 } clk;
 
 
+#if 0
 #define printf PrintToLine3
 
 clk_t clockRangeStart = 2427489692 - 100000;
@@ -59,7 +60,7 @@ void PrintToLine3(const char *fmt, ...)
 
     write(0, buffer, strlen(buffer));
 }
-
+#endif
 
 // Brad's 6502
 #include "cpu6502.h"
@@ -88,7 +89,7 @@ constexpr uint32_t DEBUG_BUS = 0x20;
 constexpr uint32_t DEBUG_FLOPPY = 0x40;
 constexpr uint32_t DEBUG_SWITCH = 0x80;
 constexpr uint32_t DEBUG_CLOCK = 0x100;
-volatile unsigned int debug = DEBUG_ERROR | DEBUG_WARN; //  DEBUG_DECODE | DEBUG_RW | DEBUG_STATE | DEBUG_CLOCK; // | DEBUG_DECODE | DEBUG_STATE | DEBUG_RW;
+volatile uint32_t debug = DEBUG_ERROR | DEBUG_WARN;
 
 bool delete_is_left_arrow = true;
 volatile bool exit_on_banking = false;
@@ -416,7 +417,7 @@ bool nybblizeTrackFromFile(FILE *floppyImageFile, int trackIndex, uint8_t *nybbl
         size_t wasRead = fread(sectorBytes, 1, sectorSize, floppyImageFile);
         if(wasRead != sectorSize) {
             fprintf(stderr, "failed to read sector from floppy disk image\n");
-            printf("track %d, sectorIndex %d, skew %d, offset %ld, read %zd\n", trackIndex, sectorIndex, skew[sectorIndex], sectorOffset, wasRead);
+            printf("track %d, sectorIndex %d, skew %d, offset %d, read %zd\n", trackIndex, sectorIndex, skew[sectorIndex], sectorOffset, wasRead);
             return false;
         }
 
@@ -462,14 +463,14 @@ struct DISKIIboard : board_base
 
     backed_region rom_C600 = {"rom_C600", 0xC600, 0x0100, ROM, nullptr, [&]{return true;}};
 
-    bool floppyPresent[2];
+    bool floppyPresent[2] = {false, false};
     std::string floppyImageNames[2];
     FILE *floppyImageFiles[2] = {nullptr, nullptr};
-    const int *floppySectorSkew[2];
+    const int *floppySectorSkew[2] = {nullptr, nullptr};
 
     // Floppy drive control
     int driveSelected = 0;
-    bool driveMotorEnabled[2];
+    bool driveMotorEnabled[2] = {false, false};
     enum {READ, WRITE} headMode = READ;
     uint8_t dataLatch = 0x00;
     int headStepperPhase[2][4] = { {0, 0, 0, 0}, {0, 0, 0, 0} };
@@ -908,7 +909,7 @@ struct MAINboard : board_base
 
     enabled_func always_disabled = []{return false;};
 
-    bool internal_C800_ROM_selected;
+    bool internal_C800_ROM_selected = false;
     backed_region rom_C100 = {"rom_C100", 0xC100, 0x0200, ROM, &regions, [&]{return CXROM;}, always_disabled};
     backed_region rom_C300 = {"rom_C300", 0xC300, 0x0100, ROM, &regions, [&]{return CXROM || (!CXROM && !C3ROM);}, always_disabled};
     backed_region rom_C400 = {"rom_C400", 0xC400, 0x0400, ROM, &regions, [&]{return CXROM;}, always_disabled};
@@ -927,9 +928,9 @@ struct MAINboard : board_base
     backed_region ram_6000 = {"ram_6000", 0x6000, 0x6000, RAM, &regions, read_from_main_ram, write_to_main_ram};
     backed_region ram_6000_x = {"ram_6000_x", 0x6000, 0x6000, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
 
-    bool C08X_read_RAM;
-    bool C08X_write_RAM;
-    enum {BANK1, BANK2} C08X_bank;
+    bool C08X_read_RAM = false;
+    bool C08X_write_RAM = false;
+    enum {BANK1, BANK2} C08X_bank = BANK1;
 
     backed_region rom_D000 = {"rom_D000", 0xD000, 0x1000, ROM, &regions, [&]{return !C08X_read_RAM;}, always_disabled};
     backed_region rom_E000 = {"rom_E000", 0xE000, 0x2000, ROM, &regions, [&]{return !C08X_read_RAM;}, always_disabled};
@@ -1498,7 +1499,7 @@ struct bus_frontend
         if(board->read(addr & 0xFFFF, data)) {
             if(debug & DEBUG_BUS)
             {
-                printf("read %04X returned %02X\n", addr & 0xFFFF, data);
+                printf("R %04X %02X\n", addr & 0xFFFF, data);
             }
             // reads[addr & 0xFFFF].push_back(data);
             return data;
@@ -1513,7 +1514,7 @@ struct bus_frontend
         if(board->write(addr & 0xFFFF, data)) {
             if(debug & DEBUG_BUS)
             {
-                printf("write %04X %02X\n", addr & 0xFFFF, data);
+                printf("W %04X %02X\n", addr & 0xFFFF, data);
             }
             // writes[addr & 0xFFFF].push_back(data);
             return;
@@ -1769,12 +1770,6 @@ extern uint16_t pc;
 template<class CLK, class BUS>
 void print_cpu_state(const CPU6502<CLK, BUS>& cpu)
 {
-    uint8_t s0 = bus.read(0x100 + cpu.s + 0);
-    uint8_t s1 = bus.read(0x100 + cpu.s + 1);
-    uint8_t s2 = bus.read(0x100 + cpu.s + 2);
-    uint8_t pc0 = bus.read(cpu.pc + 0);
-    uint8_t pc1 = bus.read(cpu.pc + 1);
-    uint8_t pc2 = bus.read(cpu.pc + 2);
     printf("6502: A:%02X X:%02X Y:%02X P:", cpu.a, cpu.x, cpu.y);
     printf("%s", (cpu.p & cpu.N) ? "N" : "n");
     printf("%s", (cpu.p & cpu.V) ? "V" : "v");
@@ -1784,8 +1779,16 @@ void print_cpu_state(const CPU6502<CLK, BUS>& cpu)
     printf("%s", (cpu.p & cpu.I) ? "I" : "i");
     printf("%s", (cpu.p & cpu.Z) ? "Z" : "z");
     printf("%s ", (cpu.p & cpu.C) ? "C" : "c");
-    printf("S:%02X (%02X %02X %02X ...) ", cpu.s, s0, s1, s2);
-    printf("PC:%04X (%02X %02X %02X ...)\n", cpu.pc, pc0, pc1, pc2);
+    // uint8_t s0 = bus.read(0x100 + cpu.s + 0);
+    // uint8_t s1 = bus.read(0x100 + cpu.s + 1);
+    // uint8_t s2 = bus.read(0x100 + cpu.s + 2);
+    // uint8_t pc0 = bus.read(cpu.pc + 0);
+    // uint8_t pc1 = bus.read(cpu.pc + 1);
+    // uint8_t pc2 = bus.read(cpu.pc + 2);
+    // printf("S:%02X (%02X %02X %02X ...) ", cpu.s, s0, s1, s2);
+    // printf("PC:%04X (%02X %02X %02X ...)\n", cpu.pc, pc0, pc1, pc2);
+    printf("S:%02X ", cpu.s);
+    printf("PC:%04X\n", cpu.pc);
 }
 
 template <class TYPE, uint32_t LENGTH>
@@ -2010,11 +2013,12 @@ int main(int argc, char **argv)
 #endif
                 {
                     cpu.cycle();
-                    if(debug & DEBUG_STATE)
+                    if(debug & DEBUG_STATE) {
                         print_cpu_state(cpu);
+                    }
                 }
                 if(debug & DEBUG_CLOCK) {
-                    printf("clock = %lu, %lu\n", (uint32_t)(clk / (1LLU << 32)), (uint32_t)(clk % (1LLU << 32)));
+                    printf("clock = %u, %u\n", (uint32_t)(clk / (1LLU << 32)), (uint32_t)(clk % (1LLU << 32)));
                 }
             }
             mainboard->sync();
