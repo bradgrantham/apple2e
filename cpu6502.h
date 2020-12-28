@@ -147,15 +147,15 @@ struct CPU6502
         a(0),
         x(0),
         y(0),
-        s(0),
-        p(0x20),
+        s(0xFF),
+        p(I),
         exception(RESET)
     {
     }
 
     void reset()
     {
-        s = 0xFD;
+        s = 0xFF;
         uint8_t low = bus.read(0xFFFC);
         uint8_t high = bus.read(0xFFFD);
         pc = low + high * 256;
@@ -1272,7 +1272,7 @@ struct CPU6502
             }
 
             case 0x28: { // PLP
-                p = stack_pull();
+                p = stack_pull() & ~ (B2 | B);
                 break;
             }
 
@@ -1547,7 +1547,7 @@ struct CPU6502
             }
 
             case 0x40: { // RTI
-                p = stack_pull();
+                p = stack_pull() & ~ (B2 | B);
                 uint8_t pcl = stack_pull();
                 uint8_t pch = stack_pull();
                 pc = pcl + pch * 256;
