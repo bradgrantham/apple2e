@@ -897,8 +897,10 @@ struct MAINboard : board_base
             if((r->type == RAM) && r->write_enabled()) {
                 for(int i = firstpage; i <= lastpage; i++) {
                     if(write_regions_by_page[i] != nullptr) {
-                        if(0)printf("warning, write region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
-                            i, r->name.c_str(), write_regions_by_page[i]->name.c_str(), reason);
+                        if(false) {
+                            printf("warning, write region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
+                                i, r->name.c_str(), write_regions_by_page[i]->name.c_str(), reason);
+                        }
                     } else {
                         write_regions_by_page[i] = r;
                     }
@@ -907,8 +909,10 @@ struct MAINboard : board_base
             if(r->read_enabled()) {
                 for(int i = firstpage; i <= lastpage; i++) {
                     if(read_regions_by_page[i] != nullptr) {
-                        if(0)printf("warning, read region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
-                            i, r->name.c_str(), read_regions_by_page[i]->name.c_str(), reason);
+                        if(false) {
+                            printf("warning, read region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
+                                i, r->name.c_str(), read_regions_by_page[i]->name.c_str(), reason);
+                        }
                     } else {
                         read_regions_by_page[i] = r;
                     }
@@ -955,8 +959,8 @@ struct MAINboard : board_base
     backed_region ram2_main_D000_x = {"ram2_main_D000_x", 0xD000, 0x1000, RAM, &regions, [&]{return ALTZP && C08X_read_RAM && (C08X_bank == BANK2);}, [&]{return ALTZP && C08X_write_RAM && (C08X_bank == BANK2);}};
     backed_region ram_main_E000_x = {"ram1_main_E000_x", 0xE000, 0x2000, RAM, &regions, [&]{return ALTZP && C08X_read_RAM;}, [&]{return ALTZP && C08X_write_RAM;}};
 
-    enabled_func read_from_aux_text1 = [&]{return (RAMRD && !STORE80) || (STORE80 && PAGE2);};
-    enabled_func write_to_aux_text1 = [&]{return (RAMWRT && !STORE80) || (STORE80 && PAGE2);};
+    enabled_func read_from_aux_text1 = [&]{return (!STORE80 && RAMRD) || (STORE80 && !HIRES && PAGE2);};
+    enabled_func write_to_aux_text1 = [&]{return (!STORE80 && RAMWRT) || (STORE80 && !HIRES && PAGE2);};
     enabled_func read_from_main_text1 = [&]{return !read_from_aux_text1();};
     enabled_func write_to_main_text1 = [&]{return !write_to_aux_text1();};
 
@@ -1121,13 +1125,16 @@ struct MAINboard : board_base
 
         repage_regions("init");
 
-        for(int i = 0; i < 256; i++)
-            switches_by_address[i] = NULL;
+        for(int i = 0; i < 256; i++) {
+            switches_by_address[i] = nullptr;
+        }
+
         for(auto sw : switches) {
             switches_by_address[sw->clear_address - 0xC000] = sw;
             switches_by_address[sw->set_address - 0xC000] = sw;
             switches_by_address[sw->read_address - 0xC000] = sw;
         }
+
         //  TEXT.enabled = true;
         old_mode_settings = convert_switches_to_mode_settings();
     }
@@ -1176,7 +1183,7 @@ struct MAINboard : board_base
                 exit(1);
             }
             SoftSwitch* sw = switches_by_address[addr - 0xC000];
-            if(sw != nullptr) {
+            if(sw) {
 
                 uint8_t result = 0xFF;
 
@@ -1465,7 +1472,7 @@ struct MAINboard : board_base
                 exit(1);
             }
             SoftSwitch* sw = switches_by_address[addr - 0xC000];
-            if(sw != NULL) {
+            if(sw) {
                 if(addr == sw->set_address) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = 0xff;
