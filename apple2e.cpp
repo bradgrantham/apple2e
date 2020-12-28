@@ -896,7 +896,7 @@ struct MAINboard : board_base
             int lastpage = (r->base + r->size - 1) / 256;
             if((r->type == RAM) && r->write_enabled()) {
                 for(int i = firstpage; i <= lastpage; i++) {
-                    if(write_regions_by_page[i] != nullptr) {
+                    if(write_regions_by_page[i]) {
                         if(false) {
                             printf("warning, write region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
                                 i, r->name.c_str(), write_regions_by_page[i]->name.c_str(), reason);
@@ -908,7 +908,7 @@ struct MAINboard : board_base
             }
             if(r->read_enabled()) {
                 for(int i = firstpage; i <= lastpage; i++) {
-                    if(read_regions_by_page[i] != nullptr) {
+                    if(read_regions_by_page[i]) {
                         if(false) {
                             printf("warning, read region for 0x%02X00 setting for \"%s\" but was already filled by \"%s\"; repaged because \"%s\"\n",
                                 i, r->name.c_str(), read_regions_by_page[i]->name.c_str(), reason);
@@ -1242,16 +1242,24 @@ struct MAINboard : board_base
                 } else if(sw->read_also_changes && (addr == sw->set_address)) {
                     if(!sw->implemented) { printf("%s ; set is unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = result;
-                    sw->enabled = true;
-                    if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
-                    post_soft_switch_mode_change();
+                    if(!sw->enabled) {
+                        sw->enabled = true;
+                        if(debug & DEBUG_SWITCH) printf("Set %s\n", sw->name.c_str());
+                        post_soft_switch_mode_change();
+                        static char reason[512]; sprintf(reason, "set %s", sw->name.c_str());
+                        repage_regions(reason);
+                    }
                     return true;
                 } else if(sw->read_also_changes && (addr == sw->clear_address)) {
                     if(!sw->implemented) { printf("%s ; unimplemented\n", sw->name.c_str()); fflush(stdout); exit(0); }
                     data = result;
-                    sw->enabled = false;
-                    if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
-                    post_soft_switch_mode_change();
+                    if(sw->enabled) {
+                        sw->enabled = false;
+                        if(debug & DEBUG_SWITCH) printf("Clear %s\n", sw->name.c_str());
+                        post_soft_switch_mode_change();
+                        static char reason[512]; sprintf(reason, "clear %s", sw->name.c_str());
+                        repage_regions(reason);
+                    }
                     return true;
                 }
             }
