@@ -61,10 +61,18 @@ std::string read_bus_and_disassemble(const BUS &bus, int pc)
 
 int main(int argc, const char **argv)
 {
+    if(argc < 2) {
+        fprintf(stderr, "usage: %s testfile.bin\n", argv[0]);
+    }
+
     bus machine;
 
-    FILE *testbin = fopen("6502_functional_test.bin", "rb");
-    assert(testbin);
+    FILE *testbin = fopen(argv[1], "rb");
+    if(!testbin) {
+        printf("couldn't open \"%s\" for reading\n", argv[1]);
+        exit(EXIT_FAILURE);
+    }
+
     fseek(testbin, 0, SEEK_END);
     long length = ftell(testbin);
     fseek(testbin, 0, SEEK_SET);
@@ -87,4 +95,5 @@ int main(int argc, const char **argv)
         cpu.cycle();
     } while(cpu.pc != oldpc);
     print_cpu_state(cpu);
+    exit(EXIT_SUCCESS);
 }
