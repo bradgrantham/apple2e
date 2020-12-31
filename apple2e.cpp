@@ -89,7 +89,7 @@ constexpr uint32_t DEBUG_BUS = 0x20;
 constexpr uint32_t DEBUG_FLOPPY = 0x40;
 constexpr uint32_t DEBUG_SWITCH = 0x80;
 constexpr uint32_t DEBUG_CLOCK = 0x100;
-volatile uint32_t debug = DEBUG_ERROR | DEBUG_WARN;
+volatile uint32_t debug = DEBUG_ERROR | DEBUG_WARN; // | DEBUG_STATE | DEBUG_DECODE;
 
 bool delete_is_left_arrow = true;
 volatile bool exit_on_banking = false;
@@ -295,7 +295,7 @@ struct backed_region : region
 
 const region io_region = {"io", 0xC000, 0x100};
 
-namespace floppy
+namespace DiskII
 {
 
 /*
@@ -305,7 +305,8 @@ and a ".dsk" floppy image is only 143360 bytes.
 */
 constexpr int sectorSize = 256;
 constexpr int sectorsPerTrack = 16;
-// constexpr int tracksPerFloppy = 35;
+constexpr int headDiscretePositions = 140;
+// constexpr int tracksPerFloppy = headDiscretePositions / 4;
 
 const uint8_t sectorHeader[21] =
 {
@@ -428,6 +429,293 @@ bool nybblizeTrackFromFile(FILE *floppyImageFile, int trackIndex, uint8_t *nybbl
     return true;
 }
 
+enum MotorAction
+{
+    MOTOR_RIGHT_ONE,    /* headPosition += 1; */
+    MOTOR_RIGHT_TWO,    /* headPosition += 2; */
+    MOTOR_LEFT_ONE,     /* headPosition -= 1; */
+    MOTOR_LEFT_TWO,     /* headPosition -= 2; */
+    MOTOR_NONE,         /* nothing */
+    MOTOR_SNAP,         /* calculate which way head moves from magnet and head position */
+    MOTOR_STATE_NEVER,  /* should never get this transition */
+};
+
+MotorAction motorActions[256] =
+{
+    MOTOR_NONE        , // 0x00, 0,0,0,0 to 0,0,0,0
+    MOTOR_SNAP        , // 0x01, 0,0,0,0 to 0,0,0,1
+    MOTOR_SNAP        , // 0x02, 0,0,0,0 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x03, 0,0,0,0 to 0,0,1,1
+    MOTOR_SNAP        , // 0x04, 0,0,0,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x05, 0,0,0,0 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x06, 0,0,0,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x07, 0,0,0,0 to 0,1,1,1
+    MOTOR_SNAP        , // 0x08, 0,0,0,0 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x09, 0,0,0,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x0A, 0,0,0,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x0B, 0,0,0,0 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x0C, 0,0,0,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x0D, 0,0,0,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x0E, 0,0,0,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x0F, 0,0,0,0 to 1,1,1,1
+    MOTOR_NONE        , // 0x10, 0,0,0,1 to 0,0,0,0
+    MOTOR_NONE        , // 0x11, 0,0,0,1 to 0,0,0,1
+    MOTOR_LEFT_TWO    , // 0x12, 0,0,0,1 to 0,0,1,0
+    MOTOR_LEFT_ONE    , // 0x13, 0,0,0,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0x14, 0,0,0,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x15, 0,0,0,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x16, 0,0,0,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x17, 0,0,0,1 to 0,1,1,1
+    MOTOR_RIGHT_TWO   , // 0x18, 0,0,0,1 to 1,0,0,0
+    MOTOR_RIGHT_ONE   , // 0x19, 0,0,0,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x1A, 0,0,0,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x1B, 0,0,0,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x1C, 0,0,0,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x1D, 0,0,0,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x1E, 0,0,0,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x1F, 0,0,0,1 to 1,1,1,1
+    MOTOR_NONE        , // 0x20, 0,0,1,0 to 0,0,0,0
+    MOTOR_RIGHT_TWO   , // 0x21, 0,0,1,0 to 0,0,0,1
+    MOTOR_NONE        , // 0x22, 0,0,1,0 to 0,0,1,0
+    MOTOR_RIGHT_ONE   , // 0x23, 0,0,1,0 to 0,0,1,1
+    MOTOR_LEFT_TWO    , // 0x24, 0,0,1,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x25, 0,0,1,0 to 0,1,0,1
+    MOTOR_LEFT_ONE    , // 0x26, 0,0,1,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x27, 0,0,1,0 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0x28, 0,0,1,0 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x29, 0,0,1,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x2A, 0,0,1,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x2B, 0,0,1,0 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x2C, 0,0,1,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x2D, 0,0,1,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x2E, 0,0,1,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x2F, 0,0,1,0 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0x30, 0,0,1,1 to 0,0,0,0
+    MOTOR_RIGHT_ONE   , // 0x31, 0,0,1,1 to 0,0,0,1
+    MOTOR_LEFT_ONE    , // 0x32, 0,0,1,1 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x33, 0,0,1,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0x34, 0,0,1,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x35, 0,0,1,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x36, 0,0,1,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x37, 0,0,1,1 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0x38, 0,0,1,1 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x39, 0,0,1,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x3A, 0,0,1,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x3B, 0,0,1,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x3C, 0,0,1,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x3D, 0,0,1,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x3E, 0,0,1,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x3F, 0,0,1,1 to 1,1,1,1
+    MOTOR_NONE        , // 0x40, 0,1,0,0 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0x41, 0,1,0,0 to 0,0,0,1
+    MOTOR_RIGHT_TWO   , // 0x42, 0,1,0,0 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x43, 0,1,0,0 to 0,0,1,1
+    MOTOR_NONE        , // 0x44, 0,1,0,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x45, 0,1,0,0 to 0,1,0,1
+    MOTOR_RIGHT_ONE   , // 0x46, 0,1,0,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x47, 0,1,0,0 to 0,1,1,1
+    MOTOR_LEFT_TWO    , // 0x48, 0,1,0,0 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x49, 0,1,0,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x4A, 0,1,0,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x4B, 0,1,0,0 to 1,0,1,1
+    MOTOR_LEFT_ONE    , // 0x4C, 0,1,0,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x4D, 0,1,0,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x4E, 0,1,0,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x4F, 0,1,0,0 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0x50, 0,1,0,1 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0x51, 0,1,0,1 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0x52, 0,1,0,1 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x53, 0,1,0,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0x54, 0,1,0,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x55, 0,1,0,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x56, 0,1,0,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x57, 0,1,0,1 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0x58, 0,1,0,1 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x59, 0,1,0,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x5A, 0,1,0,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x5B, 0,1,0,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x5C, 0,1,0,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x5D, 0,1,0,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x5E, 0,1,0,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x5F, 0,1,0,1 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0x60, 0,1,1,0 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0x61, 0,1,1,0 to 0,0,0,1
+    MOTOR_RIGHT_ONE   , // 0x62, 0,1,1,0 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x63, 0,1,1,0 to 0,0,1,1
+    MOTOR_LEFT_ONE    , // 0x64, 0,1,1,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x65, 0,1,1,0 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x66, 0,1,1,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x67, 0,1,1,0 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0x68, 0,1,1,0 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x69, 0,1,1,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x6A, 0,1,1,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x6B, 0,1,1,0 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x6C, 0,1,1,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x6D, 0,1,1,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x6E, 0,1,1,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x6F, 0,1,1,0 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0x70, 0,1,1,1 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0x71, 0,1,1,1 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0x72, 0,1,1,1 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x73, 0,1,1,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0x74, 0,1,1,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x75, 0,1,1,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x76, 0,1,1,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x77, 0,1,1,1 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0x78, 0,1,1,1 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x79, 0,1,1,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x7A, 0,1,1,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x7B, 0,1,1,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x7C, 0,1,1,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x7D, 0,1,1,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x7E, 0,1,1,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x7F, 0,1,1,1 to 1,1,1,1
+    MOTOR_NONE        , // 0x80, 1,0,0,0 to 0,0,0,0
+    MOTOR_LEFT_TWO    , // 0x81, 1,0,0,0 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0x82, 1,0,0,0 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x83, 1,0,0,0 to 0,0,1,1
+    MOTOR_RIGHT_TWO   , // 0x84, 1,0,0,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x85, 1,0,0,0 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x86, 1,0,0,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x87, 1,0,0,0 to 0,1,1,1
+    MOTOR_NONE        , // 0x88, 1,0,0,0 to 1,0,0,0
+    MOTOR_LEFT_ONE    , // 0x89, 1,0,0,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x8A, 1,0,0,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x8B, 1,0,0,0 to 1,0,1,1
+    MOTOR_RIGHT_ONE   , // 0x8C, 1,0,0,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x8D, 1,0,0,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x8E, 1,0,0,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x8F, 1,0,0,0 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0x90, 1,0,0,1 to 0,0,0,0
+    MOTOR_LEFT_ONE    , // 0x91, 1,0,0,1 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0x92, 1,0,0,1 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0x93, 1,0,0,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0x94, 1,0,0,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0x95, 1,0,0,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0x96, 1,0,0,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0x97, 1,0,0,1 to 0,1,1,1
+    MOTOR_RIGHT_ONE   , // 0x98, 1,0,0,1 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0x99, 1,0,0,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0x9A, 1,0,0,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0x9B, 1,0,0,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0x9C, 1,0,0,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0x9D, 1,0,0,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0x9E, 1,0,0,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0x9F, 1,0,0,1 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0xA0, 1,0,1,0 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0xA1, 1,0,1,0 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0xA2, 1,0,1,0 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0xA3, 1,0,1,0 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0xA4, 1,0,1,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0xA5, 1,0,1,0 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0xA6, 1,0,1,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0xA7, 1,0,1,0 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0xA8, 1,0,1,0 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0xA9, 1,0,1,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0xAA, 1,0,1,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0xAB, 1,0,1,0 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0xAC, 1,0,1,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0xAD, 1,0,1,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0xAE, 1,0,1,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0xAF, 1,0,1,0 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0xB0, 1,0,1,1 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0xB1, 1,0,1,1 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0xB2, 1,0,1,1 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0xB3, 1,0,1,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0xB4, 1,0,1,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0xB5, 1,0,1,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0xB6, 1,0,1,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0xB7, 1,0,1,1 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0xB8, 1,0,1,1 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0xB9, 1,0,1,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0xBA, 1,0,1,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0xBB, 1,0,1,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0xBC, 1,0,1,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0xBD, 1,0,1,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0xBE, 1,0,1,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0xBF, 1,0,1,1 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0xC0, 1,1,0,0 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0xC1, 1,1,0,0 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0xC2, 1,1,0,0 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0xC3, 1,1,0,0 to 0,0,1,1
+    MOTOR_RIGHT_ONE   , // 0xC4, 1,1,0,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0xC5, 1,1,0,0 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0xC6, 1,1,0,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0xC7, 1,1,0,0 to 0,1,1,1
+    MOTOR_LEFT_ONE    , // 0xC8, 1,1,0,0 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0xC9, 1,1,0,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0xCA, 1,1,0,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0xCB, 1,1,0,0 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0xCC, 1,1,0,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0xCD, 1,1,0,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0xCE, 1,1,0,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0xCF, 1,1,0,0 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0xD0, 1,1,0,1 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0xD1, 1,1,0,1 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0xD2, 1,1,0,1 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0xD3, 1,1,0,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0xD4, 1,1,0,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0xD5, 1,1,0,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0xD6, 1,1,0,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0xD7, 1,1,0,1 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0xD8, 1,1,0,1 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0xD9, 1,1,0,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0xDA, 1,1,0,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0xDB, 1,1,0,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0xDC, 1,1,0,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0xDD, 1,1,0,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0xDE, 1,1,0,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0xDF, 1,1,0,1 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0xE0, 1,1,1,0 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0xE1, 1,1,1,0 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0xE2, 1,1,1,0 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0xE3, 1,1,1,0 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0xE4, 1,1,1,0 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0xE5, 1,1,1,0 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0xE6, 1,1,1,0 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0xE7, 1,1,1,0 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0xE8, 1,1,1,0 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0xE9, 1,1,1,0 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0xEA, 1,1,1,0 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0xEB, 1,1,1,0 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0xEC, 1,1,1,0 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0xED, 1,1,1,0 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0xEE, 1,1,1,0 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0xEF, 1,1,1,0 to 1,1,1,1
+    MOTOR_STATE_NEVER , // 0xF0, 1,1,1,1 to 0,0,0,0
+    MOTOR_STATE_NEVER , // 0xF1, 1,1,1,1 to 0,0,0,1
+    MOTOR_STATE_NEVER , // 0xF2, 1,1,1,1 to 0,0,1,0
+    MOTOR_STATE_NEVER , // 0xF3, 1,1,1,1 to 0,0,1,1
+    MOTOR_STATE_NEVER , // 0xF4, 1,1,1,1 to 0,1,0,0
+    MOTOR_STATE_NEVER , // 0xF5, 1,1,1,1 to 0,1,0,1
+    MOTOR_STATE_NEVER , // 0xF6, 1,1,1,1 to 0,1,1,0
+    MOTOR_STATE_NEVER , // 0xF7, 1,1,1,1 to 0,1,1,1
+    MOTOR_STATE_NEVER , // 0xF8, 1,1,1,1 to 1,0,0,0
+    MOTOR_STATE_NEVER , // 0xF9, 1,1,1,1 to 1,0,0,1
+    MOTOR_STATE_NEVER , // 0xFA, 1,1,1,1 to 1,0,1,0
+    MOTOR_STATE_NEVER , // 0xFB, 1,1,1,1 to 1,0,1,1
+    MOTOR_STATE_NEVER , // 0xFC, 1,1,1,1 to 1,1,0,0
+    MOTOR_STATE_NEVER , // 0xFD, 1,1,1,1 to 1,1,0,1
+    MOTOR_STATE_NEVER , // 0xFE, 1,1,1,1 to 1,1,1,0
+    MOTOR_STATE_NEVER , // 0xFF, 1,1,1,1 to 1,1,1,1
+};
+
+typedef std::array<bool,4> MagnetState;
+
+int calculateMotorSnapLocation(int headLocation /* 0 to headDiscretePositions - 1 */, int alignedHeadLocation /* 0 to 7 */)
+{
+    // energized phase 3 from no other magnets, track stepper motor snapped from 0 to 4
+    int below = headLocation / 8 * 8 - 8 + alignedHeadLocation;
+    int above = headLocation / 8 * 8 + alignedHeadLocation;
+    int closest = ((headLocation - below) <= (above - headLocation)) ? below : above;
+    int actual = std::max(0, std::min(closest, headDiscretePositions - 1));
+    if(debug & DEBUG_FLOPPY) {
+        printf("headLocation = %d, aligned = %d, below = %d, above = %d, closest = %d, actual = %d\n",
+            headLocation, alignedHeadLocation, below, above, closest, actual);
+    }
+    return actual;
+}
+
 };
 
 // XXX readonly at this time
@@ -475,12 +763,11 @@ struct DISKIIboard : board_base
     bool driveMotorEnabled[2] = {false, false};
     enum {READ, WRITE} headMode = READ;
     uint8_t dataLatch = 0x00;
-    int headStepperPhase[2][4] = { {0, 0, 0, 0}, {0, 0, 0, 0} };
-    int headStepperMostRecentPhase[2] = {0, 0};
-    int currentTrackNumber[2] = {0, 0}; // physical track number - DOS and ProDOS only use even tracks
+    DiskII::MagnetState driveMagnetState[2] = { {false, false, false, false}, {false, false, false, false} };
+    int currentHeadLocation[2] = {0, 0}; // XXXFLOPPY normalize this to head location 0-(headDiscretePositions - 1)
 
     // track data
-    uint8_t trackBytes[floppy::nybblizedTrackSize];
+    uint8_t trackBytes[DiskII::nybblizedTrackSize];
     bool trackBytesOutOfDate = true;
     int nybblizedTrackIndex = -1;
     int nybblizedDriveIndex = -1;
@@ -510,9 +797,9 @@ struct DISKIIboard : board_base
 
                 if(strcmp(name + strlen(name) - 3, ".po") == 0) {
                     printf("ProDOS floppy\n");
-                    floppySectorSkew[number] = floppy::sectorSkewProDOS;
+                    floppySectorSkew[number] = DiskII::sectorSkewProDOS;
                 } else {
-                    floppySectorSkew[number] = floppy::sectorSkewDOS;
+                    floppySectorSkew[number] = DiskII::sectorSkewDOS;
                 }
 
                 floppyPresent[number] = true;
@@ -552,10 +839,10 @@ struct DISKIIboard : board_base
         uint8_t data = trackBytes[trackByteIndex];
 
         if(false) {
-            printf("read track %d byte %d (sector %ld byte %ld), yields %d (%02X)\n", nybblizedTrackIndex / 2, trackByteIndex, trackByteIndex / floppy::nybblizedSectorSize, trackByteIndex % floppy::nybblizedSectorSize, data, data);
+            printf("read track %d byte %d (sector %ld byte %ld), yields %d (%02X)\n", nybblizedTrackIndex, trackByteIndex, trackByteIndex / DiskII::nybblizedSectorSize, trackByteIndex % DiskII::nybblizedSectorSize, data, data);
         }
 
-        trackByteIndex = (trackByteIndex + 1) % floppy::nybblizedTrackSize;
+        trackByteIndex = (trackByteIndex + 1) % DiskII::nybblizedTrackSize;
 
         return data;
     }
@@ -566,64 +853,126 @@ struct DISKIIboard : board_base
             return false;
         }
 
-        if((nybblizedTrackIndex == currentTrackNumber[driveSelected]) && (nybblizedDriveIndex == driveSelected)) {
+        if(currentHeadLocation[driveSelected] % 4 != 0) {
+            fprintf(stderr, "current head location %d was unexpectedly not aligned with Disk II track (%% 4 = %d)\n", currentHeadLocation[driveSelected], currentHeadLocation[driveSelected] % 4);
             return true;
         }
 
-        bool success = floppy::nybblizeTrackFromFile(floppyImageFiles[driveSelected], currentTrackNumber[driveSelected] / 2, trackBytes, floppySectorSkew[driveSelected]);
+        if((nybblizedTrackIndex == currentHeadLocation[driveSelected]) && (nybblizedDriveIndex == driveSelected)) {
+            return true;
+        }
+
+        bool success = DiskII::nybblizeTrackFromFile(floppyImageFiles[driveSelected], currentHeadLocation[driveSelected] / 4, trackBytes, floppySectorSkew[driveSelected]);
         if(!success) {
             fprintf(stderr, "unexpected failure reading track from disk \"%s\"\n", floppyImageNames[driveSelected].c_str());
             return false;
         }
 
-        nybblizedTrackIndex = currentTrackNumber[driveSelected];
+        nybblizedTrackIndex = currentHeadLocation[driveSelected] / 4;
         nybblizedDriveIndex = driveSelected;
         trackByteIndex = 0;
 
         return true;
     }
 
+    /* brainstorming over stepper magnet control: */
+    /* only magnet ((motor / 2 +- 1) % 4) can be energized or deenergized in normal operation */
+    /* if (motor % 2 == 0), only valid new state is that ((motor / 2 +- 1) % 4) magnets are energized */
+    /* if (motor / 2 - 1) % 4 is energized, motor -= 1 */
+    /* if (motor / 2 + 1) % 4 is energized, motor += 1 */
+    /* if (motor % 2 == 1), only valid new state is that ((motor / 2 +- 1) % 4) magnets are deenergized */
+    /* if (motor / 2 - 1) % 4 is deenergized, motor += 1 */
+    /* if (motor / 2 + 1) % 4 is deenergized, motor -= 1 */
+    /* if all are deenergized then one is energized, head snaps to that magnet from where it is */
+    /* magnet = 0 and (head % 8) in {0,1,2,3}, head moves to right */
+    /* magnet = 0 and (head % 8) == 4 head snaps randomly? (or always to left?) */
+    /* magnet = 0 and (head % 8) in {5,6,7}, head moves to left */
+    /*     could print an error if head wasn't at that magnet */
+
+    static uint8_t magnetStateToTransitionIndex(DiskII::MagnetState oldState, DiskII::MagnetState newState)
+    {
+        return
+            (oldState[0] << 7) | 
+            (oldState[1] << 6) | 
+            (oldState[2] << 5) | 
+            (oldState[3] << 4) | 
+            (newState[0] << 3) | 
+            (newState[1] << 2) | 
+            (newState[2] << 1) | 
+            (newState[3] << 0);
+    }
+
     void controlTrackMotor(uint32_t addr)
     {
         int phase = (addr & 0x7) >> 1;
-        int state = addr & 0x1;
+        bool state = addr & 0x1;
 
-        headStepperPhase[driveSelected][phase] = state;
+        const DiskII::MagnetState& oldMagnetState = driveMagnetState[driveSelected];
+
+        DiskII::MagnetState newMagnetState = oldMagnetState;
+        newMagnetState[phase] = state;
+
+        DiskII::MotorAction action = DiskII::motorActions[magnetStateToTransitionIndex(oldMagnetState, newMagnetState)];
+
+        switch(action) {
+            case DiskII::MOTOR_RIGHT_ONE:
+                currentHeadLocation[driveSelected] = std::min(currentHeadLocation[driveSelected] + 1, DiskII::headDiscretePositions - 1);
+                trackBytesOutOfDate = true;
+                break;
+
+            case DiskII::MOTOR_RIGHT_TWO:
+                currentHeadLocation[driveSelected] = std::min(currentHeadLocation[driveSelected] + 2, DiskII::headDiscretePositions- 1);
+                trackBytesOutOfDate = true;
+                break;
+
+            case DiskII::MOTOR_LEFT_ONE:
+                currentHeadLocation[driveSelected] = std::max(currentHeadLocation[driveSelected] - 1, 0);
+                trackBytesOutOfDate = true;
+                break;
+
+            case DiskII::MOTOR_LEFT_TWO:
+                currentHeadLocation[driveSelected] = std::max(currentHeadLocation[driveSelected] - 2, 0);
+                trackBytesOutOfDate = true;
+                break;
+
+            case DiskII::MOTOR_NONE:
+                // nothing;
+                break;
+
+            case DiskII::MOTOR_SNAP: {
+                /* calculate which way head moves from magnet and head position */
+                int headLocationAlignedWithPhaseMagnet = phase * 2;
+
+                if(currentHeadLocation[driveSelected] == headLocationAlignedWithPhaseMagnet) {
+
+                    /* just reenergized magnet last deenergized, do nothing */
+
+                } else {
+                    int old = currentHeadLocation[driveSelected];
+                    currentHeadLocation[driveSelected] = DiskII::calculateMotorSnapLocation(currentHeadLocation[driveSelected], headLocationAlignedWithPhaseMagnet);
+                    if(debug & DEBUG_FLOPPY) {
+                        printf("energized phase %d from no other magnets, track stepper motor snapped from %d to %d\n", phase, old, currentHeadLocation[driveSelected]);
+                    }
+                    trackBytesOutOfDate = true;
+                }
+                break;
+            }
+
+            case DiskII::MOTOR_STATE_NEVER:
+                if(debug & DEBUG_WARN) {
+                    fprintf(stderr, "unexpected track stepper motor transition: %d,%d,%d,%d to %d,%d,%d,%d\n",
+                        oldMagnetState[0] ? 1 : 0, oldMagnetState[1] ? 1 : 0, oldMagnetState[2] ? 1 : 0, oldMagnetState[3] ? 1 : 0,
+                        newMagnetState[0] ? 1 : 0, newMagnetState[1] ? 1 : 0, newMagnetState[2] ? 1 : 0, newMagnetState[3] ? 1 : 0);
+                }
+                break;
+        }
+
+        driveMagnetState[driveSelected] = newMagnetState;
 
         if(debug & DEBUG_FLOPPY) printf("stepper %04X, phase %d, state %d, so stepper motor state now: %d, %d, %d, %d\n",
             addr, phase, state,
-            headStepperPhase[driveSelected][0], headStepperPhase[driveSelected][1],
-            headStepperPhase[driveSelected][2], headStepperPhase[driveSelected][3]);
+            newMagnetState[0] ? 1 : 0, newMagnetState[1] ? 1 : 0, newMagnetState[2] ? 1 : 0, newMagnetState[3] ? 1 : 0);
 
-        if(state == 1) { // turn stepper motor phase on
-
-            if(headStepperMostRecentPhase[driveSelected] == (((phase - 1) + 4) % 4)) { // stepping up
-
-                currentTrackNumber[driveSelected] = min(currentTrackNumber[driveSelected] + 1, 69);
-                trackBytesOutOfDate = true;
-                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", currentTrackNumber[driveSelected]);
-
-            } else if(headStepperMostRecentPhase[driveSelected] == ((phase + 1) % 4)) { // stepping down
-
-                currentTrackNumber[driveSelected] = max(0, currentTrackNumber[driveSelected] - 1);
-                trackBytesOutOfDate = true;
-                if(debug & DEBUG_FLOPPY) printf("track number now %d\n", currentTrackNumber[driveSelected]);
-
-            } else if(headStepperMostRecentPhase[driveSelected] == phase) { // unexpected condition
-
-                if(debug & DEBUG_FLOPPY) printf("track head stepper no change\n");
-
-            } else { // unexpected condition
-
-                if(debug & DEBUG_WARN) fprintf(stderr, "unexpected track stepper motor state: %d, %d, %d, %d\n",
-                    headStepperPhase[driveSelected][0], headStepperPhase[driveSelected][1],
-                    headStepperPhase[driveSelected][2], headStepperPhase[driveSelected][3]);
-                if(debug & DEBUG_WARN) fprintf(stderr, "most recent phase: %d\n", headStepperMostRecentPhase[driveSelected]);
-
-            }
-
-            headStepperMostRecentPhase[driveSelected] = phase;
-        }
     }
 
     virtual bool write(int addr, uint8_t data)
@@ -979,6 +1328,8 @@ struct MAINboard : board_base
     backed_region hires_page2 = {"hires_page2", 0x4000, 0x2000, RAM, &regions, read_from_main_ram, write_to_main_ram};
     backed_region hires_page2x = {"hires_page2x", 0x4000, 0x2000, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
 
+    static std::map<uint16_t, std::string> MMIO_named_locations;
+
     set<int> ignore_mmio = {
         0xC058, // CLRAN0 through Apple //e
         0xC05A, // CLRAN1 through Apple //e
@@ -987,7 +1338,8 @@ struct MAINboard : board_base
         0xC060, // TAPEIN through Apple //e
         0xC061, // RDBTN0 Open Apple on and after Apple //e
         0xC062, // BUTN1 Solid Apple on and after Apple //e
-        };
+    };
+
     set<int> banking_read_switches = {
         0xC080,
         0xC081,
@@ -1339,8 +1691,14 @@ struct MAINboard : board_base
                 data = 0x00;
                 return true;
             }
-            printf("unhandled MMIO Read at %04X\n", addr);
-            fflush(stdout); exit(0);
+            if(MMIO_named_locations.count(addr) > 0) {
+                printf("unhandled MMIO Read at %04X (%s)\n", addr, MMIO_named_locations.at(addr).c_str());
+            } else {
+                printf("unhandled MMIO Read at %04X\n", addr);
+            }
+            data = 0x00;
+            return true;
+            // fflush(stdout); exit(0);
         }
         if((addr & 0xFF00) == 0xC300) {
             if(debug & DEBUG_SWITCH) printf("read 0x%04X, enabling internal C800 ROM\n", addr);
@@ -1531,8 +1889,13 @@ struct MAINboard : board_base
                 speaker_transitioning_to_high = !speaker_transitioning_to_high;
                 return true;
             }
-            printf("unhandled MMIO Write at %04X\n", addr);
-            fflush(stdout); exit(0);
+            if(MMIO_named_locations.count(addr) > 0) {
+                printf("unhandled MMIO Write at %04X (%s)\n", addr, MMIO_named_locations.at(addr).c_str());
+            } else {
+                printf("unhandled MMIO Write at %04X\n", addr);
+            }
+            return false;
+            // fflush(stdout); exit(0);
         }
         if(debug & DEBUG_WARN) printf("unhandled memory write to %04X\n", addr);
         if(exit_on_memory_fallthrough) {
@@ -1541,6 +1904,14 @@ struct MAINboard : board_base
         }
         return false;
     }
+};
+
+std::map<uint16_t, std::string> MAINboard::MMIO_named_locations =
+{
+    {0xC068, "STATEREG"},
+    {0xC05C, "CLRAN2"},
+    {0xC05E, "CLRAN3"},
+    {0xC05F, "SETAN3"},
 };
 
 struct bus_frontend
