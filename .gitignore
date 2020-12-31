@@ -1,3 +1,9 @@
 *.o
 apple2e
 *.gif
+.DS_Store
+*.bin
+*.rom
+dumpdiffs
+generate_floppy_motor_state
+test6502
