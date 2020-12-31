@@ -7,3 +7,6 @@ apple2e
 dumpdiffs
 generate_floppy_motor_state
 test6502
+apple2
+*.dsk
+*.dSYM
