@@ -55,7 +55,7 @@ std::string read_bus_and_disassemble(const BUS &bus, int pc)
     buf[1] = bus.read(pc + 1);
     buf[2] = bus.read(pc + 2);
     buf[3] = bus.read(pc + 3);
-    auto [bytes, dis] = disassemble_6502(pc - 1, buf);
+    auto [bytes, dis] = disassemble_6502(pc, buf);
     return dis;
 }
 
