@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define SUPPORT_65C02 1
+#define EMULATE_65C02 1
 
 template<class CLK, class BUS>
 struct CPU6502
@@ -205,6 +205,9 @@ struct CPU6502
                 stack_push((pc + 1) & 0xFF);
                 stack_push(p | B2 | B); // | B says the Synertek 6502 reference
                 p |= I;
+#if EMULATE_65C02
+                p &= ~D;
+#endif /* EMULATE_65C02 */
                 uint8_t low = bus.read(0xFFFE);
                 uint8_t high = bus.read(0xFFFF);
                 pc = low + high * 256;
@@ -1618,7 +1621,7 @@ struct CPU6502
                 break;
             }
 
-#if SUPPORT_65C02
+#if EMULATE_65C02
             // 65C02 instructions
 
             case 0x0F: case 0x1F: case 0x2F: case 0x3F:
@@ -1626,8 +1629,8 @@ struct CPU6502
                 int whichbit = (inst >> 4) & 0x7;
                 uint8_t zpg = read_pc_inc();
                 uint8_t m = bus.read(zpg);
+                int32_t rel = (read_pc_inc() + 128) % 256 - 128;
                 if(!(m & (1 << whichbit))) {
-                    int32_t rel = (read_pc_inc() + 128) % 256 - 128;
                     // if((pc + rel) / 256 != pc / 256)
                         // clk.add_cpu_cycles(1); // XXX ???
                     pc += rel;
@@ -1640,8 +1643,8 @@ struct CPU6502
                 int whichbit = (inst >> 4) & 0x7;
                 uint8_t zpg = read_pc_inc();
                 uint8_t m = bus.read(zpg);
+                int32_t rel = (read_pc_inc() + 128) % 256 - 128;
                 if(m & (1 << whichbit)) {
-                    int32_t rel = (read_pc_inc() + 128) % 256 - 128;
                     // if((pc + rel) / 256 != pc / 256)
                         // clk.add_cpu_cycles(1); // XXX ???
                     pc += rel;
@@ -1779,7 +1782,113 @@ struct CPU6502
                 set_flags(N | Z, m = a - m);
                 break;
             }
-#endif // SUPPORT_65C02
+
+            case 0x1C: { // TRB abs
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
+                m = bus.read(addr);
+                set_flags(Z, m & a);
+                bus.write(addr, m & ~a);
+                break;
+            }
+
+            case 0x14: { // TRB zpg
+                uint8_t zpgaddr = read_pc_inc();
+                m = bus.read(zpgaddr);
+                set_flags(Z, m & a);
+                bus.write(zpgaddr, m & ~a);
+                break;
+            }
+
+            case 0x0C: { // TSB abs
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
+                m = bus.read(addr);
+                set_flags(Z, m & a);
+                bus.write(addr, m | a);
+                break;
+            }
+
+            case 0x04: { // TRB zpg
+                uint8_t zpgaddr = read_pc_inc();
+                m = bus.read(zpgaddr);
+                set_flags(Z, m & a);
+                bus.write(zpgaddr, m | a);
+                break;
+            }
+
+            case 0x02: case 0x22: case 0x42: case 0x62: case 0x82: case 0xC2: case 0xE2: { // two-byte NOP, 2 cycles
+                uint8_t ignored = read_pc_inc();
+                (void)ignored;
+                break;
+            }
+
+            case 0x03: case 0x13: case 0x23: case 0x33: case 0x43: case 0x53: case 0x63: case 0x73:
+            case 0x83: case 0x93: case 0xA3: case 0xB3: case 0xC3: case 0xD3: case 0xE3: case 0xF3: { // one-byte NOP, 1 cycle
+                break;
+            }
+
+            case 0x0B: case 0x1B: case 0x2B: case 0x3B: case 0x4B: case 0x5B: case 0x6B: case 0x7B:
+            case 0x8B: case 0x9B: case 0xAB: case 0xBB: case 0xCB: case 0xDB: case 0xEB: case 0xFB: { // one-byte NOP, 1 cycle
+                break;
+            }
+
+            case 0x44: { // two-byte NOP, 3 cycles
+                uint8_t ignored = read_pc_inc();
+                (void)ignored;
+                break;
+            }
+
+            case 0x54: case 0xD4: case 0xF4: { // two-byte NOP, 4 cycles
+                uint8_t ignored = read_pc_inc();
+                (void)ignored;
+                break;
+            }
+
+            case 0x5C: { // three-byte NOP, 8 cycles
+                uint8_t ignored1 = read_pc_inc();
+                (void)ignored1;
+                uint8_t ignored2 = read_pc_inc();
+                (void)ignored2;
+                break;
+            }
+
+            case 0xDC: case 0xFC: { // three-byte NOP, 4 cycles
+                uint8_t ignored1 = read_pc_inc();
+                (void)ignored1;
+                uint8_t ignored2 = read_pc_inc();
+                (void)ignored2;
+                break;
+            }
+
+            case 0x7C: { // JMP (ind, X)
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256 + x;
+                uint8_t addrl = bus.read(addr);
+                uint8_t addrh = bus.read(addr + 1);
+                addr = addrl + addrh * 256;
+                pc = addr;
+                break;
+            }
+
+            case 0x89: { // BIT imm
+                m = read_pc_inc();
+                flag_change(Z, (a & m) == 0);
+                break;
+            }
+
+            case 0x9E: { // STZ abs, X
+                uint8_t low = read_pc_inc();
+                uint8_t high = read_pc_inc();
+                uint16_t addr = low + high * 256;
+                bus.write(addr + x, 0);
+                break;
+            }
+
+#endif // EMULATE_65C02
 
             default:
                 printf("unhandled instruction %02X at %04X\n", inst, pc - 1);
@@ -1794,22 +1903,22 @@ struct CPU6502
 template<class CLK, class BUS>
 const int32_t CPU6502<CLK, BUS>::cycles[256] =
 {
-    /* 0x0- */ 7, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, -1, 4, 6, 5,
-    /* 0x1- */ 2, 5, 5, -1, -1, 4, 6, -1, 2, 4, 2, -1, -1, 4, 7, 5,
-    /* 0x2- */ 6, 6, -1, -1, 3, 3, 5, -1, 4, 2, 2, -1, 4, 4, 6, 5,
-    /* 0x3- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, 2, -1, -1, 4, 7, 5,
-    /* 0x4- */ 6, 6, -1, -1, -1, 3, 5, -1, 3, 2, 2, -1, 3, 4, 6, 5,
-    /* 0x5- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, 3, -1, -1, 4, 7, 5,
-    /* 0x6- */ 6, 6, -1, -1, 3, 3, 5, -1, 4, 2, 2, -1, 5, 4, 6, 5,
-    /* 0x7- */ 2, 5, 5, -1, -1, 4, 6, -1, 2, 4, 4, -1, -1, 4, 7, 5,
-    /* 0x8- */ 2, 6, -1, -1, 3, 3, 3, -1, 2, -1, 2, -1, 4, 4, 4, 5,
-    /* 0x9- */ 2, 6, 5, -1, 4, 4, 4, -1, 2, 5, 2, -1, 4, 5, -1, 5,
-    /* 0xA- */ 2, 6, 2, -1, 3, 3, 3, -1, 2, 2, 2, -1, 4, 4, 4, 5,
-    /* 0xB- */ 2, 5, 5, -1, 4, 4, 4, -1, 2, 4, 2, -1, 4, 4, 4, 5,
-    /* 0xC- */ 2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 3, 5,
-    /* 0xD- */ 2, 5, 5, -1, -1, 4, 6, -1, 2, 4, 3, -1, -1, 4, 7, 5,
-    /* 0xE- */ 2, 6, -1, -1, 3, 3, 5, -1, 2, 2, 2, -1, 4, 4, 6, 5,
-    /* 0xF- */ 2, 5, -1, -1, -1, 4, 6, -1, 2, 4, 4, -1, -1, 4, 7, 5,
+    /* 0x0- */ 7, 6, 2, 1, 5, 3, 5, 0, 3, 2, 2, 1, 6, 4, 6, 5,
+    /* 0x1- */ 2, 5, 5, 1, 5, 4, 6, 0, 2, 4, 2, 1, 6, 4, 7, 5,
+    /* 0x2- */ 6, 6, 2, 1, 3, 3, 5, 0, 4, 2, 2, 1, 4, 4, 6, 5,
+    /* 0x3- */ 2, 5, 0, 1, 0, 4, 6, 0, 2, 4, 2, 1, 0, 4, 7, 5,
+    /* 0x4- */ 6, 6, 2, 1, 3, 3, 5, 0, 3, 2, 2, 1, 3, 4, 6, 5,
+    /* 0x5- */ 2, 5, 0, 1, 4, 4, 6, 0, 2, 4, 3, 1, 8, 4, 7, 5,
+    /* 0x6- */ 6, 6, 2, 1, 3, 3, 5, 0, 4, 2, 2, 1, 5, 4, 6, 5,
+    /* 0x7- */ 2, 5, 5, 1, 0, 4, 6, 0, 2, 4, 4, 1, 6, 4, 7, 5,
+    /* 0x8- */ 2, 6, 2, 1, 3, 3, 3, 0, 2, 2, 2, 1, 4, 4, 4, 5,
+    /* 0x9- */ 2, 6, 5, 1, 4, 4, 4, 0, 2, 5, 2, 1, 4, 5, 5, 5,
+    /* 0xA- */ 2, 6, 2, 1, 3, 3, 3, 0, 2, 2, 2, 1, 4, 4, 4, 5,
+    /* 0xB- */ 2, 5, 5, 1, 4, 4, 4, 0, 2, 4, 2, 1, 4, 4, 4, 5,
+    /* 0xC- */ 2, 6, 2, 1, 3, 3, 5, 0, 2, 2, 2, 1, 4, 4, 3, 5,
+    /* 0xD- */ 2, 5, 5, 1, 4, 4, 6, 0, 2, 4, 3, 1, 4, 4, 7, 5,
+    /* 0xE- */ 2, 6, 2, 1, 3, 3, 5, 0, 2, 2, 2, 1, 4, 4, 6, 5,
+    /* 0xF- */ 2, 5, 0, 1, 4, 4, 6, 0, 2, 4, 4, 1, 4, 4, 7, 5,
 };
 
 #endif // CPU6502_H
