@@ -1020,14 +1020,18 @@ struct DISKIIboard : board_base
             return true;
         } else if(addr == SELECT) {
             if(debug & DEBUG_FLOPPY) printf("floppy select first drive\n");
-            driveSelected = 0;
-            trackBytesOutOfDate = true;
+            if(driveSelected != 0) {
+                driveSelected = 0;
+                trackBytesOutOfDate = true;
+            }
             data = 0;
             return true;
         } else if(addr == SELECT + 1) {
             if(debug & DEBUG_FLOPPY) printf("floppy select second drive\n");
-            driveSelected = 1;
-            trackBytesOutOfDate = true;
+            if(driveSelected != 1) {
+                driveSelected = 1;
+                trackBytesOutOfDate = true;
+            }
             data = 0;
             return true;
         } else if(addr == ENABLE) {
