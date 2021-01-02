@@ -255,21 +255,21 @@ static const char *hirescolor_fragment_shader = R"(
  
             if(palette == 0u) { 
                 if((even == 0u) && (odd == 255u)) { 
-                    color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1.0);
-                    /* green 20 245  60 */ 
+                    /* green 0, 251, 0 */ 
+                    color = vec4(0.0/255.0, 251.0/255.0, 0.0/255.0, 1.0);
                 } else if((even == 255u) && (odd == 0u)) { 
-                    /* purple 255  68 253 */ 
-                    color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1.0);
+                    /* purple 255, 3, 255 */ 
+                    color = vec4(255.0/255.0, 3.0/255.0, 255.0/255.0, 1.0);
                 } else if((even == 0u) && (odd == 0u)) { 
                     color = vec4(0, 0, 0, 1);
                 } /* handled 1,1 above */ 
             } else { 
                 if((even == 0u) && (odd == 255u)) { 
-                    /* orange 255 106  60 */ 
-                    color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1.0);
+                    /* orange 255, 109, 0 */ 
+                    color = vec4(255.0/255.0, 109.0/255.0, 0.0/255.0, 1.0);
                 } else if((even == 255u) && (odd == 0u)) { 
-                    /* blue 20 207 253 */ 
-                    color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1.0);
+                    /* blue 0, 145, 255 */ 
+                    color = vec4(0.0/255.0, 145.0/255.0, 255.0/255.0, 1.0);
                 } else if((even == 0u) && (odd == 0u)) { 
                     color = vec4(0, 0, 0, 1);
                 } /* handled 1,1 above */ 
