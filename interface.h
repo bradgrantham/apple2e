@@ -57,19 +57,22 @@ struct ModeSettings
     bool mixed;
     int page; // Apple //e page minus 1 (so 0,1 not 1,2)
     bool vid80;
+    bool dhgr;
     bool altchar;
     ModeSettings() :
         mode(TEXT),
         mixed(false),
         page(0),
         vid80(false),
+        dhgr(false),
         altchar(false)
     {}
-    ModeSettings(DisplayMode mode_, bool mixed_, int page_, bool vid80_, bool altchar_) :
+    ModeSettings(DisplayMode mode_, bool mixed_, int page_, bool vid80_, bool dhgr, bool altchar_) :
         mode(mode_),
         mixed(mixed_),
         page(page_),
         vid80(vid80_),
+        dhgr(false),
         altchar(altchar_)
     {}
     bool operator !=(const ModeSettings& ms)
@@ -79,6 +82,7 @@ struct ModeSettings
             (ms.mixed != mixed) || 
             (ms.page != page) || 
             (ms.vid80 != vid80) || 
+            (ms.dhgr != dhgr) || 
             (ms.altchar != altchar);
     }
 };

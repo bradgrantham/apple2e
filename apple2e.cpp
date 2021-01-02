@@ -1236,6 +1236,8 @@ struct MAINboard : board_base
     SoftSwitch PAGE2 {"PAGE2", 0xC054, 0xC055, 0xC01C, true, switches, false, true};
     SoftSwitch HIRES {"HIRES", 0xC056, 0xC057, 0xC01D, true, switches, false, true};
 
+    std::array<bool,4> AN = {false, false, false, false};
+
     vector<backed_region*> regions;
     std::array<backed_region*,256> read_regions_by_page;
     std::array<backed_region*,256> write_regions_by_page;
@@ -1322,10 +1324,24 @@ struct MAINboard : board_base
     backed_region text_page2 = {"text_page2", 0x0800, 0x0400, RAM, &regions, read_from_main_ram, write_to_main_ram};
     backed_region text_page2x = {"text_page2x", 0x0800, 0x0400, RAM, &regions, read_from_aux_ram, write_to_aux_ram};
 
-    enabled_func read_from_aux_hires1 = [&]{return HIRES && RAMRD && ((!STORE80) || (STORE80 && PAGE2));};
-    enabled_func write_to_aux_hires1 = [&]{return HIRES && RAMWRT && ((!STORE80) || (STORE80 && PAGE2));};
+// Understanding the IIe by Sather:
+// if 80Store is set and hires is cleared, then page2 switches text between main and aux
+// if 80Store is set and hires is set, then page2 switches text AND hires between main and aux
+// if 80Store is cleared, then RAMRD and RAMWRT switch text AND hires AND 200-BFFF between main and aux
+    // enabled_func read_from_aux_hires1 = [&]{return HIRES && RAMRD && ((!STORE80) || (STORE80 && PAGE2));};
+    // enabled_func write_to_aux_hires1 = [&]{return HIRES && RAMWRT && ((!STORE80) || (STORE80 && PAGE2));};
+    enabled_func read_from_aux_hires1 = [&]{return (STORE80 && HIRES && PAGE2) || (!STORE80 && RAMRD);};
+    enabled_func write_to_aux_hires1 = [&]{return (STORE80 && HIRES && PAGE2) || (!STORE80 && RAMWRT);};
     enabled_func read_from_main_hires1 = [&]{return !read_from_aux_hires1();};
     enabled_func write_to_main_hires1 = [&]{return !write_to_aux_hires1();};
+
+ //STA $C057 ;TURN ON HIRES
+ //STA $C05E ;TURN ON DHR ?
+ //STA $C00D ;TURN ON 80 COLUMNS
+ //STA $C001 ;TURN ON 80STORE
+ //STA $C055 ;TURN ON PAGE2
+ //LDA #$0E  ;LOAD 14
+ //STA $2000 ;Put in first location on HIRES PAGE 1 in AUX RAM.
 
     backed_region hires_page1 = {"hires_page1", 0x2000, 0x2000, RAM, &regions, read_from_main_hires1, write_to_main_hires1};
     backed_region hires_page1x = {"hires_page1x", 0x2000, 0x2000, RAM, &regions, read_from_aux_hires1, write_to_aux_hires1};
@@ -1335,10 +1351,6 @@ struct MAINboard : board_base
     static std::map<uint16_t, std::string> MMIO_named_locations;
 
     set<int> ignore_mmio = {
-        0xC058, // CLRAN0 through Apple //e
-        0xC05A, // CLRAN1 through Apple //e
-        0xC05D, // SETAN2 through Apple //e
-        0xC05F, // SETAN3 through Apple //e
         0xC060, // TAPEIN through Apple //e
         0xC061, // RDBTN0 Open Apple on and after Apple //e
         0xC062, // BUTN1 Solid Apple on and after Apple //e
@@ -1438,13 +1450,15 @@ struct MAINboard : board_base
     {
         APPLE2Einterface::DisplayMode mode = TEXT ? APPLE2Einterface::TEXT : (HIRES ? APPLE2Einterface::HIRES : APPLE2Einterface::LORES);
         int page = (PAGE2 && !STORE80) ? 1 : 0;
-        if(0)printf("mode %s, mixed %s, page %d, vid80 %s, altchar %s\n",
+        bool dhgr = (!AN[3]) && VID80;
+        if(0)printf("mode %s, mixed %s, page %d, vid80 %s, dhgr %s, altchar %s\n",
             (mode == APPLE2Einterface::TEXT) ? "TEXT" : ((mode == APPLE2Einterface::LORES) ? "LORES" : "HIRES"),
             MIXED ? "true" : "false",
             page,
             VID80 ? "true" : "false",
+            dhgr ? "true" : "false",
             ALTCHAR ? "true" : "false");
-        return APPLE2Einterface::ModeSettings(mode, MIXED, page, VID80, ALTCHAR);
+        return APPLE2Einterface::ModeSettings(mode, MIXED, page, VID80, dhgr, ALTCHAR);
     }
 
     APPLE2Einterface::ModeSettings old_mode_settings;
@@ -1689,6 +1703,15 @@ struct MAINboard : board_base
                 tie(value, button) = get_paddle(num);
                 data = button ? 0xff : 0x0;
                 return true;
+            } else if(addr >= 0xC058 && addr <= 0xC05F) {
+                /* annunciators & DHGR enable */
+                int num = (addr - 0xC058) / 2;
+                bool set = addr & 1;
+                if(true /*debug & DEBUG_RW*/) printf("read %04X, %s annunciator %d\n", addr, set ? "set" : "clear", num);
+                AN[num] = set;
+                // Should also do something here if we are emulating something attached to AN{0,1,2,3}
+                data = 0;
+                return true;
             }
             if(ignore_mmio.find(addr) != ignore_mmio.end()) {
                 if(debug & DEBUG_RW) printf("read %04X, ignored, return 0x00\n", addr);
@@ -1807,20 +1830,11 @@ struct MAINboard : board_base
             return true;
         }
 #endif
-#if 0
-        if(text_page1.write(addr, data) ||
-            text_page1x.write(addr, data) ||
-            text_page2.write(addr, data) ||
-            text_page2x.write(addr, data) ||
-            hires_page1.write(addr, data) ||
-            hires_page1x.write(addr, data) ||
-            hires_page2.write(addr, data) ||
-            hires_page2x.write(addr, data))
-#else
-        if(((addr >= 0x400) && (addr <= 0xBFF)) || ((addr >= 0x2000) && (addr <= 0x5FFF)))
-#endif
-        {
+        if((addr >= 0x400) && (addr <= 0xBFF)) {
             display_write(addr, write_to_aux_text1(), data);
+        }
+        if((addr >= 0x2000) && (addr <= 0x5FFF)) {
+            display_write(addr, write_to_aux_hires1(), data);
         }
         for(auto b : boards) { 
             if(b->write(addr, data)) {
@@ -1891,6 +1905,15 @@ struct MAINboard : board_base
                 data = 0x00;
                 where_in_waveform = 0;
                 speaker_transitioning_to_high = !speaker_transitioning_to_high;
+                return true;
+            }
+            if(addr >= 0xC058 && addr <= 0xC05F) {
+                /* annunciators & DHGR enable */
+                int num = (addr - 0xC058) / 2;
+                bool set = addr & 1;
+                if(true /*debug & DEBUG_RW*/) printf("write %04X, %s annunciator %d\n", addr, set ? "set" : "clear", num);
+                AN[num] = set;
+                // Should also do something here if we are emulating something attached to AN{0,1,2,3}
                 return true;
             }
             if(MMIO_named_locations.count(addr) > 0) {

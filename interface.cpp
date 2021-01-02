@@ -95,6 +95,26 @@ event dequeue_event()
         return {NONE, 0};
 }
 
+GLuint artifact_colors_texture;
+uint8_t artifact_colors[][3] = {
+    {  0,   0,   0}, //  0 "black"       -> 0,0,0,0 -> {0.000000, 0.000000, 0.000000}
+    {208,   0,  50}, //  1 "red"         -> 1,0,0,0 -> {0.815901, 0.000000, 0.197238}
+    { 72,  11, 255}, //  2 "dark blue"   -> 0,1,0,0 -> {0.283288, 0.043435, 1.000000}
+    {255,   3, 255}, //  3 "purple"      -> 1,1,0,0 -> {1.000000, 0.015525, 1.000000}
+    {  0, 134,  77}, //  4 "dark green"  -> 0,0,1,0 -> {0.000000, 0.527909, 0.302762}
+    {127, 127, 127}, //  5 "gray 1"      -> 1,0,1,0 -> {0.500000, 0.500000, 0.500000}
+    {  0, 145, 255}, //  6 "medium blue" -> 0,1,1,0 -> {0.000000, 0.571344, 1.000000}
+    {199, 138, 255}, //  7 "light blue"  -> 1,1,1,0 -> {0.783288, 0.543435, 1.000000}
+    { 55, 116,   0}, //  8 "brown"       -> 0,0,0,1 -> {0.216712, 0.456565, 0.000000}
+    {255, 109,   0}, //  9 "orange"      -> 1,0,0,1 -> {1.000000, 0.428656, 0.000000}
+    {127, 127, 127}, // 10 "gray 2"      -> 0,1,0,1 -> {0.500000, 0.500000, 0.500000}
+    {255, 120, 177}, // 11 "pink"        -> 1,1,0,1 -> {1.000000, 0.472091, 0.697238}
+    {  0, 251,   0}, // 12 "light green" -> 0,0,1,1 -> {0.000000, 0.984475, 0.000000}
+    {182, 243,   0}, // 13 "yello"       -> 1,0,1,1 -> {0.716712, 0.956565, 0.000000}
+    { 46, 255, 204}, // 14 "aqua"        -> 0,1,1,1 -> {0.184099, 1.000000, 0.802762}
+    {255, 255, 255}, // 15 "white"       -> 1,1,1,1 -> {1.000000, 1.000000, 1.000000}
+};
+
 opengl_texture font_texture;
 constexpr uint32_t fonttexture_w = 7;
 constexpr uint32_t fonttexture_h = 8 * 96;
@@ -130,6 +150,7 @@ GLuint textport80_font_texture_coord_scale_location;
 
 GLuint lores_program;
 GLuint lores_texture_location;
+GLuint lores_artifact_colors_texture_location;
 GLuint lores_texture_coord_scale_location;
 GLuint lores_x_offset_location;
 GLuint lores_y_offset_location;
@@ -137,7 +158,7 @@ GLuint lores_to_screen_location;
 
 const uint32_t hires_w = 320;  // MSBit is color chooser, Apple ][ weirdness
 const uint32_t hires_h = 192;
-opengl_texture hires_texture[2];
+opengl_texture hires_texture[2][2]; // [aux][page]
 
 GLuint hires_program;
 GLuint hires_texture_location;
@@ -149,6 +170,7 @@ GLuint hires_y_offset_location;
 GLuint hirescolor_program;
 GLuint hirescolor_texture_location;
 GLuint hirescolor_texture_coord_scale_location;
+GLuint hirescolor_artifact_colors_texture_location;
 GLuint hirescolor_to_screen_location;
 GLuint hirescolor_x_offset_location;
 GLuint hirescolor_y_offset_location;
@@ -223,6 +245,7 @@ static const char *hirescolor_fragment_shader = R"(
     in vec2 raster_coords;
     uniform vec2 hires_texture_coord_scale;
     uniform sampler2D hires_texture;
+    uniform sampler1D artifact_colors_texture;
     
     out vec4 color;
     
@@ -233,10 +256,12 @@ static const char *hirescolor_fragment_shader = R"(
         int texturex = byte * 8 + bit;
         return vec2(texturex + .01f, y + .01f) * hires_texture_coord_scale; 
     }
+
     void main()
     {
         int x = int(raster_coords.x); 
         int y = int(raster_coords.y); 
+        int colorIndex;
  
         uint left = (x < 1) ? 0u : uint(255 * texture(hires_texture, raster_to_texture(x - 1, y)).x);
         uint pixel = uint(255 * texture(hires_texture, raster_to_texture(x, y)).x);
@@ -244,37 +269,36 @@ static const char *hirescolor_fragment_shader = R"(
  
         if((pixel == 255u) && ((left == 255u) || (right == 255u))) { 
             /* Okay, first of all, if this pixel's on and its left or right are on, it's white. */ 
-            color = vec4(1.0, 1.0, 1.0, 1.0);
+            colorIndex = 15;
         } else if((pixel == 0u) && (left == 0u) && (right == 0u)) { 
             /* If none are on, it's black */ 
-            color = vec4(0.0, 0.0, 0.0, 1.0);
+            colorIndex = 0;
+
         } else { 
+
             uint even = (x % 2 == 1) ? left : pixel; 
             uint odd = (x % 2 == 1) ? pixel : right; 
             uint palette = uint(texture(hires_texture, vec2((x / 7) * 8 + 7 + .01f, raster_coords.y + .01f) * hires_texture_coord_scale).x); 
  
             if(palette == 0u) { 
                 if((even == 0u) && (odd == 255u)) { 
-                    /* green 0, 251, 0 */ 
-                    color = vec4(0.0/255.0, 251.0/255.0, 0.0/255.0, 1.0);
+                    colorIndex = 12; /* green */
                 } else if((even == 255u) && (odd == 0u)) { 
-                    /* purple 255, 3, 255 */ 
-                    color = vec4(255.0/255.0, 3.0/255.0, 255.0/255.0, 1.0);
+                    colorIndex = 3; /* purple */
                 } else if((even == 0u) && (odd == 0u)) { 
-                    color = vec4(0, 0, 0, 1);
+                    colorIndex = 0;
                 } /* handled 1,1 above */ 
             } else { 
                 if((even == 0u) && (odd == 255u)) { 
-                    /* orange 255, 109, 0 */ 
-                    color = vec4(255.0/255.0, 109.0/255.0, 0.0/255.0, 1.0);
+                    colorIndex = 9; /* orange */
                 } else if((even == 255u) && (odd == 0u)) { 
-                    /* blue 0, 145, 255 */ 
-                    color = vec4(0.0/255.0, 145.0/255.0, 255.0/255.0, 1.0);
+                    colorIndex = 6; /* "medium" blue */
                 } else if((even == 0u) && (odd == 0u)) { 
-                    color = vec4(0, 0, 0, 1);
+                    colorIndex = 0;
                 } /* handled 1,1 above */ 
             } 
         } 
+        color = texture(artifact_colors_texture, colorIndex/16.0 + .01f);
     })";
 
 static const char *text_vertex_shader = R"(
@@ -406,6 +430,7 @@ static const char *lores_fragment_shader = R"(
     in vec2 raster_coords;
     uniform vec2 lores_texture_coord_scale;
     uniform sampler2D lores_texture;
+    uniform sampler1D artifact_colors_texture;
     
     out vec4 color;
     
@@ -414,61 +439,12 @@ static const char *lores_fragment_shader = R"(
         uint byte;
         byte = uint(texture(lores_texture, (uvec2(uint(raster_coords.x) / 7u, uint(raster_coords.y) / 8u) + vec2(.01f, .01f)) * lores_texture_coord_scale).x * 255.0); 
         uint inglyph_y = uint(raster_coords.y) % 8u;
-        uint lorespixel;
+        uint colorIndex;
         if(inglyph_y < 4u)
-            lorespixel = byte % 16u;
+            colorIndex = byte % 16u;
         else
-            lorespixel = byte / 16u;
-        switch(lorespixel) {
-            case 0u:
-                color = vec4(0, 0, 0, 1);
-                break;
-            case 1u:
-                color = vec4(227.0/255.0, 30.0/255.0, 96.0/255.0, 1);
-                break;
-            case 2u:
-                color = vec4(96.0/255.0, 78.0/255.0, 189.0/255.0, 1);
-                break;
-            case 3u:
-                color = vec4(255.0/255.0, 68.0/255.0, 253.0/255.0, 1);
-                break;
-            case 4u:
-                color = vec4(9.0/255.0, 163.0/255.0, 96.0/255.0, 1);
-                break;
-            case 5u:
-                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);
-                break;
-            case 6u:
-                color = vec4(20.0/255.0, 207.0/255.0, 253.0/255.0, 1);
-                break;
-            case 7u:
-                color = vec4(208.0/255.0, 195.0/255.0, 255.0/255.0, 1);
-                break;
-            case 8u:
-                color = vec4(96.0/255.0, 114.0/255.0, 3.0/255.0, 1);
-                break;
-            case 9u:
-                color = vec4(255.0/255.0, 106.0/255.0, 60.0/255.0, 1);
-                break;
-            case 10u:
-                color = vec4(156.0/255.0, 156.0/255.0, 156.0/255.0, 1);
-                break;
-            case 11u:
-                color = vec4(255.0/255.0, 160.0/255.0, 208.0/255.0, 1);
-                break;
-            case 12u:
-                color = vec4(20.0/255.0, 245.0/255.0, 60.0/255.0, 1);
-                break;
-            case 13u:
-                color = vec4(208.0/255.0, 221.0/255.0, 141.0/255.0, 1);
-                break;
-            case 14u:
-                color = vec4(114.0/255.0, 255.0/255.0, 208.0/255.0, 1);
-                break;
-            case 15u:
-                color = vec4(255.0/255.0, 255.0/255.0, 255.0/255.0, 1);
-                break;
-        }
+            colorIndex = byte / 16u;
+        color = texture(artifact_colors_texture, colorIndex/16.0 + .01f);
     })";
 
 void set_image_shader(float to_screen[9], const opengl_texture& texture, float x, float y)
@@ -499,6 +475,12 @@ void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool co
         glBindTexture(GL_TEXTURE_2D, texture);
         glUniform2f(hirescolor_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
         glUniform1i(hirescolor_texture_location, 0);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_1D, artifact_colors_texture);
+        glUniform1i(hirescolor_artifact_colors_texture_location, 1);
+        CheckOpenGL(__FILE__, __LINE__);
+
         glUniformMatrix3fv(hirescolor_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hirescolor_x_offset_location, x);
         glUniform1f(hirescolor_y_offset_location, y);
@@ -507,10 +489,12 @@ void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool co
     } else {
 
         glUseProgram(hires_program);
+
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
         glUniform2f(hires_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
         glUniform1i(hires_texture_location, 0);
+
         glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hires_x_offset_location, x);
         glUniform1f(hires_y_offset_location, y);
@@ -597,13 +581,19 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
         glBindTexture(GL_TEXTURE_2D, textport_texture[0][display_page]);
         glUniform1i(lores_texture_location, 0);
         glUniform2f(lores_texture_coord_scale_location, 1.0 / (textport_w), 1.0 / (textport_h));
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_1D, artifact_colors_texture);
+        glUniform1i(lores_artifact_colors_texture_location, 1);
+        CheckOpenGL(__FILE__, __LINE__);
+
         glUniformMatrix3fv(lores_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(lores_x_offset_location, x);
         glUniform1f(lores_y_offset_location, y);
 
     } else if(display_mode == HIRES) {
 
-        set_hires_shader(to_screen, hires_texture[display_page], draw_using_color, x, y);
+        set_hires_shader(to_screen, hires_texture[0][display_page], draw_using_color, x, y); // XXX should switch aux
 
     }
 }
@@ -1037,13 +1027,24 @@ void initialize_gl(void)
     glClearColor(0, 0, 0, 1);
     CheckOpenGL(__FILE__, __LINE__);
 
+    glGenTextures(1, &artifact_colors_texture);
+    glBindTexture(GL_TEXTURE_1D, artifact_colors_texture);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB, 16, 0, GL_RGB, GL_UNSIGNED_BYTE, artifact_colors);
+    CheckOpenGL(__FILE__, __LINE__);
+    glBindTexture(GL_TEXTURE_1D, GL_NONE);
+
     font_texture = initialize_texture(fonttexture_w, fonttexture_h, font_bytes);
     textport_texture[0][0] = initialize_texture(textport_w, textport_h);
     textport_texture[0][1] = initialize_texture(textport_w, textport_h);
     textport_texture[1][0] = initialize_texture(textport_w, textport_h);
     textport_texture[1][1] = initialize_texture(textport_w, textport_h);
-    hires_texture[0] = initialize_texture(hires_w, hires_h);
-    hires_texture[1] = initialize_texture(hires_w, hires_h);
+    hires_texture[0][0] = initialize_texture(hires_w, hires_h);
+    hires_texture[0][1] = initialize_texture(hires_w, hires_h);
+    hires_texture[1][0] = initialize_texture(hires_w, hires_h);
+    hires_texture[1][1] = initialize_texture(hires_w, hires_h);
     CheckOpenGL(__FILE__, __LINE__);
 
     image_program = GenerateProgram("image", hires_vertex_shader, image_fragment_shader);
@@ -1071,6 +1072,8 @@ void initialize_gl(void)
     assert(hirescolor_program != 0);
     hirescolor_texture_location = glGetUniformLocation(hirescolor_program, "hires_texture");
     hirescolor_texture_coord_scale_location = glGetUniformLocation(hirescolor_program, "hires_texture_coord_scale");
+    hirescolor_artifact_colors_texture_location = glGetUniformLocation(hirescolor_program, "artifact_colors_texture");
+    assert(hirescolor_artifact_colors_texture_location != -1);
     hirescolor_to_screen_location = glGetUniformLocation(hirescolor_program, "to_screen");
     hirescolor_x_offset_location = glGetUniformLocation(hirescolor_program, "x_offset");
     hirescolor_y_offset_location = glGetUniformLocation(hirescolor_program, "y_offset");
@@ -1111,6 +1114,7 @@ void initialize_gl(void)
     assert(lores_program != 0);
     lores_texture_location = glGetUniformLocation(lores_program, "lores_texture");
     lores_texture_coord_scale_location = glGetUniformLocation(lores_program, "lores_texture_coord_scale");
+    lores_artifact_colors_texture_location = glGetUniformLocation(lores_program, "artifact_colors_texture");
     lores_x_offset_location = glGetUniformLocation(lores_program, "x_offset");
     lores_y_offset_location = glGetUniformLocation(lores_program, "y_offset");
     lores_to_screen_location = glGetUniformLocation(lores_program, "to_screen");
@@ -1901,7 +1905,7 @@ void write2(uint16_t addr, bool aux, uint8_t data)
         uint16_t scanout_address = hires_memory_to_scanout_address[within_page];
         uint16_t row = scanout_address / 40;
         uint16_t col = scanout_address % 40;
-        glBindTexture(GL_TEXTURE_2D, hires_texture[page]);
+        glBindTexture(GL_TEXTURE_2D, hires_texture[aux][page]);
         if(page == 0) hgr_page1[addr - 0x2000] = data; // XXX hack
         uint8_t pixels[8];
         for(int i = 0; i < 8 ; i++)
