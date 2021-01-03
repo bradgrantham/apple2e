@@ -72,7 +72,7 @@ struct ModeSettings
         mixed(mixed_),
         page(page_),
         vid80(vid80_),
-        dhgr(false),
+        dhgr(dhgr),
         altchar(altchar_)
     {}
     bool operator !=(const ModeSettings& ms)

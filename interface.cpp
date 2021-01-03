@@ -167,6 +167,14 @@ GLuint hires_to_screen_location;
 GLuint hires_x_offset_location;
 GLuint hires_y_offset_location;
 
+GLuint dhgr_program;
+GLuint dhgr_texture_location;
+GLuint dhgr_aux_texture_location;
+GLuint dhgr_texture_coord_scale_location;
+GLuint dhgr_to_screen_location;
+GLuint dhgr_x_offset_location;
+GLuint dhgr_y_offset_location;
+
 GLuint hirescolor_program;
 GLuint hirescolor_texture_location;
 GLuint hirescolor_texture_coord_scale_location;
@@ -174,6 +182,15 @@ GLuint hirescolor_artifact_colors_texture_location;
 GLuint hirescolor_to_screen_location;
 GLuint hirescolor_x_offset_location;
 GLuint hirescolor_y_offset_location;
+
+GLuint dhgrcolor_program;
+GLuint dhgrcolor_texture_location;
+GLuint dhgrcolor_aux_texture_location;
+GLuint dhgrcolor_texture_coord_scale_location;
+GLuint dhgrcolor_artifact_colors_texture_location;
+GLuint dhgrcolor_to_screen_location;
+GLuint dhgrcolor_x_offset_location;
+GLuint dhgrcolor_y_offset_location;
 
 GLuint image_program;
 GLuint image_texture_location;
@@ -298,6 +315,87 @@ static const char *hirescolor_fragment_shader = R"(
                 } /* handled 1,1 above */ 
             } 
         } 
+        color = texture(artifact_colors_texture, colorIndex/16.0 + .01f);
+    })";
+
+static const char *dhgr_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform vec2 dhgr_texture_coord_scale;
+    uniform sampler2D dhgr_texture;
+    uniform sampler2D dhgr_aux_texture;
+    
+    out vec4 color;
+
+    int get_bit(vec2 coords)
+    {
+        int byte = int(coords.x) / 14;
+        int page = (int(coords.x) / 7) % 2;
+        int bit = int(coords.x) % 7;
+        int texturex = byte * 8 + bit;
+        ivec2 tc = ivec2(texturex, raster_coords.y);
+        if(page == 0) {
+            return int(texture(dhgr_aux_texture, (tc + vec2(.01f, .01f)) * dhgr_texture_coord_scale).x);
+        } else {
+            return int(texture(dhgr_texture, (tc + vec2(.01f, .01f)) * dhgr_texture_coord_scale).x);
+        }
+    }
+    
+    void main()
+    {
+        int bit = get_bit(raster_coords * vec2(2, 1));
+        if(bit == 1)
+            color = vec4(1, 1, 1, 1);
+        else
+            color = vec4(0, 0, 0, 1);
+    })";
+
+static const char *dhgrcolor_fragment_shader = R"(
+    in vec2 raster_coords;
+    uniform vec2 dhgr_texture_coord_scale;
+    uniform sampler2D dhgr_texture;
+    uniform sampler2D dhgr_aux_texture;
+    uniform sampler1D artifact_colors_texture;
+    
+    out vec4 color;
+
+    int get_bit(vec2 coords)
+    {
+        if(coords.x < 0)
+            return 0;
+        int byte = int(coords.x) / 14;
+        int page = (int(coords.x) / 7) % 2;
+        int bit = int(coords.x) % 7;
+        int texturex = byte * 8 + bit;
+        ivec2 tc = ivec2(texturex, raster_coords.y);
+        if(page == 0) {
+            return int(texture(dhgr_aux_texture, (tc + vec2(.01f, .01f)) * dhgr_texture_coord_scale).x);
+        } else {
+            return int(texture(dhgr_texture, (tc + vec2(.01f, .01f)) * dhgr_texture_coord_scale).x);
+        }
+    }
+    
+    void main()
+    {
+        int colorIndex;
+
+        float actualX = raster_coords.x * 2;
+        int phase = int(actualX + 1) % 4;
+
+        int A = get_bit(raster_coords * vec2(2,1) + vec2( 0, 0));
+        int B = get_bit(raster_coords * vec2(2,1) + vec2(-1, 0));
+        int C = get_bit(raster_coords * vec2(2,1) + vec2(-2, 0));
+        int D = get_bit(raster_coords * vec2(2,1) + vec2(-3, 0));
+
+        if(phase == 0) {
+            colorIndex = D * 2 + C * 4 + B * 8 + A * 1; /* shown in screen order */
+        } else if(phase == 1) {
+            colorIndex = D * 4 + C * 8 + B * 1 + A * 2; /* shown in screen order */
+        } else if(phase == 2) {
+            colorIndex = D * 8 + C * 1 + B * 2 + A * 4; /* shown in screen order */
+        } else {
+            colorIndex = D * 1 + C * 2 + B * 4 + A * 8; /* shown in screen order */
+        }
+
         color = texture(artifact_colors_texture, colorIndex/16.0 + .01f);
     })";
 
@@ -466,7 +564,6 @@ void initialize_screen_areas()
     }
 }
 
-
 void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool color, float x, float y)
 {
     if(color) {
@@ -498,6 +595,52 @@ void set_hires_shader(float to_screen[9], const opengl_texture& texture, bool co
         glUniformMatrix3fv(hires_to_screen_location, 1, GL_FALSE, to_screen);
         glUniform1f(hires_x_offset_location, x);
         glUniform1f(hires_y_offset_location, y);
+        CheckOpenGL(__FILE__, __LINE__);
+    }
+}
+
+void set_dhgr_shader(float to_screen[9], const opengl_texture& texture, const opengl_texture& aux_texture, bool color, float x, float y)
+{
+    if(color) {
+        glUseProgram(dhgrcolor_program);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(dhgrcolor_texture_location, 0);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, aux_texture);
+        glUniform1i(dhgrcolor_aux_texture_location, 1);
+
+        glUniform2f(dhgrcolor_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
+
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_1D, artifact_colors_texture);
+        glUniform1i(dhgrcolor_artifact_colors_texture_location, 2);
+        CheckOpenGL(__FILE__, __LINE__);
+
+        glUniformMatrix3fv(dhgrcolor_to_screen_location, 1, GL_FALSE, to_screen);
+        glUniform1f(dhgrcolor_x_offset_location, x);
+        glUniform1f(dhgrcolor_y_offset_location, y);
+        CheckOpenGL(__FILE__, __LINE__);
+
+    } else {
+
+        glUseProgram(dhgr_program);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(dhgr_texture_location, 0);
+
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, aux_texture);
+        glUniform1i(dhgr_aux_texture_location, 1);
+
+        glUniform2f(dhgr_texture_coord_scale_location, 1.0 / texture.w, 1.0 / texture.h);
+
+        glUniformMatrix3fv(dhgr_to_screen_location, 1, GL_FALSE, to_screen);
+        glUniform1f(dhgr_x_offset_location, x);
+        glUniform1f(dhgr_y_offset_location, y);
         CheckOpenGL(__FILE__, __LINE__);
     }
 }
@@ -562,7 +705,7 @@ void set_textport80_shader(float to_screen[9], const opengl_texture& textport80,
     CheckOpenGL(__FILE__, __LINE__);
 }
 
-void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, int display_page, bool vid80, int blink, float x, float y)
+void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, int display_page, bool vid80, bool dhgr, int blink, float x, float y)
 {
     if(mixed_mode || (display_mode == TEXT)) {
 
@@ -593,7 +736,11 @@ void set_shader(float to_screen[9], DisplayMode display_mode, bool mixed_mode, i
 
     } else if(display_mode == HIRES) {
 
-        set_hires_shader(to_screen, hires_texture[0][display_page], draw_using_color, x, y); // XXX should switch aux
+        if(dhgr) {
+            set_dhgr_shader(to_screen, hires_texture[0][display_page], hires_texture[1][0], draw_using_color, x, y);
+        } else {
+            set_hires_shader(to_screen, hires_texture[0][display_page], draw_using_color, x, y); // XXX should switch aux
+        }
 
     }
 }
@@ -625,7 +772,7 @@ struct apple2screen : public widget
         for(uint32_t i = 0; i < apple2_screen_height; i++) {
             const ModeSettings& settings = line_to_mode[i];
 
-            set_shader(to_screen, settings.mode, (i < 160) ? false : settings.mixed, settings.page, settings.vid80, (elapsed_millis / 300) % 2, x, y);
+            set_shader(to_screen, settings.mode, (i < 160) ? false : settings.mixed, settings.page, settings.vid80, settings.dhgr, (elapsed_millis / 300) % 2, x, y);
             CheckOpenGL(__FILE__, __LINE__);
 
             line_to_area[i].bind();
@@ -1077,6 +1224,30 @@ void initialize_gl(void)
     hirescolor_to_screen_location = glGetUniformLocation(hirescolor_program, "to_screen");
     hirescolor_x_offset_location = glGetUniformLocation(hirescolor_program, "x_offset");
     hirescolor_y_offset_location = glGetUniformLocation(hirescolor_program, "y_offset");
+
+    dhgr_program = GenerateProgram("dhgr", hires_vertex_shader, dhgr_fragment_shader);
+    glBindAttribLocation(dhgr_program, raster_coords_attrib, "vertex_coords");
+    assert(dhgr_program != 0);
+    dhgr_texture_location = glGetUniformLocation(dhgr_program, "dhgr_texture");
+    dhgr_aux_texture_location = glGetUniformLocation(dhgr_program, "dhgr_aux_texture");
+    dhgr_texture_coord_scale_location = glGetUniformLocation(dhgr_program, "dhgr_texture_coord_scale");
+    dhgr_to_screen_location = glGetUniformLocation(dhgr_program, "to_screen");
+    dhgr_x_offset_location = glGetUniformLocation(dhgr_program, "x_offset");
+    dhgr_y_offset_location = glGetUniformLocation(dhgr_program, "y_offset");
+
+    dhgrcolor_program = GenerateProgram("dhgrcolor", hires_vertex_shader, dhgrcolor_fragment_shader);
+    glBindAttribLocation(dhgrcolor_program, raster_coords_attrib, "vertex_coords");
+    assert(dhgrcolor_program != 0);
+    dhgrcolor_texture_location = glGetUniformLocation(dhgrcolor_program, "dhgr_texture");
+    dhgrcolor_aux_texture_location = glGetUniformLocation(dhgrcolor_program, "dhgr_aux_texture");
+    dhgrcolor_texture_coord_scale_location = glGetUniformLocation(dhgrcolor_program, "dhgr_texture_coord_scale");
+    dhgrcolor_artifact_colors_texture_location = glGetUniformLocation(dhgrcolor_program, "artifact_colors_texture");
+    dhgrcolor_to_screen_location = glGetUniformLocation(dhgrcolor_program, "to_screen");
+    dhgrcolor_x_offset_location = glGetUniformLocation(dhgrcolor_program, "x_offset");
+    dhgrcolor_y_offset_location = glGetUniformLocation(dhgrcolor_program, "y_offset");
+    assert(dhgrcolor_texture_location != -1);
+    assert(dhgrcolor_aux_texture_location != -1);
+    assert(dhgrcolor_artifact_colors_texture_location != -1);
 
     text_program = GenerateProgram("textport", text_vertex_shader, text_fragment_shader);
     glBindAttribLocation(text_program, raster_coords_attrib, "vertex_coords");
