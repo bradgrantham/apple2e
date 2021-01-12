@@ -1965,9 +1965,9 @@ void iterate(const ModeHistory& history, unsigned long long current_byte, float 
     glfwSwapBuffers(my_window);
     CheckOpenGL(__FILE__, __LINE__);
 
-    for(int i = 0; i < 16; i++)
-        if(glfwJoystickPresent(GLFW_JOYSTICK_1 + i))
-            printf("joy %d present\n", i);
+    // for(int i = 0; i < 16; i++)
+        // if(glfwJoystickPresent(GLFW_JOYSTICK_1 + i))
+            // printf("joy %d present\n", i);
 
     if(glfwJoystickPresent(GLFW_JOYSTICK_1)) {
         if(false) printf("joystick 1 present\n");
