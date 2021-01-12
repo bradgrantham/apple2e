@@ -1335,14 +1335,6 @@ struct MAINboard : board_base
     enabled_func read_from_main_hires1 = [&]{return !read_from_aux_hires1();};
     enabled_func write_to_main_hires1 = [&]{return !write_to_aux_hires1();};
 
- //STA $C057 ;TURN ON HIRES
- //STA $C05E ;TURN ON DHR ?
- //STA $C00D ;TURN ON 80 COLUMNS
- //STA $C001 ;TURN ON 80STORE
- //STA $C055 ;TURN ON PAGE2
- //LDA #$0E  ;LOAD 14
- //STA $2000 ;Put in first location on HIRES PAGE 1 in AUX RAM.
-
     backed_region hires_page1 = {"hires_page1", 0x2000, 0x2000, RAM, &regions, read_from_main_hires1, write_to_main_hires1};
     backed_region hires_page1x = {"hires_page1x", 0x2000, 0x2000, RAM, &regions, read_from_aux_hires1, write_to_aux_hires1};
     backed_region hires_page2 = {"hires_page2", 0x4000, 0x2000, RAM, &regions, read_from_main_ram, write_to_main_ram};
@@ -1707,7 +1699,7 @@ struct MAINboard : board_base
                 /* annunciators & DHGR enable */
                 int num = (addr - 0xC058) / 2;
                 bool set = addr & 1;
-                if(true /*debug & DEBUG_RW*/) printf("read %04X, %s annunciator %d\n", addr, set ? "set" : "clear", num);
+                if(debug & DEBUG_RW) printf("read %04X, %s annunciator %d\n", addr, set ? "set" : "clear", num);
                 AN[num] = set;
                 // Should also do something here if we are emulating something attached to AN{0,1,2,3}
                 data = 0;
@@ -1911,7 +1903,7 @@ struct MAINboard : board_base
                 /* annunciators & DHGR enable */
                 int num = (addr - 0xC058) / 2;
                 bool set = addr & 1;
-                if(true /*debug & DEBUG_RW*/) printf("write %04X, %s annunciator %d\n", addr, set ? "set" : "clear", num);
+                if(debug & DEBUG_RW) printf("write %04X, %s annunciator %d\n", addr, set ? "set" : "clear", num);
                 AN[num] = set;
                 // Should also do something here if we are emulating something attached to AN{0,1,2,3}
                 return true;
