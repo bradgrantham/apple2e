@@ -25,8 +25,11 @@
 
 #include <stdlib.h>
 #include <assert.h>
+#include <vector>
 
+#ifndef EMULATE_65C02
 #define EMULATE_65C02 1
+#endif /* EMULATE_65C02 */
 
 template<class CLK, class BUS>
 struct CPU6502
@@ -55,9 +58,11 @@ struct CPU6502
         INT,
     } exception;
 
+    std::vector<std::pair<uint16_t, uint8_t>> writes;
+
     void stack_push(uint8_t d)
     {
-        bus.write(0x100 + s--, d);
+        writes.push_back(std::make_pair(0x100 + s--, d));
     }
 
     uint8_t stack_pull()
@@ -96,7 +101,7 @@ struct CPU6502
 
     bool isset(uint8_t flag)
     {
-        return (p & flag) != 0;
+        return p & flag;
     }
 
     void set_flags(uint8_t flags, uint8_t v)
@@ -287,14 +292,14 @@ struct CPU6502
             case 0xC6: { // DEC zpg
                 uint8_t zpg = read_pc_inc();
                 set_flags(N | Z, m = bus.read(zpg) - 1);
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
             case 0xD6: { // DEC zpg, X
                 uint8_t zpg = (read_pc_inc() + x) % 0xFF;
                 set_flags(N | Z, m = bus.read(zpg) - 1);
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -303,7 +308,7 @@ struct CPU6502
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256 + x;
                 set_flags(N | Z, m = bus.read(addr) - 1);
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
@@ -312,7 +317,7 @@ struct CPU6502
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
                 set_flags(N | Z, m = bus.read(addr) - 1);
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
@@ -328,7 +333,7 @@ struct CPU6502
                 if((addr - x) / 256 != addr / 256)
                     clk.add_cpu_cycles(1);
                 set_flags(N | Z, m = bus.read(addr) + 1);
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
@@ -337,21 +342,21 @@ struct CPU6502
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
                 set_flags(N | Z, m = bus.read(addr) + 1);
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
             case 0xE6: { // INC zpg
                 uint8_t zpg = read_pc_inc();
                 set_flags(N | Z, m = bus.read(zpg) + 1);
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
             case 0xF6: { // INC zpg, X
                 uint8_t zpg = (read_pc_inc() + x) & 0xFF;
                 set_flags(N | Z, m = bus.read(zpg) + 1);
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -729,7 +734,7 @@ struct CPU6502
                     flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
                     flag_change(V, adc_overflow_d(bcd, m, carry));
                     set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
+                    a = bcd / 10 * 16 + bcd % 10 - (isset(C) ? 0xA0 : 0);
                 } else {
                     flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
                     flag_change(V, adc_overflow(a, m, carry));
@@ -752,7 +757,7 @@ struct CPU6502
                     flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
                     flag_change(V, adc_overflow_d(bcd, m, carry));
                     set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
+                    a = bcd / 10 * 16 + bcd % 10 - (isset(C) ? 0xA0 : 0);
                 } else {
                     flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
                     flag_change(V, adc_overflow(a, m, carry));
@@ -772,7 +777,7 @@ struct CPU6502
                     flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
                     flag_change(V, adc_overflow_d(bcd, m, carry));
                     set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
+                    a = bcd / 10 * 16 + bcd % 10 - (isset(C) ? 0xA0 : 0);
                 } else {
                     flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
                     flag_change(V, adc_overflow(a, m, carry));
@@ -790,7 +795,7 @@ struct CPU6502
                     flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
                     flag_change(V, adc_overflow_d(bcd, m, carry));
                     set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
+                    a = bcd / 10 * 16 + bcd % 10 - (isset(C) ? 0xA0 : 0);
                 } else {
                     flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
                     flag_change(V, adc_overflow(a, m, carry));
@@ -812,7 +817,7 @@ struct CPU6502
                     flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
                     flag_change(V, adc_overflow_d(bcd, m, carry));
                     set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
+                    a = bcd / 10 * 16 + bcd % 10 - (isset(C) ? 0xA0 : 0);
                 } else {
                     flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
                     flag_change(V, adc_overflow(a, m, carry));
@@ -834,7 +839,7 @@ struct CPU6502
                     flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
                     flag_change(V, adc_overflow_d(bcd, m, carry));
                     set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
+                    a = bcd / 10 * 16 + bcd % 10 - (isset(C) ? 0xA0 : 0);
                 } else {
                     flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
                     flag_change(V, adc_overflow(a, m, carry));
@@ -851,7 +856,7 @@ struct CPU6502
                     flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
                     flag_change(V, adc_overflow_d(bcd, m, carry));
                     set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
+                    a = bcd / 10 * 16 + bcd % 10 - (isset(C) ? 0xA0 : 0);
                 } else {
                     flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
                     flag_change(V, adc_overflow(a, m, carry));
@@ -865,7 +870,7 @@ struct CPU6502
                 m = bus.read(addr);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = m << 1);
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
@@ -874,7 +879,7 @@ struct CPU6502
                 m = bus.read(addr + x);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = m << 1);
-                bus.write(addr + x, m);
+                writes.push_back(std::make_pair(addr + x, m));
                 break;
             }
 
@@ -883,7 +888,7 @@ struct CPU6502
                 m = bus.read(zpg);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = m << 1);
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -909,7 +914,7 @@ struct CPU6502
                 m = bus.read(addr + x);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
-                bus.write(addr + x, m);
+                writes.push_back(std::make_pair(addr + x, m));
                 break;
             }
 
@@ -918,7 +923,7 @@ struct CPU6502
                 m = bus.read(zpg);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -927,7 +932,7 @@ struct CPU6502
                 m = bus.read(zpg & 0xFF);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -938,7 +943,7 @@ struct CPU6502
                 m = bus.read(addr);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = m >> 1);
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
@@ -1112,7 +1117,7 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = (c ? 0x80 : 0x00) | (m >> 1));
-                bus.write(addr + x, m);
+                writes.push_back(std::make_pair(addr + x, m));
                 break;
             }
 
@@ -1122,7 +1127,7 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = (c ? 0x01 : 0x00) | (m << 1));
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -1135,7 +1140,7 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = (c ? 0x01 : 0x00) | (m << 1));
-                bus.write(addr + x, m);
+                writes.push_back(std::make_pair(addr + x, m));
                 break;
             }
 
@@ -1161,7 +1166,7 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = (c ? 0x80 : 0x00) | (m >> 1));
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
@@ -1171,7 +1176,7 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = (c ? 0x80 : 0x00) | (m >> 1));
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -1181,7 +1186,7 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, m & 0x01);
                 set_flags(N | Z, m = (c ? 0x80 : 0x00) | (m >> 1));
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -1193,7 +1198,7 @@ struct CPU6502
                 bool c = isset(C);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = (c ? 0x01 : 0x00) | (m << 1));
-                bus.write(addr, m);
+                writes.push_back(std::make_pair(addr, m));
                 break;
             }
 
@@ -1204,7 +1209,7 @@ struct CPU6502
                 m = bus.read(zpg);
                 flag_change(C, m & 0x80);
                 set_flags(N | Z, m = (c ? 0x01 : 0x00) | (m << 1));
-                bus.write(zpg, m);
+                writes.push_back(std::make_pair(zpg, m));
                 break;
             }
 
@@ -1231,7 +1236,7 @@ struct CPU6502
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
-                bus.write(addr + x, a);
+                writes.push_back(std::make_pair(addr + x, a));
                 break;
             }
 
@@ -1239,7 +1244,7 @@ struct CPU6502
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
-                bus.write(addr + y, a);
+                writes.push_back(std::make_pair(addr + y, a));
                 break;
             }
 
@@ -1248,7 +1253,7 @@ struct CPU6502
                 uint8_t low = bus.read(zpg);
                 uint8_t high = bus.read((zpg + 1) & 0xFF);
                 uint16_t addr = low + high * 256 + y;
-                bus.write(addr, a);
+                writes.push_back(std::make_pair(addr, a));
                 break;
             }
 
@@ -1257,7 +1262,7 @@ struct CPU6502
                 uint8_t low = bus.read(zpg);
                 uint8_t high = bus.read((zpg + 1) & 0xFF);
                 uint16_t addr = low + high * 256;
-                bus.write(addr, a);
+                writes.push_back(std::make_pair(addr, a));
                 break;
             }
 
@@ -1265,7 +1270,7 @@ struct CPU6502
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
-                bus.write(addr, a);
+                writes.push_back(std::make_pair(addr, a));
                 break;
             }
 
@@ -1545,7 +1550,7 @@ struct CPU6502
 
             case 0x85: { // STA
                 uint8_t zpg = read_pc_inc();
-                bus.write(zpg, a);
+                writes.push_back(std::make_pair(zpg, a));
                 break;
             }
 
@@ -1580,26 +1585,26 @@ struct CPU6502
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
-                bus.write(addr, x);
+                writes.push_back(std::make_pair(addr, x));
                 break;
             }
 
             case 0x86: { // STX
                 uint8_t zpg = read_pc_inc();
-                bus.write(zpg, x);
+                writes.push_back(std::make_pair(zpg, x));
                 break;
             }
 
             case 0x96: { // STX zpg, Y
                 uint8_t zpg = read_pc_inc();
                 uint16_t addr = (zpg + y) & 0xFF;
-                bus.write(addr, x);
+                writes.push_back(std::make_pair(addr, x));
                 break;
             }
 
             case 0x84: { // STY
                 uint8_t zpg = read_pc_inc();
-                bus.write(zpg, y);
+                writes.push_back(std::make_pair(zpg, y));
                 break;
             }
 
@@ -1607,7 +1612,7 @@ struct CPU6502
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
-                bus.write(addr, y);
+                writes.push_back(std::make_pair(addr, y));
                 break;
             }
 
@@ -1620,6 +1625,26 @@ struct CPU6502
                 pc = addr;
                 break;
             }
+
+            case 0x75: { // ADC zpg, X
+                uint8_t zpg = read_pc_inc();
+                uint16_t addr = (zpg + x)& 0xFF;
+                m = bus.read(addr);
+                uint8_t carry = isset(C) ? 1 : 0;
+                if(isset(D)) {
+                    uint8_t bcd = a / 16 * 10 + a % 16;
+                    flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
+                    flag_change(V, adc_overflow_d(bcd, m, carry));
+                    set_flags(N | Z, bcd = bcd + m + carry);
+                    a = bcd / 10 * 16 + bcd % 10;
+                } else {
+                    flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
+                    flag_change(V, adc_overflow(a, m, carry));
+                    set_flags(N | Z, a = a + m + carry);
+                }
+                break;
+            }
+
 
 #if EMULATE_65C02
             // 65C02 instructions
@@ -1677,7 +1702,7 @@ struct CPU6502
 
             case 0x64: { // STZ zpg, 65C02
                 uint8_t zpg = read_pc_inc();
-                bus.write(zpg, 0);
+                writes.push_back(std::make_pair(zpg, 0));
                 break;
             }
 
@@ -1685,7 +1710,7 @@ struct CPU6502
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
-                bus.write(addr, 0x0);
+                writes.push_back(std::make_pair(addr, 0x0));
                 break;
             }
 
@@ -1708,7 +1733,7 @@ struct CPU6502
                 uint8_t low = bus.read(zpg);
                 uint8_t high = bus.read((zpg + 1) & 0xFF);
                 uint16_t addr = low + high * 256;
-                bus.write(addr, a);
+                writes.push_back(std::make_pair(addr, a));
                 break;
             }
 
@@ -1717,25 +1742,6 @@ struct CPU6502
                 uint8_t low = bus.read(zpg);
                 uint8_t high = bus.read((zpg + 1) & 0xFF);
                 uint16_t addr = low + high * 256;
-                m = bus.read(addr);
-                uint8_t carry = isset(C) ? 1 : 0;
-                if(isset(D)) {
-                    uint8_t bcd = a / 16 * 10 + a % 16;
-                    flag_change(C, ((uint16_t)bcd + (uint16_t)m + carry) > 99);
-                    flag_change(V, adc_overflow_d(bcd, m, carry));
-                    set_flags(N | Z, bcd = bcd + m + carry);
-                    a = bcd / 10 * 16 + bcd % 10;
-                } else {
-                    flag_change(C, ((uint16_t)a + (uint16_t)m + carry) > 0xFF);
-                    flag_change(V, adc_overflow(a, m, carry));
-                    set_flags(N | Z, a = a + m + carry);
-                }
-                break;
-            }
-
-            case 0x75: { // ADC zpg, X
-                uint8_t zpg = read_pc_inc();
-                uint16_t addr = (zpg + x)& 0xFF;
                 m = bus.read(addr);
                 uint8_t carry = isset(C) ? 1 : 0;
                 if(isset(D)) {
@@ -1783,39 +1789,39 @@ struct CPU6502
                 break;
             }
 
-            case 0x1C: { // TRB abs
+            case 0x1C: { // TRB abs, 65C02 instruction
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 set_flags(Z, m & a);
-                bus.write(addr, m & ~a);
+                writes.push_back(std::make_pair(addr, m & ~a));
                 break;
             }
 
-            case 0x14: { // TRB zpg
+            case 0x14: { // TRB zpg, 65C02 instruction
                 uint8_t zpgaddr = read_pc_inc();
                 m = bus.read(zpgaddr);
                 set_flags(Z, m & a);
-                bus.write(zpgaddr, m & ~a);
+                writes.push_back(std::make_pair(zpgaddr, m & ~a));
                 break;
             }
 
-            case 0x0C: { // TSB abs
+            case 0x0C: { // TSB abs, 65C02 instruction
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
                 m = bus.read(addr);
                 set_flags(Z, m & a);
-                bus.write(addr, m | a);
+                writes.push_back(std::make_pair(addr, m | a));
                 break;
             }
 
-            case 0x04: { // TRB zpg
+            case 0x04: { // TRB zpg, 65C02 instruction
                 uint8_t zpgaddr = read_pc_inc();
                 m = bus.read(zpgaddr);
                 set_flags(Z, m & a);
-                bus.write(zpgaddr, m | a);
+                writes.push_back(std::make_pair(zpgaddr, m | a));
                 break;
             }
 
@@ -1863,7 +1869,7 @@ struct CPU6502
                 break;
             }
 
-            case 0x7C: { // JMP (ind, X)
+            case 0x7C: { // JMP (ind, X), 65C02 instruction
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256 + x;
@@ -1884,11 +1890,20 @@ struct CPU6502
                 uint8_t low = read_pc_inc();
                 uint8_t high = read_pc_inc();
                 uint16_t addr = low + high * 256;
-                bus.write(addr + x, 0);
+                writes.push_back(std::make_pair(addr + x, 0));
                 break;
             }
 
-#endif // EMULATE_65C02
+#else /* ! EMULATE_65C02 */
+
+            case 0x04: { // NOP zpg
+                uint8_t zpgaddr = read_pc_inc();
+                m = bus.read(zpgaddr);
+                break;
+            }
+
+
+#endif /* EMULATE_65C02 */
 
             default:
                 printf("unhandled instruction %02X at %04X\n", inst, pc - 1);
@@ -1896,13 +1911,23 @@ struct CPU6502
                 exit(1);
         }
         assert(cycles[inst] > 0);
-        clk.add_cpu_cycles(cycles[inst]);
+        // Hack for putting writes near the end of the instruction to hopefully
+        // match real timing
+        clk.add_cpu_cycles(cycles[inst] - writes.size());
+        for(size_t i = 0; i < writes.size(); i++) {
+            const auto& write = writes[i];
+            clk.add_cpu_cycles(1);
+            bus.write(write.first, write.second);
+        }
+        writes.clear();
     }
 };
 
 template<class CLK, class BUS>
 const int32_t CPU6502<CLK, BUS>::cycles[256] =
 {
+#if EMULATE_65C02
+    /*         0  1  2  3  4  5  6  7  8  9  0  A  B  C  D  E  */
     /* 0x0- */ 7, 6, 2, 1, 5, 3, 5, 0, 3, 2, 2, 1, 6, 4, 6, 5,
     /* 0x1- */ 2, 5, 5, 1, 5, 4, 6, 0, 2, 4, 2, 1, 6, 4, 7, 5,
     /* 0x2- */ 6, 6, 2, 1, 3, 3, 5, 0, 4, 2, 2, 1, 4, 4, 6, 5,
@@ -1917,8 +1942,27 @@ const int32_t CPU6502<CLK, BUS>::cycles[256] =
     /* 0xB- */ 2, 5, 5, 1, 4, 4, 4, 0, 2, 4, 2, 1, 4, 4, 4, 5,
     /* 0xC- */ 2, 6, 2, 1, 3, 3, 5, 0, 2, 2, 2, 1, 4, 4, 3, 5,
     /* 0xD- */ 2, 5, 5, 1, 4, 4, 6, 0, 2, 4, 3, 1, 4, 4, 7, 5,
-    /* 0xE- */ 2, 6, 2, 1, 3, 3, 5, 0, 2, 2, 2, 1, 4, 4, 6, 5,
+    /* 0xE- */ 2, 6, 2, 1, 3, 3, 5, 0, 2, 2, 2, 2, 4, 4, 6, 5,
     /* 0xF- */ 2, 5, 0, 1, 4, 4, 6, 0, 2, 4, 4, 1, 4, 4, 7, 5,
+#else /* ! EMULATE_65C02 */
+    /*         0  1  2  3  4  5  6  7  8  9  0  A  B  C  D  E  */
+    /* 0x0- */ 7, 6, 2, 1, 3, 3, 5, 0, 3, 2, 2, 1, 6, 4, 6, 5,
+    /* 0x1- */ 2, 5, 5, 1, 5, 4, 6, 0, 2, 4, 2, 1, 6, 4, 7, 5,
+    /* 0x2- */ 6, 6, 2, 1, 3, 3, 5, 0, 4, 2, 2, 1, 4, 4, 6, 5,
+    /* 0x3- */ 2, 5, 0, 1, 0, 4, 6, 0, 2, 4, 2, 1, 0, 4, 7, 5,
+    /* 0x4- */ 6, 6, 2, 1, 3, 3, 5, 0, 3, 2, 2, 1, 3, 4, 6, 5,
+    /* 0x5- */ 2, 5, 0, 1, 4, 4, 6, 0, 2, 4, 3, 1, 8, 4, 7, 5,
+    /* 0x6- */ 6, 6, 2, 1, 3, 3, 5, 0, 4, 2, 2, 1, 5, 4, 6, 5,
+    /* 0x7- */ 2, 5, 5, 1, 0, 4, 6, 0, 2, 4, 4, 1, 6, 4, 7, 5,
+    /* 0x8- */ 2, 6, 2, 1, 3, 3, 3, 0, 2, 2, 2, 1, 4, 4, 4, 5,
+    /* 0x9- */ 2, 6, 5, 1, 4, 4, 4, 0, 2, 5, 2, 1, 4, 5, 5, 5,
+    /* 0xA- */ 2, 6, 2, 1, 3, 3, 3, 0, 2, 2, 2, 1, 4, 4, 4, 5,
+    /* 0xB- */ 2, 5, 5, 1, 4, 4, 4, 0, 2, 4, 2, 1, 4, 4, 4, 5,
+    /* 0xC- */ 2, 6, 2, 1, 3, 3, 5, 0, 2, 2, 2, 1, 4, 4, 3, 5,
+    /* 0xD- */ 2, 5, 5, 1, 4, 4, 6, 0, 2, 4, 3, 1, 4, 4, 7, 5,
+    /* 0xE- */ 2, 6, 2, 1, 3, 3, 5, 0, 2, 2, 2, 2, 4, 4, 6, 5,
+    /* 0xF- */ 2, 5, 0, 1, 4, 4, 6, 0, 2, 4, 4, 1, 4, 4, 7, 5,
+#endif /* EMULATE_65C02 */
 };
 
 #endif // CPU6502_H
