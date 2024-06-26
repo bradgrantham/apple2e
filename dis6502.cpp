@@ -10,6 +10,7 @@ tuple<int, string> disassemble_6502(int address, const unsigned char* buffer)
     static char cstr[512];
     int bytelength;
     char *p = cstr;
+    size_t remaining = sizeof(cstr) - 1;
 
     int currentbyte;
     int previousbyte;
@@ -67,8 +68,8 @@ tuple<int, string> disassemble_6502(int address, const unsigned char* buffer)
         previousbyte = currentbyte;
         currentbyte = ((unsigned char * ) buffer)[i];
         if (paramcount == 0) {
-            sprintf(p, "%04X   %n", address, &stored);                             //Display current address at beginning of line
-            p += stored;
+            snprintf(p, remaining, "%04X   %n", address, &stored);                             //Display current address at beginning of line
+            p += stored; remaining -= stored;
             paramcount = opcode_props[currentbyte][0];              //Get instruction length
             bytelength = paramcount;
             opcode = instruction[opcode_props[currentbyte][1]];     //Get opcode name
@@ -78,28 +79,29 @@ tuple<int, string> disassemble_6502(int address, const unsigned char* buffer)
             pad = padding[(paramcount - 1)];                        //Calculate correct padding for output alignment
             address = address + paramcount;                         //Increment address
         }
-        if (paramcount != 0)                                        //Keep track of possition within instruction
+        if (paramcount != 0) {                                        //Keep track of possition within instruction
             paramcount = paramcount - 1;
-        sprintf(p, "%02X %n", currentbyte, &stored);                               //Display the current byte in HEX
-        p += stored;
+        }
+        snprintf(p, remaining, "%02X %n", currentbyte, &stored);                               //Display the current byte in HEX
+        p += stored; remaining -= stored;
         if (paramcount == 0) {
-            sprintf(p, " %s %s %s%n", pad, opcode, pre, &stored);                  //Pad text, display instruction name and pre-operand chars
-            p += stored;
+            snprintf(p, remaining, " %s %s %s%n", pad, opcode, pre, &stored);                  //Pad text, display instruction name and pre-operand chars
+            p += stored; remaining -= stored;
             if (strcmp(pad, "   ") == 0) {                                     //Check if single operand instruction
                 if (addrmode != 8) {                                //If not using relative addressing ...
-                    sprintf(p, "$%02X%n", currentbyte, &stored);                   //...display operand
-                    p += stored;
+                    snprintf(p, remaining, "$%02X%n", currentbyte, &stored);                   //...display operand
+                    p += stored; remaining -= stored;
                 } else {                                            //Addressing mode is relative...
-                    sprintf(p, "$%02X%n", (address + ((currentbyte < 128) ? currentbyte : currentbyte - 256)), &stored); //...display relative address.
-                    p += stored;
+                    snprintf(p, remaining, "$%02X%n", (address + ((currentbyte < 128) ? currentbyte : currentbyte - 256)), &stored); //...display relative address.
+                    p += stored; remaining -= stored;
                 }
             }
             if (strcmp(pad, "") == 0) {                                          //Check if two operand instruction and if so...
-                sprintf(p, "$%02X%02X%n", currentbyte, previousbyte, &stored);     //...display operand
-                p += stored;
+                snprintf(p, remaining, "$%02X%02X%n", currentbyte, previousbyte, &stored);     //...display operand
+                p += stored; remaining -= stored;
             }
-            sprintf(p, "%s%n", post, &stored);                                   //Display post-operand chars
-            p += stored;
+            snprintf(p, remaining, "%s%n", post, &stored);                                   //Display post-operand chars
+            p += stored; remaining -= stored;
             break;
         }
     }
