@@ -1935,17 +1935,17 @@ void iterate(const ModeHistory& history, unsigned long long current_byte, float 
     {
         static char speed_cstr[10];
         if(megahertz >= 100000.0) {
-            sprintf(speed_cstr, "very fast");
+            snprintf(speed_cstr, sizeof(speed_cstr), "very fast");
         } else if(megahertz >= 10000.0) {
-            sprintf(speed_cstr, "%5.2f GHz", megahertz);
+            snprintf(speed_cstr, sizeof(speed_cstr), "%5.2f GHz", megahertz);
         } else if(megahertz >= 1000.0) {
-            sprintf(speed_cstr, "%5.3f GHz", megahertz);
+            snprintf(speed_cstr, sizeof(speed_cstr), "%5.3f GHz", megahertz);
         } else if(megahertz >= 100.0) {
-            sprintf(speed_cstr, "%5.1f MHz", megahertz);
+            snprintf(speed_cstr, sizeof(speed_cstr), "%5.1f MHz", megahertz);
         } else if(megahertz >= 10.0) {
-            sprintf(speed_cstr, "%5.2f MHz", megahertz);
+            snprintf(speed_cstr, sizeof(speed_cstr), "%5.2f MHz", megahertz);
         } else { 
-            sprintf(speed_cstr, "%5.3f MHz", megahertz);
+            snprintf(speed_cstr, sizeof(speed_cstr), "%5.3f MHz", megahertz);
         }
         speed_textbox->set_content(speed_cstr);
     }
